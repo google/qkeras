@@ -230,12 +230,21 @@ class quantized_bits(object):
     """Computes fixedpoint quantization of x."""
 
     unsigned_bits = self.bits - self.keep_negative
-    m = pow(2, unsigned_bits)
-    m_i = pow(2, self.integer)
-    p = x * m / m_i
-    xq = m_i * K.clip(
-        _round_through(p), self.keep_negative * (-m + self.symmetric),
-        m - 1) / m
+
+    # quantized_bits with "1" bit becomes a binary implementation.
+
+    if unsigned_bits > 0:
+      m = pow(2, unsigned_bits)
+      m_i = pow(2, self.integer)
+      p = x * m / m_i
+      xq = m_i * K.clip(
+          _round_through(p), self.keep_negative * (-m + self.symmetric),
+          m - 1) / m
+    else:
+      xq = K.sign(x)
+      xq += (1.0 - K.abs(xq))
+      if not self.keep_negative:
+        xq = (xq + 1.0) / 2.0
     return x + K.stop_gradient(-x + xq)
 
 
@@ -589,7 +598,12 @@ class QActivation(Layer):
 
     if not isinstance(activation, six.string_types):
       self.quantizer = activation
-      self.__name__ = self.quantizer.__name__
+      if hasattr(quantizer, "__name__"):
+        self.__name__ = activation.__name__
+      elif hasattr(quantizer, "name"):
+        self.__name__  = activation.name
+      elif hasattr(quantizer, "__class__"):
+        self.__name__ = activation.__class__.__name__
       return
 
     self.__name__ = activation
