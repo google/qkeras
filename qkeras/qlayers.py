@@ -560,8 +560,8 @@ class quantized_po2(object):  # pylint: disable=invalid-name
 
     log2 = np.log(2.0)
 
-    return x + K.stop_gradient(
-        -x + x_sign * K.pow(2.0, K.round(K.log(x_abs) / log2)))
+    return x + K.stop_gradient(-x + x_sign *
+                               K.pow(2.0, K.round(K.log(x_abs) / log2)))
 
 
 class quantized_relu_po2(object):  # pylint: disable=invalid-name
@@ -1021,7 +1021,8 @@ class QConv2D(Conv2D):
     # I will use them.
 
     if isinstance(self.kernel_quantizer, six.string_types):
-      self.kernel_quantizer_internal = safe_eval(self.kernel_quantizer)
+      self.kernel_quantizer_internal = safe_eval(
+          self.kernel_quantizer, globals())
     else:
       self.kernel_quantizer_internal = self.kernel_quantizer
 
@@ -1693,12 +1694,12 @@ def model_quantize(model,
 
     if isinstance(quantizer_config[layer_name], six.string_types):
       name = quantizer_config[layer_name]
-      custom_objects[name] = eval(name)
+      custom_objects[name] = safe_eval(name, globals())
 
     else:
       for name in quantizer_config[layer_name].keys():
         custom_objects[quantizer_config[layer_name][name]] = (
-            eval(quantizer_config[layer_name][name]))
+            safe_eval(quantizer_config[layer_name][name]), globals())
 
   for layer in layers:
     layer_config = layer["config"]

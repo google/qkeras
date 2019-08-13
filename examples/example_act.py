@@ -21,7 +21,12 @@ from __future__ import print_function
 
 import numpy as np
 import keras.backend as K
-from qkeras import *
+from qkeras import hard_sigmoid
+from qkeras import hard_tanh
+from qkeras import quantized_bits
+from qkeras import quantized_relu
+from qkeras import quantized_tanh
+from qkeras import smooth_sigmoid
 
 def main():
   np.random.seed(42)

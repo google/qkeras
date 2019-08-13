@@ -24,7 +24,7 @@ from keras.models import Model
 from keras.optimizers import Adam
 from keras.utils.np_utils import to_categorical
 from functools import partial
-from qkeras import *
+from qkeras import *   # pylint: disable=wildcard-import
 
 
 def create_model():
@@ -133,7 +133,10 @@ def create_model():
       name='block3_conv_down')([high, low])
 
   # Upsample
-  # x = UpSampling2D(size=(2, 2), data_format='channels_last', interpolation='nearest')(x)
+  x = UpSampling2D(
+      size=(2, 2), data_format="channels_last", interpolation="nearest")(
+          x)
+
   x = QConv2D(
       2, (2, 2),
       strides=(1, 1),
@@ -145,7 +148,7 @@ def create_model():
       name='conv_up')(
           x)
 
-  # x = Activation("softmax", name="softmax")(x)
+  x = Activation("softmax", name="softmax")(x)
   output = x
 
   model = Model(x_in, output, name='qoctave_network')

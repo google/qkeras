@@ -18,11 +18,11 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from pyparsing import Suppress
-from pyparsing import Group
-from pyparsing import Regex
-from pyparsing import Optional
 from pyparsing import delimitedList
+from pyparsing import Group
+from pyparsing import Optional
+from pyparsing import Regex
+from pyparsing import Suppress
 
 
 def Num(s):
@@ -45,10 +45,10 @@ def GetParams(s):
   _eq = Suppress("=")  # pylint: disable=invalid-name
 
   data = (_lparen + Optional(
-          delimitedList(
-              Group(Regex(r"[^=,)\s]+") + Optional(_eq + Regex(u"[^,)]*")))
-              )
-          ) + _rparen)
+      delimitedList(
+          Group(Regex(r"[^=,)\s]+") + Optional(_eq + Regex(u"[^,)]*")))
+          )
+      ) + _rparen)
 
   items = data.parseString(s).asList()
 
