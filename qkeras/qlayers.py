@@ -38,8 +38,6 @@ from __future__ import print_function
 
 import copy
 import json
-import re
-import six
 
 from keras import activations
 from keras import constraints
@@ -57,8 +55,12 @@ from keras.layers import InputSpec
 from keras.layers import Layer
 from keras.models import model_from_json
 from keras.utils import conv_utils
+
 import numpy as np
+import six
 import tensorflow as tf
+
+from .safe_eval import safe_eval
 
 #
 # Library of auxiliary functions
@@ -179,7 +181,7 @@ def _ceil_through(x):
 #
 
 
-class quantized_bits(object):
+class quantized_bits(object):  # pylint: disable=invalid-name
   """Quantizes the number to a number of bits.
 
   In general, we want to use a quantization function like:
@@ -248,7 +250,7 @@ class quantized_bits(object):
     return x + K.stop_gradient(-x + xq)
 
 
-class bernoulli(object):
+class bernoulli(object):  # pylint: disable=invalid-name
   """Computes a Bernoulli sample with probability sigmoid(x).
 
   This computation uses ST approximation.
@@ -284,7 +286,7 @@ class bernoulli(object):
     return x + K.stop_gradient(-x + self.alpha * (k_sign + 1.0) / 2.0)
 
 
-class stochastic_ternary(object):
+class stochastic_ternary(object):  # pylint: disable=invalid-name
   """Computes a stochastic activation function returning -alpha, 0 or +alpha.
 
   Computes straight-through approximation using random sampling to make
@@ -292,6 +294,7 @@ class stochastic_ternary(object):
 
   Attributes:
     x: tensor to perform sign opertion with stochastic sampling.
+    bits: number of bits to perform quantization.
     alpha: ternary is -alpha or +alpha.`
     threshold: (1-threshold) specifies the spread of the +1 and -1 values.
 
@@ -318,14 +321,14 @@ class stochastic_ternary(object):
     # to make it bigger when compared to the other
     # distributions.
 
-    p = _sigmoid(x / self.alpha)
+    p = _sigmoid(x / self.alpha)  # pylint: disable=invalid-name
 
-    T = self.threshold
+    T = self.threshold  # pylint: disable=invalid-name
 
     ones = K.ones_like(p)
     zeros = K.zeros_like(p)
 
-    T0 = np.clip(0.5 + T, 0.5, 1.0)
+    T0 = np.clip(0.5 + T, 0.5, 1.0)  # pylint: disable=invalid-name
 
     fm1 = tf.where(p <= (1 - T), ((1 - T) - p) / (1 - T), zeros)
     f0 = tf.where(p <= 0.5, 2 * p, 2 * (1 - p)) / T0
@@ -342,11 +345,12 @@ class stochastic_ternary(object):
         r <= c_fm1, -1 * ones, tf.where(r <= c_f0, zeros, ones)))
 
 
-class ternary(object):
+class ternary(object):  # pylint: disable=invalid-name
   """Computes an activation function returning -alpha, 0 or +alpha.
 
   Attributes:
     x: tensor to perform sign opertion with stochastic sampling.
+    bits: number of bits to perform quantization.
     alpha: ternary is -alpha or +alpha. Threshold is also scaled by alpha.
     threshold: threshold to apply "dropout" or dead band (0 value).
 
@@ -364,7 +368,7 @@ class ternary(object):
         K.abs(x) < self.threshold, K.zeros_like(x), K.sign(x)))
 
 
-class stochastic_binary(object):
+class stochastic_binary(object):  # pylint: disable=invalid-name
   """Computes a stochastic activation function returning -alpha or +alpha.
 
   Computes straight-through approximation using random sampling to make
@@ -373,6 +377,7 @@ class stochastic_binary(object):
   Attributes:
     x: tensor to perform sign opertion with stochastic sampling.
     alpha: binary is -alpha or +alpha.`
+    bits: number of bits to perform quantization.
 
   Returns:
     Computation of sign with stochastic sampling with straight through gradient.
@@ -392,7 +397,7 @@ class stochastic_binary(object):
     return x + K.stop_gradient(-x + self.alpha * k_sign)
 
 
-class binary(object):
+class binary(object):  # pylint: disable=invalid-name
   """Computes the sign(x) returning a value between -alpha and alpha.
 
   Although we cannot guarantee E[dL/dy] = E[dL/dx] if we do not use the
@@ -402,6 +407,7 @@ class binary(object):
 
   Attributes:
     x: tensor to perform sign_through.
+    bits: number of bits to perform quantization.
     use_01: if True, return {0,1} instead of {-1,+1}.
     alpha: binary is -alpha or +alpha.
 
@@ -424,7 +430,7 @@ class binary(object):
     return x + K.stop_gradient(-x + self.alpha * k_sign)
 
 
-class quantized_relu(object):
+class quantized_relu(object):  # pylint: disable=invalid-name
   """Computes a quantized relu to a number of bits.
 
   Modified from:
@@ -470,7 +476,7 @@ class quantized_relu(object):
     return xq
 
 
-class quantized_ulaw(object):
+class quantized_ulaw(object):  # pylint: disable=invalid-name
   """Computes a u-law quantization.
 
   Attributes:
@@ -501,7 +507,7 @@ class quantized_ulaw(object):
     return xq
 
 
-class quantized_tanh(object):
+class quantized_tanh(object):  # pylint: disable=invalid-name
   """Computes a quantized tanh to a number of bits.
 
   Modified from:
@@ -533,7 +539,7 @@ class quantized_tanh(object):
     return xq
 
 
-class quantized_po2(object):
+class quantized_po2(object):  # pylint: disable=invalid-name
   """Quantizes to the closest power of 2."""
 
   def __init__(self, bits=8, max_value=-1):
@@ -558,7 +564,7 @@ class quantized_po2(object):
         -x + x_sign * K.pow(2.0, K.round(K.log(x_abs) / log2)))
 
 
-class quantized_relu_po2(object):
+class quantized_relu_po2(object):  # pylint: disable=invalid-name
   """Quantizes to the closest power of 2."""
 
   def __init__(self, bits=8, max_value=-1):
@@ -598,55 +604,19 @@ class QActivation(Layer):
 
     if not isinstance(activation, six.string_types):
       self.quantizer = activation
-      if hasattr(quantizer, "__name__"):
-        self.__name__ = activation.__name__
-      elif hasattr(quantizer, "name"):
-        self.__name__  = activation.name
-      elif hasattr(quantizer, "__class__"):
-        self.__name__ = activation.__class__.__name__
+      if hasattr(self.quantizer, "__name__"):
+        self.__name__ = self.quantizer.__name__
+      elif hasattr(self.quantizer, "name"):
+        self.__name__ = self.quantizer.name
+      elif hasattr(self.quantizer, "__class__"):
+        self.__name__ = self.quantizer.__class__.__name__
       return
 
     self.__name__ = activation
-    param_list = []
 
-    if "(" in activation:
-      # mode is "quantized_bits(8,2)"
-      # we treat ("quantized_bits(8,2)") is the same as ("quantized_bits", 8, 2)
-
-      activation_list = activation.split("(")
-
-      param_list = [float(v) for v in re.findall(r"-?\d+", activation_list[1])]
-      activation = activation_list[0]
-
-    if activation == "hard_sigmoid":
-      self.quantizer = hard_sigmoid
-    if activation == "smooth_sigmoid":
-      self.quantizer = smooth_sigmoid
-    elif activation == "hard_tanh":
-      self.quantizer = hard_tanh
-    elif activation == "quantized_bits":
-      self.quantizer = quantized_bits(*param_list)
-    elif activation == "bernoulli":
-      self.quantizer = bernoulli(*param_list)
-    elif activation == "ternary":
-      self.quantizer = ternary(*param_list)
-    elif activation == "stochastic_ternary":
-      self.quantizer = stochastic_ternary(*param_list)
-    elif activation == "binary":
-      self.quantizer = binary(*param_list)
-    elif activation == "stochastic_binary":
-      self.quantizer = stochastic_binary(*param_list)
-    elif activation == "quantized_relu":
-      self.quantizer = quantized_relu(*param_list)
-    elif activation == "quantized_ulaw":
-      self.quantizer = quantized_ulaw(*param_list)
-    elif activation == "quantized_tanh":
-      self.quantizer = quantized_tanh(*param_list)
-    elif activation == "quantized_po2":
-      self.quantizer = quantized_po2(*param_list)
-    elif activation == "quantized_relu_po2":
-      self.quantizer = quantized_relu_po2(*param_list)
-    else:
+    try:
+      self.quantizer = safe_eval(activation, globals())
+    except KeyError:
       raise ValueError("invalid activation '{}'".format(activation))
 
   def call(self, inputs):
@@ -776,12 +746,13 @@ class QDense(Dense):
     # I will use them.
 
     if isinstance(self.kernel_quantizer, six.string_types):
-      self.kernel_quantizer_internal = eval(self.kernel_quantizer)
+      self.kernel_quantizer_internal = safe_eval(
+          self.kernel_quantizer, globals())
     else:
       self.kernel_quantizer_internal = self.kernel_quantizer
 
     if isinstance(self.bias_quantizer, six.string_types):
-      self.bias_quantizer_internal = eval(self.bias_quantizer)
+      self.bias_quantizer_internal = safe_eval(self.bias_quantizer, globals())
     else:
       self.bias_quantizer_internal = self.bias_quantizer
 
@@ -913,12 +884,13 @@ class QConv1D(Conv1D):
     # I will use them.
 
     if isinstance(self.kernel_quantizer, six.string_types):
-      self.kernel_quantizer_internal = eval(self.kernel_quantizer)
+      self.kernel_quantizer_internal = safe_eval(
+          self.kernel_quantizer, globals())
     else:
       self.kernel_quantizer_internal = self.kernel_quantizer
 
     if isinstance(self.bias_quantizer, six.string_types):
-      self.bias_quantizer_internal = eval(self.bias_quantizer)
+      self.bias_quantizer_internal = safe_eval(self.bias_quantizer, globals())
     else:
       self.bias_quantizer_internal = self.bias_quantizer
 
@@ -1049,12 +1021,12 @@ class QConv2D(Conv2D):
     # I will use them.
 
     if isinstance(self.kernel_quantizer, six.string_types):
-      self.kernel_quantizer_internal = eval(self.kernel_quantizer)
+      self.kernel_quantizer_internal = safe_eval(self.kernel_quantizer)
     else:
       self.kernel_quantizer_internal = self.kernel_quantizer
 
     if isinstance(self.bias_quantizer, six.string_types):
-      self.bias_quantizer_internal = eval(self.bias_quantizer)
+      self.bias_quantizer_internal = safe_eval(self.bias_quantizer, globals())
     else:
       self.bias_quantizer_internal = self.bias_quantizer
 
@@ -1212,12 +1184,13 @@ class QDepthwiseConv2D(Conv2D):
     # I will use them.
 
     if isinstance(self.depthwise_quantizer, six.string_types):
-      self.depthwise_quantizer_internal = eval(self.depthwise_quantizer)
+      self.depthwise_quantizer_internal = safe_eval(
+          self.depthwise_quantizer, globals())
     else:
       self.depthwise_quantizer_internal = self.depthwise_quantizer
 
     if isinstance(self.bias_quantizer, six.string_types):
-      self.bias_quantizer_internal = eval(self.bias_quantizer)
+      self.bias_quantizer_internal = safe_eval(self.bias_quantizer, globals())
     else:
       self.bias_quantizer_internal = self.bias_quantizer
 
@@ -1487,7 +1460,7 @@ def QSeparableConv2D(filters,
   return _call
 
 
-def QAveragePooling2D(
+def QAveragePooling2D(  # pylint: disable=invalid-name
     pool_size=(2, 2), strides=None, padding="valid", quantizer=None, **kwargs):
   """Computes the quantized version of AveragePooling2D."""
 
@@ -1757,7 +1730,7 @@ def model_quantize(model,
 
       if quantizer:
         layer_config["activation"] = quantizer
-        custom_objects[quantizer] = eval(quantizer)
+        custom_objects[quantizer] = safe_eval(quantizer, globals())
       else:
         quantize_activation(layer_config, custom_objects, activation_bits)
 
@@ -1786,7 +1759,7 @@ def model_quantize(model,
 
       if quantizer:
         layer_config["activation"] = quantizer
-        custom_objects[quantizer] = eval(quantizer)
+        custom_objects[quantizer] = safe_eval(quantizer, globals())
       else:
         quantize_activation(layer_config, custom_objects, activation_bits)
 
@@ -1814,7 +1787,7 @@ def model_quantize(model,
 
       if quantizer:
         layer_config["activation"] = quantizer
-        custom_objects[quantizer] = eval(quantizer)
+        custom_objects[quantizer] = safe_eval(quantizer, globals())
       else:
         quantize_activation(layer_config, custom_objects, activation_bits)
 
@@ -1834,7 +1807,7 @@ def model_quantize(model,
           quantizer = quantizer[layer_config["activation"]]
         if quantizer:
           layer_config["activation"] = quantizer
-          custom_objects[quantizer] = eval(quantizer)
+          custom_objects[quantizer] = safe_eval(quantizer, globals())
         else:
           quantize_activation(layer_config, custom_objects, activation_bits)
 
@@ -1848,7 +1821,7 @@ def model_quantize(model,
 
       if quantizer:
         layer_config["activation"] = quantizer
-        custom_objects[quantizer] = eval(quantizer)
+        custom_objects[quantizer] = safe_eval(quantizer, globals())
       else:
         quantize_activation(layer_config, custom_objects, activation_bits)
 

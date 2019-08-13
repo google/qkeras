@@ -14,19 +14,20 @@
 # limitations under the License.
 # ==============================================================================
 """Test layers from qlayers.py."""
+from keras import backend as K
+from keras.models import Input
+from keras.models import Model
+
 
 import numpy as np
 from numpy.testing import assert_allclose
-
 import pytest
-from keras import backend as K
-from keras.models import Model
-from keras.models import Input
+
 from qkeras import qlayers
 
 
 def qdense_util(layer_cls,
-                kwargs={},
+                kwargs=None,
                 input_data=None,
                 weight_data=None,
                 expected_output=None):
