@@ -29,7 +29,6 @@ from __future__ import division
 from __future__ import print_function
 
 from collections import defaultdict
-import operator
 
 from keras.layers import Activation
 from keras.layers import InputLayer
@@ -41,13 +40,14 @@ from .qlayers import QActivation
 from .qlayers import QAveragePooling2D
 from .qlayers import QConv1D
 from .qlayers import QConv2D
-from .qlayers import QSeparableConv2D
-from .qlayers import QDepthwiseConv2D
 from .qlayers import QDense
+from .qlayers import QDepthwiseConv2D
+from .qlayers import QSeparableConv2D
 from .qlayers import quantized_bits
 from .qlayers import quantized_relu
 from .qlayers import quantized_tanh
 from .qlayers import quantized_ulaw
+
 
 
 def analyze_accumulator(model, x, verbose=False):

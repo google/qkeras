@@ -18,15 +18,26 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
+import warnings
 import numpy as np
 import keras.backend as K
+
+from qkeras import binary
+from qkeras import bernoulli
 from qkeras import hard_sigmoid
 from qkeras import hard_tanh
 from qkeras import quantized_bits
 from qkeras import quantized_relu
 from qkeras import quantized_tanh
+from qkeras import quantized_po2
+from qkeras import quantized_relu_po2
+from qkeras import set_internal_sigmoid
 from qkeras import smooth_sigmoid
+from qkeras import smooth_tanh
+from qkeras import stochastic_binary
+from qkeras import stochastic_ternary
+from qkeras import ternary
+
 
 def main():
   np.random.seed(42)
@@ -102,6 +113,12 @@ def main():
   print("qr2_21 =", K.eval(quantized_relu_po2(2,1)(c)).astype(np.float16))
   print("qr2_22 =", K.eval(quantized_relu_po2(2,2)(c)).astype(np.float16))
   print("qr2_44 =", K.eval(quantized_relu_po2(4,1)(c)).astype(np.float16))
+  with warnings.catch_warnings(record=True) as w:
+    warnings.simplefilter("always")
+    print("q2_32_2 =", K.eval(quantized_relu_po2(32,2)(c)).astype(np.float16))
+    assert len(w) == 1
+    assert issubclass(w[-1].category, UserWarning)
+    print(str(w[-1].message))
 
 
 if __name__ == '__main__':

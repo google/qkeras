@@ -13,13 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Tests qcore model with po2."""
+"""Tests qlayers model with po2."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
-from collections import defaultdict
 
 import keras.backend as K
 from keras.datasets import mnist
@@ -31,7 +29,7 @@ from keras.optimizers import Adam
 from keras.utils.np_utils import to_categorical
 import numpy as np
 
-from qkeras import *
+from qkeras import *   # pylint: disable=wildcard-import
 
 np.random.seed(42)
 
@@ -39,7 +37,7 @@ NB_EPOCH = 5
 BATCH_SIZE = 64
 VERBOSE = 1
 NB_CLASSES = 10
-OPTIMIZER = Adam(lr=0.0001, decay=0.000025, amsgrad=True)
+OPTIMIZER = Adam(lr=0.0001, decay=0.000025)
 N_HIDDEN = 100
 VALIDATION_SPLIT = 0.1
 

@@ -28,9 +28,9 @@ from keras.optimizers import Adam
 from keras.utils.np_utils import to_categorical
 import numpy as np
 
+from qkeras.qkeras import print_qstats
 from qkeras.qkeras import QActivation
 from qkeras.qkeras import QDense
-from qkeras.qkeras import print_qstats
 from qkeras.qkeras import quantized_bits
 from qkeras.qkeras import ternary
 
@@ -52,7 +52,7 @@ def QDenseModel(weights_f, load_weights=False):
   x = x_in = Input((RESHAPED,), name="input")
   x = QActivation("quantized_relu(4)", name="act_i")(x)
   x = QDense(N_HIDDEN, kernel_quantizer=ternary(),
-             bias_quantizer=quantized_bits(4,0,1), name="dense0")(x)
+             bias_quantizer=quantized_bits(4, 0, 1), name="dense0")(x)
   x = QActivation("quantized_relu(2)", name="act0")(x)
   x = QDense(
       NB_CLASSES,

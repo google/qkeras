@@ -34,7 +34,7 @@ from keras.optimizers import SGD
 from keras.optimizers import TFOptimizer
 from keras.utils.np_utils import to_categorical
 
-from qkeras.qkeras import *
+from qkeras import *
 
 import numpy as np
 import tensorflow as tf
@@ -45,7 +45,7 @@ NB_EPOCH = 1
 BATCH_SIZE = 64
 VERBOSE = 1
 NB_CLASSES = 10
-OPTIMIZER = Adam(lr=0.0001, decay=0.000025, amsgrad=True)
+OPTIMIZER = Adam(lr=0.0001, decay=0.000025) #, amsgrad=True)
 N_HIDDEN = 100
 VALIDATION_SPLIT = 0.1
 
@@ -68,9 +68,6 @@ x_test = x_test[..., np.newaxis]
 
 x_train /= 255.0
 x_test /= 255.0
-
-x_test.tofile("x_test.bin")
-y_test.tofile("y_test.bin")
 
 print(x_train.shape[0], "train samples")
 print(x_test.shape[0], "test samples")
@@ -164,10 +161,8 @@ if train:
       all_weights.append(weights.flatten())
 
   all_weights = np.concatenate(all_weights).astype(np.float32)
-
   print(all_weights.size)
 
-  all_weights.tofile("weights.bin")
 
 for layer in model.layers:
   for w, weight in enumerate(layer.get_weights()):

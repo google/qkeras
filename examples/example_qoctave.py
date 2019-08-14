@@ -133,19 +133,17 @@ def create_model():
       name='block3_conv_down')([high, low])
 
   # Upsample
-  x = UpSampling2D(
-      size=(2, 2), data_format="channels_last", interpolation="nearest")(
-          x)
+  x = UpSampling2D(size=(2, 2), data_format="channels_last")(x)
 
   x = QConv2D(
       2, (2, 2),
       strides=(1, 1),
       kernel_initializer=kernel_initializer,
-      bias_initializer='ones',
+      bias_initializer="ones",
       kernel_quantizer=quantized_bits(4, 0, 1),
       bias_quantizer=quantized_bits(4, 0, 1),
-      padding='same',
-      name='conv_up')(
+      padding="same",
+      name="conv_up")(
           x)
 
   x = Activation("softmax", name="softmax")(x)

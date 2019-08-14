@@ -17,10 +17,10 @@
 
 # We use wildcard import for convenience at this moment, which will be later
 # refactored and removed.
-from .qlayers import *  # pylint: disable=wildcard-import
-from .qoctave import *  # pylint: disable=wildcard-import
 from .b2t import *  # pylint: disable=wildcard-import
 from .estimate import *  # pylint: disable=wildcard-import
+from .qlayers import *  # pylint: disable=wildcard-import
+from .qoctave import *  # pylint: disable=wildcard-import
 from .safe_eval import *  # pylint: disable=wildcard-import
 
 __version__ = "0.5.0"

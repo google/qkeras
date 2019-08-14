@@ -1,5 +1,7 @@
 # QKERAS
 
+Open source: [github.com/google/qkeras] (https://github.com/google/qkeras)
+
 QKeras is a quantization extension to Keras that provides drop-in
 replacement for some of the Keras layers, especially the ones that
 creates parameters and activation layers, and perform arithmetic
@@ -31,7 +33,7 @@ extensible, adding to it being "minimally intrusive" of Keras native
 functionality.
 
 In order to successfully quantize a model, users need to replace
-variable creating layers (Dense, Conv2D, etc) by their counter parts
+variable creating layers (Dense, Conv2D, etc) by their counterparts
 (QDense, QConv2D, etc), and any layers that perform math operations
 need to be quantized afterwards.
 
@@ -52,8 +54,6 @@ MobileNet SeparableConv2D implementation)
 
 - QAveragePooling2D (in fact, a AveragePooling2D stacked with a 
 QActivation layer for quantization of the result)
-
-- QBatchNormalization
 
 - QOctaveConv2D
 
@@ -119,7 +119,7 @@ functions. They draw a random number with uniform distribution from
 _hard_sigmoid of the input x, and result is based on the expected
 value of the activation function. Please refer to the papers if you
 want to understand the underlying theory, or the documentation in
-qkeras/qcore.py.
+qkeras/qlayers.py.
 
 The parameters “bits” specify the number of bits for the quantization,
 and “integer” specifies how many bits of “bits” are to the left of the
@@ -182,7 +182,9 @@ x = QActivation("quantized_bits(20,5)")(x)
 x = Activation("softmax")(x)
 ```
 
-The last QActivation is advisable if you want to compare results later on.
+The last QActivation is advisable if you want to compare results later on. 
+Please find more cases under the directory examples.
+
 
 
 ## Related Work
@@ -211,3 +213,4 @@ Portions of QKeras were derived from QNN.
 https://github.com/BertMoons/QuantizedNeuralNetworks-Keras-Tensorflow
 
 Copyright (c) 2017, Bert Moons where it applies
+

@@ -38,6 +38,7 @@ from __future__ import print_function
 
 import copy
 import json
+import warnings
 
 from keras import activations
 from keras import constraints
@@ -548,20 +549,23 @@ class quantized_po2(object):  # pylint: disable=invalid-name
 
   def __call__(self, x):
     non_sign_bits = self.bits - 1
-    min_value = 2**(-2**(non_sign_bits - 1))  # 0 is >> by one more than "bits"
-    max_value = 2**(2**(non_sign_bits - 1) - 1)
+    min_exp = -2**(non_sign_bits - 1)
+    max_exp = 2**(non_sign_bits - 1) - 1
+    eps = K.epsilon()
+    if min_exp < np.log2(eps):
+      warnings.warn(
+          "QKeras: min_exp in po2 quantizer is smaller than K.epsilon()")
 
     if self.max_value != -1:
-      max_value = self.max_value
+      max_exp = np.round(np.log2(self.max_value + eps))
 
     x_sign = K.sign(x)
-    x_sign += (1.0 - K.abs(x_sign)) * min_value
-    x_abs = K.clip(K.abs(x), min_value, max_value)
-
+    x_sign += (1.0 - K.abs(x_sign))
     log2 = np.log(2.0)
+    x_log2 = K.round(K.log(K.abs(x) + eps) / log2)
 
-    return x + K.stop_gradient(-x + x_sign *
-                               K.pow(2.0, K.round(K.log(x_abs) / log2)))
+    return x + K.stop_gradient(
+        -x + x_sign * K.pow(2.0, K.clip(x_log2, min_exp, max_exp)))
 
 
 class quantized_relu_po2(object):  # pylint: disable=invalid-name
@@ -573,19 +577,24 @@ class quantized_relu_po2(object):  # pylint: disable=invalid-name
 
   def __call__(self, x):
 
-    min_value = 2**(-2**(self.bits - 1))  # 0 is smallest power of two number
-    max_value = 2**(2**(self.bits - 1) - 1)
+    min_exp = -2**(self.bits - 1)
+    max_exp = 2**(self.bits - 1) - 1
 
-    if self.max_value != -1:
-      max_value = self.max_value
+    eps = K.epsilon()
 
-    x_clipped = K.clip(x, min_value, max_value)
+    if min_exp < np.log2(eps):
+      warnings.warn(
+          "QKeras: min_exp in relu_po2 quantizer is smaller than K.epsilon()")
 
     log2 = np.log(2.0)
 
-    return x + K.stop_gradient(-x +
-                               K.pow(2.0, K.round(K.log(x_clipped) / log2)))
+    if self.max_value != -1:
+      max_exp = np.round(np.log2(self.max_value + eps))
 
+    x_log2 = K.round(K.log(K.maximum(x, 0) + eps) / log2)
+    x_clipped = K.clip(x_log2, min_exp, max_exp)
+
+    return x + K.stop_gradient(-x + K.pow(2.0, x_clipped))
 
 #
 # Because it may be hard to get serialization from activation functions,
@@ -1318,7 +1327,7 @@ class QDepthwiseConv2D(Conv2D):
     return self.quantizers
 
 
-def QSeparableConv2D(filters,
+def QSeparableConv2D(filters,  # pylint: disable=invalid-name
                      kernel_size,
                      strides=(1, 1),
                      padding="valid",
@@ -1699,7 +1708,7 @@ def model_quantize(model,
     else:
       for name in quantizer_config[layer_name].keys():
         custom_objects[quantizer_config[layer_name][name]] = (
-            safe_eval(quantizer_config[layer_name][name]), globals())
+            safe_eval(quantizer_config[layer_name][name], globals()))
 
   for layer in layers:
     layer_config = layer["config"]
