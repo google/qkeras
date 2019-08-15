@@ -19,23 +19,35 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from distutils.core import setup
+import setuptools
 
-setup(
+with open("README.md", "r") as fh:
+  long_description = fh.read()
+
+setuptools.setup(
     name="QKeras",
     version="0.5.0",
     author="Claudionor N. Coelho",
     author_email="nunescoelho@google.com",
     maintainer="Hao Zhuang",
     maintainer_email="hzhuang@google.com",
-    packages=["qkeras"],
+    packages=setuptools.find_packages(),
     scripts=[],
     url="",
     license="LICENSE",
     description="Quantization package for Keras",
-    long_description=open("README.md").read(),
+    long_description=long_description,
     install_requires=[
         "keras >= 2.2.4",
+        "numpy==1.14.5",
+        "scipy==1.2.2",
+        "pyparser>=1.0",
+        "tensorflow>=1.14.0, <2.0",
+    ],
+    setup_requires=[
+        "pytest-runner",
+    ],
+    tests_require=[
+        "pytest>=4.6.5",
     ],
 )
-
