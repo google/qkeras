@@ -36,6 +36,7 @@ from keras.models import Model
 import numpy as np
 import tensorflow as tf
 
+
 from .qlayers import QActivation
 from .qlayers import QAveragePooling2D
 from .qlayers import QConv1D
