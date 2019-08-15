@@ -52,7 +52,7 @@ MobileNet SeparableConv2D implementation)
 
 - QActivation
 
-- QAveragePooling2D (in fact, a AveragePooling2D stacked with a 
+- QAveragePooling2D (in fact, an AveragePooling2D stacked with a 
 QActivation layer for quantization of the result)
 
 - QOctaveConv2D
@@ -169,16 +169,16 @@ x = QConv2D(18, (3, 3),
         bias_quantizer="ternary", name="first_conv2d")(x)
 x = QActivation("quantized_relu(3)")(x)
 x = QSeparableConv2D(32, (3, 3),
-        depthwise_quantizer=quantized_bits(4,0,1),
-        pointwise_quantizer=quantized_bits(3,0,1),
+        depthwise_quantizer=quantized_bits(4, 0, 1),
+        pointwise_quantizer=quantized_bits(3, 0, 1),
         bias_quantizer=quantized_bits(3),
-        depthwise_activation=quantized_tanh(6,2,1))(x)
-x = QActivation(“quantized_relu(3)”)(x)
+        depthwise_activation=quantized_tanh(6, 2, 1))(x)
+x = QActivation("quantized_relu(3)")(x)
 x = Flatten()(x)
 x = QDense(NB_CLASSES,
         kernel_quantizer=quantized_bits(3),
         bias_quantizer=quantized_bits(3))(x)
-x = QActivation("quantized_bits(20,5)")(x)
+x = QActivation("quantized_bits(20, 5)")(x)
 x = Activation("softmax")(x)
 ```
 
