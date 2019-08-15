@@ -48,6 +48,6 @@ setuptools.setup(
         "pytest-runner",
     ],
     tests_require=[
-        "pytest>=4.6.5",
+        "pytest==4.6.5",
     ],
 )

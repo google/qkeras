@@ -133,7 +133,7 @@ def test_qnetwork():
     for i, weights in enumerate(layer.get_weights()):
       input_size = np.prod(layer.input.shape.as_list()[1:])
       if input_size is None:
-        input_size = 576 * 10  # hack to avoid learning sizes
+        input_size = 576 * 10  # to avoid learning sizes
       shape = weights.shape
       assert input_size > 0, 'input size for {} {}'.format(layer.name, i)
       # he normal initialization with a scale factor of 2.0

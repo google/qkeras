@@ -1,6 +1,6 @@
 # QKERAS
 
-Open source: [github.com/google/qkeras] (https://github.com/google/qkeras)
+Open source: [github.com/google/qkeras](https://github.com/google/qkeras)
 
 QKeras is a quantization extension to Keras that provides drop-in
 replacement for some of the Keras layers, especially the ones that

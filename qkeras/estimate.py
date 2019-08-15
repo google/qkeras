@@ -49,9 +49,7 @@ from .qlayers import quantized_tanh
 from .qlayers import quantized_ulaw
 
 
-
 def analyze_accumulator(model, x, verbose=False):
-
   """Analyzes the distribution of weights to specify size of accumulators.
 
      Computes the maximum number of bits for the accumulator assuming the

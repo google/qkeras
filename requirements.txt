@@ -1,5 +1,6 @@
 keras>=2.2.4
-numpy>=1.16.4
+numpy>=1.14.5
+scipy==1.2.2
 pyparser>=1.0
 pytest>=4.6.5
 tensorflow>=1.14.0, < 2.0
