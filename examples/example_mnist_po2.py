@@ -86,11 +86,12 @@ x = QConv2D(
     bias_quantizer=quantized_po2(4, 1),
     name="conv2d_1_m")(
         x)
-x = QActivation("quantized_relu_po2(4,4)", name="act1_m")(x)
+x = QActivation("quantized_relu_po2(4,4,use_stochastic_rounding=True)",
+                name="act1_m")(x)
 x = QConv2D(
     64, (2, 2),
     strides=(2, 2),
-    kernel_quantizer=quantized_po2(4, 1),
+    kernel_quantizer=quantized_po2(4, 1, use_stochastic_rounding=True),
     bias_quantizer=quantized_po2(4, 1),
     name="conv2d_2_m")(
         x)

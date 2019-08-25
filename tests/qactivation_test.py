@@ -26,6 +26,8 @@ from qkeras import smooth_sigmoid
 from qkeras import quantized_bits
 from qkeras import quantized_relu
 from qkeras import ternary
+from qkeras import quantized_po2
+from qkeras import quantized_relu_po2
 
 
 def test_smooth_sigmoid():
@@ -190,6 +192,42 @@ def test_binary(use_01, alpha, test_values, expected_values):
   f = K.function([x], [binary(use_01, alpha)(x)])
   result = f([test_values])[0]
   assert_allclose(result, expected_values, rtol=1e-05)
+
+
+@pytest.mark.parametrize('test_values, expected_values',[
+    (np.array([[42.0] * 100000], dtype=K.floatx()), 42.0),
+    (np.array([[100.0] * 100000], dtype=K.floatx()), 100.0),
+    (np.array([[48.0] * 100000], dtype=K.floatx()), 48.0),
+    (np.array([[-141.0] * 100000], dtype=K.floatx()), -141.0),
+    (np.array([[-32.0] * 100000], dtype=K.floatx()), -42.0),
+    (np.array([[32.0] * 100000], dtype=K.floatx()), 32.0),
+    (np.array([[10031.0] * 100000], dtype=K.floatx()), 10031.0),
+    (np.array([[0.0] * 100000], dtype=K.floatx()), 0.0),
+])
+def test_stochastic_round_quantized_po2(test_values, expected_values):
+  np.random.seed(666)
+  x = K.placeholder(ndim=2)
+  f = K.function([x], [quantized_po2(use_stochastic_rounding=True)(x)])
+  res = f([test_values])[0]
+  res = np.average(res)
+  assert_allclose(res, expected_values, rtol=1e-01, atol=1e-6)
+
+
+@pytest.mark.parametrize('test_values, expected_values',[
+    (np.array([[42.0] * 100000], dtype=K.floatx()), 42.0),
+    (np.array([[-42.0] * 100000], dtype=K.floatx()), 0.0),
+    (np.array([[0.0] * 100000], dtype=K.floatx()), 0.0),
+    (np.array([[100.0] * 100000], dtype=K.floatx()), 100.0),
+    (np.array([[48.0] * 100000], dtype=K.floatx()), 48.0),
+])
+def test_stochastic_round_quantized_po2(test_values, expected_values):
+  np.random.seed(666)
+  x = K.placeholder(ndim=2)
+  f = K.function([x], [quantized_relu_po2(use_stochastic_rounding=True)(x)])
+  res = f([test_values])[0]
+  res = np.average(res)
+  assert_allclose(res, expected_values, rtol=1e-01, atol=1e-6)
+
 
 
 if __name__ == '__main__':

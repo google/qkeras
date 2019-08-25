@@ -114,23 +114,49 @@ def set_internal_sigmoid(mode):
 
 def binary_tanh(x):
   """Computes binary_tanh function that outputs -1 and 1."""
-
   return 2.0 * binary_sigmoid(x) - 1.0
 
 
 def hard_tanh(x):
   """Computes hard_tanh function that saturates between -1 and 1."""
-
   return 2.0 * hard_sigmoid(x) - 1.0
 
 
 def smooth_tanh(x):
   """Computes smooth_tanh function that saturates between -1 and 1."""
-
   return 2.0 * smooth_sigmoid(x) - 1.0
 
 
-def _round_through(x):
+def stochastic_round(x):
+  """Performs stochastic rounding to the first decimal point."""
+  s = K.sign(x)
+  s += (1.0 - K.abs(s)) * (2.0 * K.round(K.random_uniform(K.shape(x))) - 1.0)
+  t = tf.floor(x) - (s - 1.0) / 2.0
+  p = K.abs(x - t)
+  f = s * (K.sign(p - K.random_uniform(K.shape(p))) + 1.0) / 2.0
+  return t + f
+
+def stochastic_round_po2(x):
+  """Performs stochastic rounding for the power of two."""
+  y = K.abs(x)
+  eps = K.epsilon()
+  log2 = K.log(2.0)
+  x_log2 = K.round(K.log(y + eps) / log2)
+  sign = K.sign(x)
+  po2 = K.cast(K.pow(2.0, K.cast(x_log2, dtype="float32")), dtype="float32")
+  left_val = tf.where(po2 > y, x_log2 - 1, x_log2)
+  right_val = tf.where(po2 > y, x_log2, x_log2 + 1)
+  # sampling in [2**left_val, 2**right_val].
+  minval = 2 ** left_val
+  maxval = 2 ** right_val
+  val = K.random_uniform(K.shape(y), minval=minval, maxval=maxval)
+  # use y as a threshold to keep the probabliy [2**left_val, y, 2**right_val]
+  # so that the mean value of the sample should be y
+  x_po2 = tf.where(y < val, left_val, right_val)
+  return x_po2
+
+
+def _round_through(x, use_stochastic_rounding=False):
   """Rounds x but using straight through estimator.
 
   We use the trick from [Sergey Ioffe](http://stackoverflow.com/a/36480182).
@@ -148,12 +174,15 @@ def _round_through(x):
 
   Arguments:
     x: tensor to perform round operation with straight through gradient.
+    use_stochastic_rounding: if true, we perform stochastic rounding.
 
   Returns:
     Rounded tensor.
   """
-
-  return x + K.stop_gradient(-x + K.round(x))
+  if use_stochastic_rounding:
+    return x + K.stop_gradient(-x + stochastic_round(x))
+  else:
+    return x + K.stop_gradient(-x + K.round(x))
 
 
 def _sign_through(x):
@@ -218,16 +247,19 @@ class quantized_bits(object):  # pylint: disable=invalid-name
     symmetric: if true, we will have the same number of values for positive
       and negative numbers.
     keep_negative: if true, we do not clip negative numbers.
+    use_stochastic_rounding: if true, we perform stochastic rounding.
 
   Returns:
     Function that computes fixed-point quantization with bits.
   """
 
-  def __init__(self, bits=8, integer=0, symmetric=0, keep_negative=1):
+  def __init__(self, bits=8, integer=0, symmetric=0, keep_negative=1,
+               use_stochastic_rounding=False):
     self.bits = bits
     self.integer = integer
     self.symmetric = symmetric
     self.keep_negative = (keep_negative > 0)
+    self.use_stochastic_rounding = use_stochastic_rounding
 
   def __call__(self, x):
     """Computes fixedpoint quantization of x."""
@@ -241,8 +273,8 @@ class quantized_bits(object):  # pylint: disable=invalid-name
       m_i = pow(2, self.integer)
       p = x * m / m_i
       xq = m_i * K.clip(
-          _round_through(p), self.keep_negative * (-m + self.symmetric),
-          m - 1) / m
+          _round_through(p, self.use_stochastic_rounding),
+          self.keep_negative * (-m + self.symmetric), m - 1) / m
     else:
       xq = K.sign(x)
       xq += (1.0 - K.abs(xq))
@@ -354,19 +386,25 @@ class ternary(object):  # pylint: disable=invalid-name
     bits: number of bits to perform quantization.
     alpha: ternary is -alpha or +alpha. Threshold is also scaled by alpha.
     threshold: threshold to apply "dropout" or dead band (0 value).
+    use_stochastic_rounding: if true, we perform stochastic rounding.
 
   Returns:
     Computation of sign within the threshold.
   """
 
-  def __init__(self, alpha=1.0, threshold=0.33):
+  def __init__(self, alpha=1.0, threshold=0.33, use_stochastic_rounding=False):
     self.alpha = alpha
     self.bits = 2
     self.threshold = threshold
+    self.use_stochastic_rounding = use_stochastic_rounding
 
   def __call__(self, x):
-    return x + K.stop_gradient(-x + self.alpha * tf.where(
-        K.abs(x) < self.threshold, K.zeros_like(x), K.sign(x)))
+    if self.use_stochastic_rounding:
+      x = _round_through(
+          x, use_stochastic_rounding=self.use_stochastic_rounding)
+    return x + K.stop_gradient(
+        -x + self.alpha * tf.where(K.abs(x) < self.threshold,
+                                   K.zeros_like(x), K.sign(x)))
 
 
 class stochastic_binary(object):  # pylint: disable=invalid-name
@@ -411,21 +449,30 @@ class binary(object):  # pylint: disable=invalid-name
     bits: number of bits to perform quantization.
     use_01: if True, return {0,1} instead of {-1,+1}.
     alpha: binary is -alpha or +alpha.
+    use_stochastic_rounding: if true, we perform stochastic rounding.
 
   Returns:
     Computation of sign operation with straight through gradient.
   """
 
-  def __init__(self, use_01=False, alpha=1.0):
+  def __init__(self, use_01=False, alpha=1.0, use_stochastic_rounding=False):
     self.use_01 = use_01
     self.bits = 1
     self.alpha = alpha
+    self.use_stochastic_rounding = use_stochastic_rounding
 
   def __call__(self, x):
     assert self.alpha != 0
+    if self.use_stochastic_rounding:
+      x = self.alpha * _round_through(
+          x / self.alpha, use_stochastic_rounding=self.use_stochastic_rounding)
 
     k_sign = K.sign(x)
-    k_sign += (1.0 - K.abs(k_sign))
+    if self.use_stochastic_rounding:
+      k_sign += (1.0 - K.abs(k_sign)) * (
+          2.0 * K.round(K.random_uniform(K.shape(x))) - 1.0)
+    else:
+      k_sign += (1.0 - K.abs(k_sign))
     if self.use_01:
       k_sign = (k_sign + 1.0) / 2.0
     return x + K.stop_gradient(-x + self.alpha * k_sign)
@@ -454,15 +501,18 @@ class quantized_relu(object):  # pylint: disable=invalid-name
     bits: number of bits to perform quantization.
     integer: number of bits to the left of the decimal point.
     use_sigmoid: if true, we apply sigmoid to input to normalize it.
+    use_stochastic_rounding: if true, we perform stochastic rounding.
 
   Returns:
     Function that performs relu + quantization to bits >= 0.
   """
 
-  def __init__(self, bits=8, integer=0, use_sigmoid=0):
+  def __init__(self, bits=8, integer=0, use_sigmoid=0,
+               use_stochastic_rounding=False):
     self.bits = bits
     self.integer = integer
     self.use_sigmoid = use_sigmoid
+    self.use_stochastic_rounding = use_stochastic_rounding
 
   def __call__(self, x):
     m = pow(2, self.bits)
@@ -470,10 +520,14 @@ class quantized_relu(object):  # pylint: disable=invalid-name
 
     if self.use_sigmoid:
       p = _sigmoid(x / m_i) * m
-      xq = m_i * K.clip(2.0 * (_round_through(p) / m) - 1.0, 0.0, 1.0 - 1.0 / m)
+      xq = m_i * K.clip(
+          2.0 * (_round_through(p, self.use_stochastic_rounding) / m) - 1.0,
+          0.0, 1.0 - 1.0 / m)
     else:
       p = x * m / m_i
-      xq = m_i * K.clip(_round_through(p) / m, 0.0, 1.0 - 1.0 / m)
+      xq = m_i * K.clip(
+          _round_through(p, self.use_stochastic_rounding) / m,
+          0.0, 1.0 - 1.0 / m)
     return xq
 
 
@@ -519,33 +573,39 @@ class quantized_tanh(object):  # pylint: disable=invalid-name
     bits: number of bits to perform quantization.
     integer: number of bits to the left of the decimal point.
     symmetric: if true, we will have the same number of values for positive
-      and negative numbers.
+               and negative numbers.
+    use_stochastic_rounding: if true, we perform stochastic rounding.
 
   Returns:
     Function that performs tanh + quantization to bits in the range -1.0 to 1.0.
   """
 
-  def __init__(self, bits=8, integer=0, symmetric=0):
+  def __init__(self, bits=8, integer=0, symmetric=0,
+               use_stochastic_rounding=False):
     self.bits = bits
     self.integer = integer
     self.symmetric = symmetric
+    self.use_stochastic_rounding = use_stochastic_rounding
 
   def __call__(self, x):
     non_sign_bits = self.bits - 1
     m = pow(2, non_sign_bits)
     m_i = pow(2, self.integer)
     p = _sigmoid(x / m_i) * m
-    xq = m_i * K.clip(2.0 * (_round_through(p) / m) - 1.0, -1.0 +
-                      (1.0 * self.symmetric) / m, 1.0 - 1.0 / m)
+    xq = m_i * K.clip(
+        2.0 * (_round_through(p, self.use_stochastic_rounding) / m) - 1.0,
+        -1.0 + (1.0 * self.symmetric) / m, 1.0 - 1.0 / m)
     return xq
 
 
 class quantized_po2(object):  # pylint: disable=invalid-name
   """Quantizes to the closest power of 2."""
 
-  def __init__(self, bits=8, max_value=-1):
+  def __init__(self, bits=8, max_value=-1, use_stochastic_rounding=False):
     self.bits = bits
     self.max_value = max_value
+    self.use_stochastic_rounding = use_stochastic_rounding
+
 
   def __call__(self, x):
     non_sign_bits = self.bits - 1
@@ -562,8 +622,11 @@ class quantized_po2(object):  # pylint: disable=invalid-name
     x_sign = K.sign(x)
     x_sign += (1.0 - K.abs(x_sign))
     log2 = np.log(2.0)
-    x_log2 = K.round(K.log(K.abs(x) + eps) / log2)
 
+    if self.use_stochastic_rounding:
+      x_log2 = stochastic_round_po2(x)
+    else:
+      x_log2 = _round_through(K.log(K.abs(x) + eps) / log2)
     return x + K.stop_gradient(
         -x + x_sign * K.pow(2.0, K.clip(x_log2, min_exp, max_exp)))
 
@@ -571,9 +634,10 @@ class quantized_po2(object):  # pylint: disable=invalid-name
 class quantized_relu_po2(object):  # pylint: disable=invalid-name
   """Quantizes to the closest power of 2."""
 
-  def __init__(self, bits=8, max_value=-1):
+  def __init__(self, bits=8, max_value=-1, use_stochastic_rounding=False):
     self.bits = bits
     self.max_value = max_value
+    self.use_stochastic_rounding = use_stochastic_rounding
 
   def __call__(self, x):
 
@@ -591,9 +655,12 @@ class quantized_relu_po2(object):  # pylint: disable=invalid-name
     if self.max_value != -1:
       max_exp = np.round(np.log2(self.max_value + eps))
 
-    x_log2 = K.round(K.log(K.maximum(x, 0) + eps) / log2)
+    x = K.maximum(x, 0)
+    if self.use_stochastic_rounding:
+      x_log2 = stochastic_round_po2(x)
+    else:
+      x_log2 = _round_through(K.log(K.abs(x) + eps) / log2)
     x_clipped = K.clip(x_log2, min_exp, max_exp)
-
     return x + K.stop_gradient(-x + K.pow(2.0, x_clipped))
 
 #

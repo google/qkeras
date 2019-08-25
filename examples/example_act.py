@@ -39,7 +39,23 @@ from qkeras import ternary
 
 
 def main():
+  # check the mean value of samples from stochastic_rounding for po2
   np.random.seed(42)
+  count = 100000
+  val = 42
+  a = K.constant([val] * count)
+  b = quantized_po2(use_stochastic_rounding=True)(a)
+  res = np.sum(K.eval(b)) / count
+  print(res, "should be closed to ", val)
+  b = quantized_relu_po2(use_stochastic_rounding=True)(a)
+  res = np.sum(K.eval(b)) / count
+  print(res, "should be closed to ", val)
+  a = K.constant([-1] * count)
+  b = quantized_relu_po2(use_stochastic_rounding=True)(a)
+  res = np.sum(K.eval(b)) / count
+  print(res, "should be closed to ", 0)
+
+  # non-stochastic rounding quantizer.
   a = K.constant([-3.0, -2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0, 3.0])
   a = K.constant([0.194336])
   print(" a =", K.eval(a).astype(np.float16))
@@ -67,11 +83,6 @@ def main():
       np.sum(t.astype(np.float32), axis=0).astype(np.float16) /
       1000.0, 2).astype(np.float16))
   print("  ternary =", K.eval(ternary(threshold=0.5)(c)).astype(np.int32))
-  b = K.eval(stochastic_binary()(c_1000)).astype(np.int32)
-  for i in range(5):
-    print("sbinary({}) =".format(i), b[i])
-  print("sbinary =", np.round(np.sum(b, axis=0) / 1000.0, 2).astype(np.float16))
-  print(" binary =", K.eval(binary()(c)).astype(np.int32))
   c = K.constant(np.arange(-1.5, 1.51, 0.3))
   print(" c =", K.eval(c).astype(np.float16))
   print(" b_10 =", K.eval(binary(1)(c)).astype(np.float16))
@@ -112,12 +123,27 @@ def main():
   print("qr2_21 =", K.eval(quantized_relu_po2(2,1)(c)).astype(np.float16))
   print("qr2_22 =", K.eval(quantized_relu_po2(2,2)(c)).astype(np.float16))
   print("qr2_44 =", K.eval(quantized_relu_po2(4,1)(c)).astype(np.float16))
-  with warnings.catch_warnings(record=True) as w:
-    warnings.simplefilter("always")
-    print("q2_32_2 =", K.eval(quantized_relu_po2(32,2)(c)).astype(np.float16))
-    assert len(w) == 1
-    assert issubclass(w[-1].category, UserWarning)
-    print(str(w[-1].message))
+
+  # stochastic rounding
+  c = K.constant(np.arange(-1.5, 1.51, 0.3))
+  print("q2_32_2 =", K.eval(quantized_relu_po2(32,2)(c)).astype(np.float16))
+  b = K.eval(stochastic_binary()(c_1000)).astype(np.int32)
+  for i in range(5):
+    print("sbinary({}) =".format(i), b[i])
+  print("sbinary =", np.round(np.sum(b, axis=0) / 1000.0, 2).astype(np.float16))
+  print(" binary =", K.eval(binary()(c)).astype(np.int32))
+  print(" c      =", K.eval(c).astype(np.float16))
+  for i in range(10):
+    print(" s_bin({}) =".format(i),
+          K.eval(binary(use_stochastic_rounding=1)(c)).astype(np.int32))
+  for i in range(10):
+    print(" s_po2({}) =".format(i),
+          K.eval(quantized_po2(use_stochastic_rounding=1)(c)).astype(np.int32))
+  for i in range(10):
+    print(
+        " s_relu_po2({}) =".format(i),
+        K.eval(quantized_relu_po2(use_stochastic_rounding=1)(c)).astype(
+            np.int32))
 
 
 if __name__ == '__main__':
