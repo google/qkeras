@@ -43,6 +43,7 @@ setuptools.setup(
         "scipy==1.2.2",
         "pyparser>=1.0",
         "tensorflow>=1.14.0, <2.0",
+        "setuptools>=41.0.0",
     ],
     setup_requires=[
         "pytest-runner",
