@@ -45,14 +45,10 @@ NB_EPOCH = 1
 BATCH_SIZE = 64
 VERBOSE = 1
 NB_CLASSES = 10
-OPTIMIZER = Adam(lr=0.0001, decay=0.000025) #, amsgrad=True)
-N_HIDDEN = 100
+OPTIMIZER = Adam(lr=0.0001, decay=0.000025)
 VALIDATION_SPLIT = 0.1
 
 train = 0
-
-QUANTIZED=1
-CONV2D = 1
 
 (x_train, y_train), (x_test, y_test) = mnist.load_data()
 
@@ -76,8 +72,6 @@ print(y_train[0:10])
 
 y_train = to_categorical(y_train, NB_CLASSES)
 y_test = to_categorical(y_test, NB_CLASSES)
-
-# we ran out of memory here, so we split x_train/x_test into smaller groups
 
 x = x_in = Input(
     x_train.shape[1:-1] + (1,), name="input")
