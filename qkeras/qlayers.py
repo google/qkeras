@@ -1621,7 +1621,7 @@ def model_save_quantized_weights(model, filename=None):
         if quantizer:
           if isinstance(quantizer, six.string_types):
             q_name = quantizer
-          if hasattr(quantizer, "__name__"):
+          elif hasattr(quantizer, "__name__"):
             q_name = quantizer.__name__
           elif hasattr(quantizer, "name"):
             q_name = quantizer.name
