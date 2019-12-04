@@ -933,7 +933,6 @@ class QConv1D(Conv1D):
                kernel_size,
                strides=1,
                padding="valid",
-               data_format="channels_last",
                dilation_rate=1,
                activation=None,
                use_bias=True,
@@ -985,7 +984,6 @@ class QConv1D(Conv1D):
         kernel_size=kernel_size,
         strides=strides,
         padding=padding,
-        data_format=data_format,
         dilation_rate=dilation_rate,
         activation=activation,
         use_bias=use_bias,
@@ -1010,10 +1008,10 @@ class QConv1D(Conv1D):
     outputs = K.conv1d(
         inputs,
         quantized_kernel,
-        strides=self.strides,
+        strides=self.strides[0],
         padding=self.padding,
         data_format=self.data_format,
-        dilation_rate=self.dilation_rate)
+        dilation_rate=self.dilation_rate[0])
 
     if self.use_bias:
       if self.bias_quantizer:

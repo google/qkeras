@@ -38,12 +38,12 @@ setuptools.setup(
     description="Quantization package for Keras",
     long_description=long_description,
     install_requires=[
-        "keras >= 2.2.4",
-        "numpy==1.14.5",
-        "scipy==1.2.2",
+        "keras>=2.2.4",
+        "numpy>=1.14.5,<1.17",
         "pyparser>=1.0",
-        "tensorflow>=1.14.0, <2.0",
+        "scipy>=1.2.2,<1.3",
         "setuptools>=41.0.0",
+        "tensorflow>=1.14.0,<2.0",
     ],
     setup_requires=[
         "pytest-runner",

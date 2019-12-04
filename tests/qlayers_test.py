@@ -20,6 +20,7 @@ import numpy as np
 from qkeras import binary
 from qkeras import model_save_quantized_weights
 from qkeras import QActivation
+from qkeras import QConv1D
 from qkeras import QConv2D
 from qkeras import QDense
 from qkeras import QSeparableConv2D
@@ -188,6 +189,45 @@ def test_qnetwork():
   inputs = 2 * np.random.rand(10, 28, 28, 1)
   p = model.predict(inputs).astype(np.float16)
   assert np.all(p == y)
+
+
+def test_qconv1d():
+  np.random.seed(33)
+  x = Input((4, 4,))
+  y = QConv1D(
+      2, 1,
+      kernel_quantizer=quantized_bits(6, 2, 1),
+      bias_quantizer=quantized_bits(4, 0, 1),
+      name='qconv1d')(
+          x)
+  model = Model(inputs=x, outputs=y)
+
+  for layer in model.layers:
+    all_weights = []
+    for i, weights in enumerate(layer.get_weights()):
+      input_size = np.prod(layer.input.shape.as_list()[1:])
+      if input_size is None:
+        input_size = 10 * 10
+      shape = weights.shape
+      assert input_size > 0, 'input size for {} {}'.format(layer.name, i)
+      all_weights.append(
+          10.0 * np.random.normal(0.0, np.sqrt(2.0 / input_size), shape))
+    if all_weights:
+      layer.set_weights(all_weights)
+
+  # apply quantizer to weights
+  model_save_quantized_weights(model)
+
+  inputs = np.random.rand(2, 4, 4)
+  p = model.predict(inputs).astype(np.float16)
+
+  y = np.array([[[0.1309, -1.229], [-0.4165, -2.639], [-0.08105, -2.299],
+                 [1.981, -2.195]],
+                [[-0.3174, -3.94], [-0.3352, -2.316], [0.105, -0.833],
+                 [0.2115, -2.89]]]).astype(np.float16)
+
+  assert np.all(p == y)
+
 
 if __name__ == '__main__':
   pytest.main([__file__])
