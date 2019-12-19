@@ -19,9 +19,10 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import io
 import setuptools
 
-with open("README.md", "r") as fh:
+with io.open("README.md", "r", encoding="utf8") as fh:
   long_description = fh.read()
 
 setuptools.setup(

@@ -124,8 +124,8 @@ value of the activation function. Please refer to the papers if you
 want to understand the underlying theory, or the documentation in
 qkeras/qlayers.py.
 
-The parameters “bits” specify the number of bits for the quantization,
-and “integer” specifies how many bits of “bits” are to the left of the
+The parameters "bits" specify the number of bits for the quantization,
+and "integer" specifies how many bits of "bits" are to the left of the
 decimal point. Finally, our experience in training networks with
 QSeparableConv2D, both quantized_bits and quantized_tanh that
 generates values between [-1, 1), required symmetric versions of the
@@ -194,9 +194,9 @@ Please find more cases under the directory examples.
 
 QKeras has been implemented based on the work of "B.Moons et al. -
 Minimum Energy Quantized Neural Networks", Asilomar Conference on
-Signals, Systems and Computers, 2017 and “Zhou, S. et al. -
+Signals, Systems and Computers, 2017 and "Zhou, S. et al. -
 DoReFa-Net: Training Low Bitwidth Convolutional Neural Networks with
-Low Bitwidth Gradients,” but the framework should be easily
+Low Bitwidth Gradients," but the framework should be easily
 extensible. The original code from QNN can be found below.
 
 https://github.com/BertMoons/QuantizedNeuralNetworks-Keras-Tensorflow
