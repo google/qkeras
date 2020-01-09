@@ -37,7 +37,7 @@ from keras.utils.np_utils import to_categorical
 from qkeras import *
 
 import numpy as np
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 np.random.seed(42)
 
