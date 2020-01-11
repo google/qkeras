@@ -59,7 +59,7 @@ from keras.utils import conv_utils
 
 import numpy as np
 import six
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 from .safe_eval import safe_eval
 
