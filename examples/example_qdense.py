@@ -20,19 +20,19 @@ from __future__ import print_function
 
 import argparse
 
-from keras.datasets import mnist
-from keras.layers import Activation
-from keras.layers import Input
-from keras.models import Model
-from keras.optimizers import Adam
-from keras.utils.np_utils import to_categorical
+from tensorflow.keras.datasets import mnist
+from tensorflow.keras.layers import Activation
+from tensorflow.keras.layers import Input
+from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.utils import to_categorical
 import numpy as np
 
-from qkeras.qkeras import print_qstats
-from qkeras.qkeras import QActivation
-from qkeras.qkeras import QDense
-from qkeras.qkeras import quantized_bits
-from qkeras.qkeras import ternary
+from qkeras import print_qstats
+from qkeras import QActivation
+from qkeras import QDense
+from qkeras import quantized_bits
+from qkeras import ternary
 
 
 np.random.seed(42)

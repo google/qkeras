@@ -30,12 +30,12 @@ from __future__ import print_function
 
 from collections import defaultdict
 
-from keras.layers import Activation
-from keras.layers import InputLayer
-from keras.models import Model
 import numpy as np
 import tensorflow.compat.v1 as tf
 
+from tensorflow.keras.layers import Activation
+from tensorflow.keras.layers import InputLayer
+from tensorflow.keras.models import Model
 
 from .qlayers import QActivation
 from .qlayers import QAveragePooling2D
@@ -290,8 +290,9 @@ def get_operation_type(layer, output_cache):
 
     # for the input, get tensor input and search the cache that associates
     # the quantizer with a tensor
-    if output_cache.get(layer.input, None) is not None:
-      x_mode, x_bits, x_sign = get_quant_mode(output_cache.get(layer.input))
+    if output_cache.get(layer.input.experimental_ref(), None) is not None:
+      x_mode, x_bits, x_sign = get_quant_mode(
+          output_cache.get(layer.input.experimental_ref()))
     else:
       print("cannot determine presently model for {}".format(layer.name))
       return "null", (w_mode, -1), (w_bits, -1), (w_sign, -1)
@@ -310,23 +311,28 @@ def create_activation_cache(model):
   # cache graph tensors' activations
 
   for l in model.layers:
-    output_cache[l.output] = l
+    output_cache[l.output.experimental_ref()] = l
     if isinstance(l, QActivation):
-      output_cache[l.output] = l.quantizer
+      output_cache[l.output.experimental_ref()] = l.quantizer
     elif isinstance(l, InputLayer):
-      output_cache[l.output] = quantized_relu(8, 0)
-    elif l.__class__.__name__ in ["QDense", "QConv2D", "QConv1D",
-                                  "QDepthwiseConv2D"]:
-      output_cache[l.output] = l.activation
+      # assume the input is 8-bit positive value
+      output_cache[l.output.experimental_ref()] = quantized_relu(8, 0)
+    elif l.__class__.__name__ in [
+        "QDense", "QConv2D", "QConv1D", "QDepthwiseConv2D"
+    ]:
+      output_cache[l.output.experimental_ref()] = l.activation
     else:
       if isinstance(l.input, list):
         # right now, we just get the first one - we assume this is the leading
         # one.
-        all_q = [output_cache.get(l.input[i]) for i in range(len(l.input))]
+        all_q = [
+            output_cache.get(l.input[i].experimental_ref())
+            for i in range(len(l.input))
+        ]
         q = all_q[0]
       else:
-        q = output_cache.get(l.input, None)
-      output_cache[l.output] = q
+        q = output_cache.get(l.input.experimental_ref(), None)
+      output_cache[l.output.experimental_ref()] = q
       if q is None:
         raise ValueError("Unknown operation in {}".format(l.name))
 
@@ -342,12 +348,19 @@ def extract_model_operations(model):
   operations = {}
 
   for layer in model.layers:
+
+    if layer.__class__.__name__ == "InputLayer":
+      continue
+
     if isinstance(layer.input, list):
       input_shape = [
-          cache_o.get(layer.input[i], layer.input[i].get_shape())
-          for i in range(len(layer.input))]
+          cache_o.get(layer.input[i].experimental_ref(),
+                      layer.input[i].get_shape())
+          for i in range(len(layer.input))
+      ]
     else:
-      input_shape = cache_o.get(layer.input, layer.input.get_shape())
+      input_shape = cache_o.get(layer.input.experimental_ref(),
+                                layer.input.get_shape())
 
     # Check if the inputs are a list of Dimensions
     if isinstance(input_shape, list):
@@ -360,7 +373,8 @@ def extract_model_operations(model):
           input_shape[i] = tuple(shape)
 
     output_shape = layer.compute_output_shape(input_shape)
-    cache_o[layer.output] = output_shape
+
+    cache_o[layer.output.experimental_ref()] = output_shape
 
     if layer.__class__.__name__ not in ["QDense", "QConv2D", "QConv1D",
                                         "QDepthwiseConv2D"]:
@@ -374,10 +388,21 @@ def extract_model_operations(model):
 
       weight = layer.get_weights()[0]
 
+
       kernel_h, kernel_w, _, _ = weight.shape
 
       number_of_operations = (
           height_o * width_o * channels_o * kernel_h * kernel_w * channels_i)
+
+      number_of_weights = (kernel_h * kernel_w * channels_o * channels_i)
+
+      number_of_bias = 0
+      if len(layer.get_weights()) > 1:
+        number_of_bias = layer.get_weights()[1].shape[0]
+
+      weight_quant, bias_quant = layer.get_quantizers()
+      weight_type = get_quant_mode(weight_quant)
+      bias_type = get_quant_mode(bias_quant)
 
     elif layer.__class__.__name__ in ["QConv1D"]:
 
@@ -392,6 +417,15 @@ def extract_model_operations(model):
       number_of_operations = (
           time_o * channels_o * kernel_h * kernel_w * channels_i)
 
+      number_of_weights = (kernel_h * kernel_w * channels_o * channels_i)
+      number_of_bias = 0
+      if len(layer.get_weights()) > 1:
+        number_of_bias = layer.get_weights()[1].shape[0]
+
+      weight_quant, bias_quant = layer.get_quantizers()
+      weight_type = get_quant_mode(weight_quant)
+      bias_type = get_quant_mode(bias_quant)
+
     elif layer.__class__.__name__ in ["QDepthwiseConv2D"]:
 
       _, _, _, channels_i = input_shape
@@ -405,6 +439,16 @@ def extract_model_operations(model):
       number_of_operations = (
           kernel_h * kernel_w * height_o * width_o * channels_i)
 
+      number_of_weights = (kernel_h * kernel_w * channels_o * channels_i)
+
+      number_of_bias = 0
+      if len(layer.get_weights()) > 1:
+        number_of_bias = layer.get_weights()[1].shape[0]
+
+      weight_quant, bias_quant = layer.get_quantizers()
+      weight_type = get_quant_mode(weight_quant)
+      bias_type = get_quant_mode(bias_quant)
+
     elif layer.__class__.__name__ in ["QDense"]:
 
       _, size_i = input_shape
@@ -412,13 +456,32 @@ def extract_model_operations(model):
 
       number_of_operations = (size_i * size_o)
 
+      number_of_weights =  size_i * size_o
+      number_of_bias = 0
+      if len(layer.get_weights()) > 1:
+        number_of_bias = layer.get_weights()[1].shape[0]
+
+      weight_quant, bias_quant = layer.get_quantizers()
+      weight_type = get_quant_mode(weight_quant)
+      bias_type = get_quant_mode(bias_quant)
+
     # "number_of_operations" is tensor_shape.Dimension type
     operations[layer.name] = {
         "type":
             get_operation_type(layer, cache_q),
         "number_of_operations":
             number_of_operations if isinstance(number_of_operations, int) else
-            number_of_operations.value
+            number_of_operations.value,
+        "number_of_weights":
+            number_of_weights,
+            # if isinstance(number_of_weights, int) else number_of_weights.value,
+        "number_of_bias":
+            number_of_bias,
+            # if isinstance(number_of_bias, int) else number_of_bias.value,
+        "type_of_weights":
+            weight_type,
+        "type_of_bias":
+            bias_type,
     }
 
   return operations
@@ -446,3 +509,15 @@ def print_qstats(model):
   for key in sorted(ops_table.keys()):
     if ops_table[key] > 0:
       print("    {:30}: {}".format(key, ops_table[key]))
+
+  print("")
+  print("Weight profiling:")
+  for name in sorted(model_ops):
+    w_mode, w_sizes, w_signs = model_ops[name]["type_of_weights"]
+    b_mode, b_sizes, b_signs = model_ops[name]["type_of_bias"]
+    w_number = model_ops[name]["number_of_weights"]
+    b_number = model_ops[name]["number_of_bias"]
+    print("    {:30} : {:5} ({}-bit unit)".format(
+        str(name) + "_weights", str(w_number), str(w_sizes)))
+    print("    {:30} : {:5} ({}-bit unit)".format(
+        str(name) + "_bias", str(b_number), str(b_sizes)))

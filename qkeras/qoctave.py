@@ -21,12 +21,12 @@ from __future__ import print_function
 
 import re
 
-from keras.layers import Activation
-from keras.layers import Add
-from keras.layers import AveragePooling2D
-from keras.layers import Conv2D
-from keras.layers import SeparableConv2D
-from keras.layers import UpSampling2D
+from tensorflow.keras.layers import Activation
+from tensorflow.keras.layers import Add
+from tensorflow.keras.layers import AveragePooling2D
+from tensorflow.keras.layers import Conv2D
+from tensorflow.keras.layers import SeparableConv2D
+from tensorflow.keras.layers import UpSampling2D
 from .qlayers import QActivation
 from .qlayers import QAveragePooling2D
 from .qlayers import QConv2D

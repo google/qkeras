@@ -22,12 +22,12 @@ from __future__ import print_function
 import os
 from collections import defaultdict
 
-import keras.backend as K
-from keras.datasets import cifar10
-from keras.layers import *
-from keras.models import Model
-from keras.optimizers import *
-from keras.utils.np_utils import to_categorical
+import tensorflow.keras.backend as K
+from tensorflow.keras.datasets import cifar10
+from tensorflow.keras.layers import *
+from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import *
+from tensorflow.keras.utils import to_categorical
 import numpy as np
 
 from qkeras import *

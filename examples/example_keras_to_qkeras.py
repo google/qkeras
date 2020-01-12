@@ -21,8 +21,8 @@ from __future__ import print_function
 
 from collections import defaultdict
 
-from keras.layers import *
-from keras.models import Model
+from tensorflow.keras.layers import *
+from tensorflow.keras.models import Model
 
 from qkeras import *
 

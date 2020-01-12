@@ -18,7 +18,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 
 import pytest
-from keras import backend as K
+from tensorflow.keras import backend as K
 
 from qkeras import binary
 from qkeras import hard_sigmoid
@@ -29,6 +29,8 @@ from qkeras import ternary
 from qkeras import quantized_po2
 from qkeras import quantized_relu_po2
 
+# TODO(hzhuang, rxuniverse): quantization_po2/_relu_po2,
+# test cases with quadratic_approximation
 
 def test_smooth_sigmoid():
   """Test smooth_sigmoid function."""

@@ -19,7 +19,9 @@ from __future__ import division
 from __future__ import print_function
 import warnings
 import numpy as np
-import keras.backend as K
+
+import tensorflow as tf
+import tensorflow.keras.backend as K
 
 from qkeras import binary
 from qkeras import bernoulli

@@ -40,26 +40,27 @@ import copy
 import json
 import warnings
 
-from keras import activations
-from keras import constraints
-from keras import initializers
-from keras import regularizers
-import keras.backend as K
-from keras.constraints import Constraint
-from keras.layers import Activation
-from keras.layers import AveragePooling2D
-from keras.layers import Conv1D
-from keras.layers import Conv2D
-from keras.layers import Dense
-from keras.layers import Dropout
-from keras.layers import InputSpec
-from keras.layers import Layer
-from keras.models import model_from_json
-from keras.utils import conv_utils
+import tensorflow as tf
+
+from tensorflow.keras import activations
+from tensorflow.keras import constraints
+from tensorflow.keras import initializers
+from tensorflow.keras import regularizers
+from tensorflow.keras.constraints import Constraint
+from tensorflow.keras.layers import Activation
+from tensorflow.keras.layers import AveragePooling2D
+from tensorflow.keras.layers import Conv1D
+from tensorflow.keras.layers import Conv2D
+from tensorflow.keras.layers import Dense
+from tensorflow.keras.layers import DepthwiseConv2D
+from tensorflow.keras.layers import Dropout
+from tensorflow.keras.layers import InputSpec
+from tensorflow.keras.layers import Layer
+from tensorflow.keras.models import model_from_json
+
 
 import numpy as np
 import six
-import tensorflow.compat.v1 as tf
 
 from .safe_eval import safe_eval
 
@@ -75,13 +76,13 @@ def smooth_sigmoid(x):
   # smaller than hard_simoid but the arithmetic for it is (x >> 3) +
   # (x >> 4) + 0.5, which is also not bad.
 
-  return K.clip(0.1875 * x + 0.5, 0.0, 1.0)
+  return tf.keras.backend.clip(0.1875 * x + 0.5, 0.0, 1.0)
 
 
 def hard_sigmoid(x):
   """Computes hard_sigmoid function that saturates between 0 and 1."""
 
-  return K.clip(0.5 * x + 0.5, 0.0, 1.0)
+  return tf.keras.backend.clip(0.5 * x + 0.5, 0.0, 1.0)
 
 
 def binary_sigmoid(x):
@@ -109,7 +110,7 @@ def set_internal_sigmoid(mode):
   elif mode == "smooth":
     _sigmoid = smooth_sigmoid
   elif mode == "real":
-    _sigmoid = K.sigmoid
+    _sigmoid = tf.sigmoid
 
 
 def binary_tanh(x):
@@ -129,27 +130,31 @@ def smooth_tanh(x):
 
 def stochastic_round(x):
   """Performs stochastic rounding to the first decimal point."""
-  s = K.sign(x)
-  s += (1.0 - K.abs(s)) * (2.0 * K.round(K.random_uniform(K.shape(x))) - 1.0)
+  s = tf.sign(x)
+  s += (1.0 - tf.abs(s)) * (2.0 * tf.round(tf.random.uniform(tf.shape(x))) -
+                            1.0)
   t = tf.floor(x) - (s - 1.0) / 2.0
-  p = K.abs(x - t)
-  f = s * (K.sign(p - K.random_uniform(K.shape(p))) + 1.0) / 2.0
+  p = tf.abs(x - t)
+  f = s * (tf.sign(p - tf.random.uniform(tf.shape(p))) + 1.0) / 2.0
   return t + f
+
 
 def stochastic_round_po2(x):
   """Performs stochastic rounding for the power of two."""
-  y = K.abs(x)
-  eps = K.epsilon()
-  log2 = K.log(2.0)
-  x_log2 = K.round(K.log(y + eps) / log2)
-  sign = K.sign(x)
-  po2 = K.cast(K.pow(2.0, K.cast(x_log2, dtype="float32")), dtype="float32")
+  # TODO(hzhuang): test stochastic_round_po2 and constraint.
+  # because quantizer is applied after constraint.
+  y = tf.abs(x)
+  eps = tf.keras.backend.epsilon()
+  log2 = tf.keras.backend.log(2.0)
+  x_log2 = tf.round(tf.keras.backend.log(y + eps) / log2)
+  sign = tf.sign(x)
+  po2 = tf.cast(pow(2.0, tf.cast(x_log2, dtype="float32")), dtype="float32")
   left_val = tf.where(po2 > y, x_log2 - 1, x_log2)
   right_val = tf.where(po2 > y, x_log2, x_log2 + 1)
   # sampling in [2**left_val, 2**right_val].
   minval = 2 ** left_val
   maxval = 2 ** right_val
-  val = K.random_uniform(K.shape(y), minval=minval, maxval=maxval)
+  val = tf.random.uniform(tf.shape(y), minval=minval, maxval=maxval)
   # use y as a threshold to keep the probabliy [2**left_val, y, 2**right_val]
   # so that the mean value of the sample should be y
   x_po2 = tf.where(y < val, left_val, right_val)
@@ -180,26 +185,26 @@ def _round_through(x, use_stochastic_rounding=False):
     Rounded tensor.
   """
   if use_stochastic_rounding:
-    return x + K.stop_gradient(-x + stochastic_round(x))
+    return x + tf.stop_gradient(-x + stochastic_round(x))
   else:
-    return x + K.stop_gradient(-x + K.round(x))
+    return x + tf.stop_gradient(-x + tf.round(x))
 
 
 def _sign_through(x):
   """Computes the sign operation using the straight through estimator."""
 
-  # K.sign generates -1, 0 or +1, so it should not be used when we attempt
+  # tf.sign generates -1, 0 or +1, so it should not be used when we attempt
   # to generate -1 and +1.
 
-  k_sign = K.sign(x)
+  k_sign = tf.sign(x)
 
-  return x + K.stop_gradient(-x + k_sign)
+  return x + tf.stop_gradient(-x + k_sign)
 
 
 def _ceil_through(x):
   """Computes the ceiling operation using straight through estimator."""
 
-  return x + K.stop_gradient(-x + tf.ceil(x))
+  return x + tf.stop_gradient(-x + tf.ceil(x))
 
 
 #
@@ -272,15 +277,15 @@ class quantized_bits(object):  # pylint: disable=invalid-name
       m = pow(2, unsigned_bits)
       m_i = pow(2, self.integer)
       p = x * m / m_i
-      xq = m_i * K.clip(
+      xq = m_i * tf.keras.backend.clip(
           _round_through(p, self.use_stochastic_rounding),
           self.keep_negative * (-m + self.symmetric), m - 1) / m
     else:
-      xq = K.sign(x)
-      xq += (1.0 - K.abs(xq))
+      xq = tf.sign(x)
+      xq += (1.0 - tf.abs(xq))
       if not self.keep_negative:
         xq = (xq + 1.0) / 2.0
-    return x + K.stop_gradient(-x + xq)
+    return x + tf.stop_gradient(-x + xq)
 
 
 class bernoulli(object):  # pylint: disable=invalid-name
@@ -314,9 +319,9 @@ class bernoulli(object):  # pylint: disable=invalid-name
 
   def __call__(self, x):
     p = _sigmoid(x / self.alpha)
-    k_sign = K.sign(p - K.random_uniform(K.shape(p)))
-    k_sign += (1.0 - K.abs(k_sign))
-    return x + K.stop_gradient(-x + self.alpha * (k_sign + 1.0) / 2.0)
+    k_sign = tf.sign(p - tf.random.uniform(tf.shape(p)))
+    k_sign += (1.0 - tf.abs(k_sign))
+    return x + tf.stop_gradient(-x + self.alpha * (k_sign + 1.0) / 2.0)
 
 
 class stochastic_ternary(object):  # pylint: disable=invalid-name
@@ -358,8 +363,8 @@ class stochastic_ternary(object):  # pylint: disable=invalid-name
 
     T = self.threshold  # pylint: disable=invalid-name
 
-    ones = K.ones_like(p)
-    zeros = K.zeros_like(p)
+    ones = tf.ones_like(p)
+    zeros = tf.zeros_like(p)
 
     T0 = np.clip(0.5 + T, 0.5, 1.0)  # pylint: disable=invalid-name
 
@@ -372,9 +377,9 @@ class stochastic_ternary(object):  # pylint: disable=invalid-name
     c_fm1 = fm1 / f_all
     c_f0 = (fm1 + f0) / f_all
 
-    r = K.random_uniform(K.shape(p))
+    r = tf.random.uniform(tf.shape(p))
 
-    return x + K.stop_gradient(-x + self.alpha * tf.where(
+    return x + tf.stop_gradient(-x + self.alpha * tf.where(
         r <= c_fm1, -1 * ones, tf.where(r <= c_f0, zeros, ones)))
 
 
@@ -402,9 +407,9 @@ class ternary(object):  # pylint: disable=invalid-name
     if self.use_stochastic_rounding:
       x = _round_through(
           x, use_stochastic_rounding=self.use_stochastic_rounding)
-    return x + K.stop_gradient(
-        -x + self.alpha * tf.where(K.abs(x) < self.threshold,
-                                   K.zeros_like(x), K.sign(x)))
+    return x + tf.stop_gradient(
+        -x + self.alpha * tf.where(tf.abs(x) < self.threshold,
+                                   tf.zeros_like(x), tf.sign(x)))
 
 
 class stochastic_binary(object):  # pylint: disable=invalid-name
@@ -429,11 +434,11 @@ class stochastic_binary(object):  # pylint: disable=invalid-name
   def __call__(self, x):
     assert self.alpha != 0
     p = _sigmoid(x / self.alpha)
-    k_sign = K.sign(p - tf.random_uniform(tf.shape(x)))
-    # we should not need this, but if K.sign is not safe if input is
+    k_sign = tf.sign(p - tf.random.uniform(tf.shape(x)))
+    # we should not need this, but if tf.sign is not safe if input is
     # exactly 0.0
-    k_sign += (1.0 - K.abs(k_sign))
-    return x + K.stop_gradient(-x + self.alpha * k_sign)
+    k_sign += (1.0 - tf.abs(k_sign))
+    return x + tf.stop_gradient(-x + self.alpha * k_sign)
 
 
 class binary(object):  # pylint: disable=invalid-name
@@ -467,15 +472,15 @@ class binary(object):  # pylint: disable=invalid-name
       x = self.alpha * _round_through(
           x / self.alpha, use_stochastic_rounding=self.use_stochastic_rounding)
 
-    k_sign = K.sign(x)
+    k_sign = tf.sign(x)
     if self.use_stochastic_rounding:
-      k_sign += (1.0 - K.abs(k_sign)) * (
-          2.0 * K.round(K.random_uniform(K.shape(x))) - 1.0)
+      k_sign += (1.0 - tf.abs(k_sign)) * (
+          2.0 * tf.round(tf.random.uniform(tf.shape(x))) - 1.0)
     else:
-      k_sign += (1.0 - K.abs(k_sign))
+      k_sign += (1.0 - tf.abs(k_sign))
     if self.use_01:
       k_sign = (k_sign + 1.0) / 2.0
-    return x + K.stop_gradient(-x + self.alpha * k_sign)
+    return x + tf.stop_gradient(-x + self.alpha * k_sign)
 
 
 class quantized_relu(object):  # pylint: disable=invalid-name
@@ -520,12 +525,12 @@ class quantized_relu(object):  # pylint: disable=invalid-name
 
     if self.use_sigmoid:
       p = _sigmoid(x / m_i) * m
-      xq = m_i * K.clip(
+      xq = m_i * tf.keras.backend.clip(
           2.0 * (_round_through(p, self.use_stochastic_rounding) / m) - 1.0,
           0.0, 1.0 - 1.0 / m)
     else:
       p = x * m / m_i
-      xq = m_i * K.clip(
+      xq = m_i * tf.keras.backend.clip(
           _round_through(p, self.use_stochastic_rounding) / m,
           0.0, 1.0 - 1.0 / m)
     return xq
@@ -557,8 +562,10 @@ class quantized_ulaw(object):  # pylint: disable=invalid-name
     m_i = pow(2, self.integer)
     p = _sigmoid(x / m_i) * m
     rp = 2.0 * (_round_through(p) / m) - 1.0
-    u_law_p = K.sign(rp) * K.log(1 + self.u * K.abs(rp)) / K.log(1 + self.u)
-    xq = m_i * K.clip(u_law_p, -1.0 + (1.0 * self.symmetric) / m, 1.0 - 1.0 / m)
+    u_law_p = tf.sign(rp) * tf.keras.backend.log(
+        1 + self.u * tf.abs(rp)) / tf.keras.backend.log(1 + self.u)
+    xq = m_i * tf.keras.backend.clip(u_law_p, -1.0 +
+                                     (1.0 * self.symmetric) / m, 1.0 - 1.0 / m)
     return xq
 
 
@@ -592,76 +599,119 @@ class quantized_tanh(object):  # pylint: disable=invalid-name
     m = pow(2, non_sign_bits)
     m_i = pow(2, self.integer)
     p = _sigmoid(x / m_i) * m
-    xq = m_i * K.clip(
-        2.0 * (_round_through(p, self.use_stochastic_rounding) / m) - 1.0,
-        -1.0 + (1.0 * self.symmetric) / m, 1.0 - 1.0 / m)
+    xq = m_i * tf.keras.backend.clip(
+        2.0 *
+        (_round_through(p, self.use_stochastic_rounding) / m) - 1.0, -1.0 +
+        (1.0 * self.symmetric) / m, 1.0 - 1.0 / m)
     return xq
 
 
 class quantized_po2(object):  # pylint: disable=invalid-name
   """Quantizes to the closest power of 2."""
 
-  def __init__(self, bits=8, max_value=-1, use_stochastic_rounding=False):
+  def __init__(self,
+               bits=8,
+               max_value=-1,
+               use_stochastic_rounding=False,
+               quadratic_approximation=False):
     self.bits = bits
     self.max_value = max_value
     self.use_stochastic_rounding = use_stochastic_rounding
 
+    # if True, round to the exponent for sqrt(x),
+    # so that the return value can be divided by two without remainder.
+    self.quadratic_approximation = quadratic_approximation
 
   def __call__(self, x):
+
+    need_exponent_sign_bit = (self.max_value > 1)
     non_sign_bits = self.bits - 1
-    min_exp = -2**(non_sign_bits - 1)
-    max_exp = 2**(non_sign_bits - 1) - 1
-    eps = K.epsilon()
+    min_exp = -2**(non_sign_bits - need_exponent_sign_bit)
+    max_exp = 2**(non_sign_bits - need_exponent_sign_bit) - 1
+    eps = tf.keras.backend.epsilon()
     if min_exp < np.log2(eps):
       warnings.warn(
-          "QKeras: min_exp in po2 quantizer is smaller than K.epsilon()")
+          "QKeras: min_exp in po2 quantizer is smaller than tf.epsilon()")
 
     if self.max_value != -1:
       max_exp = np.round(np.log2(self.max_value + eps))
 
-    x_sign = K.sign(x)
-    x_sign += (1.0 - K.abs(x_sign))
+    x_sign = tf.sign(x)
+    x_sign += (1.0 - tf.abs(x_sign))
     log2 = np.log(2.0)
 
-    if self.use_stochastic_rounding:
-      x_log2 = stochastic_round_po2(x)
+    # if True, round to the exponent for sqrt(x),
+    # so that the return value can be divided by two without remainder.
+    if self.quadratic_approximation:
+      q_factor = 2.0
     else:
-      x_log2 = _round_through(K.log(K.abs(x) + eps) / log2)
-    return x + K.stop_gradient(
-        -x + x_sign * K.pow(2.0, K.clip(x_log2, min_exp, max_exp)))
+      q_factor = 1.0
+
+    if self.use_stochastic_rounding:
+      if self.quadratic_approximation:
+        x_log2 = stochastic_round_po2(tf.sqrt(x))
+      else:
+        x_log2 = stochastic_round_po2(x)
+    else:
+      if self.quadratic_approximation:
+        x_log2 = _round_through(tf.keras.backend.log(tf.sqrt(x) + eps) / log2)
+      else:
+        x_log2 = _round_through(tf.keras.backend.log(tf.abs(x) + eps) / log2)
+    x_clipped = q_factor * tf.keras.backend.clip(x_log2, min_exp, max_exp)
+    return x + tf.stop_gradient(-x + x_sign * pow(2.0, x_clipped))
 
 
 class quantized_relu_po2(object):  # pylint: disable=invalid-name
   """Quantizes to the closest power of 2."""
 
-  def __init__(self, bits=8, max_value=-1, use_stochastic_rounding=False):
+  def __init__(self, bits=8, max_value=-1, use_stochastic_rounding=False,
+               quadratic_approximation=False):
     self.bits = bits
     self.max_value = max_value
     self.use_stochastic_rounding = use_stochastic_rounding
 
+    # if True, round to the exponent for sqrt(x),
+    # so that the return value can be divided by two without remainder.
+    self.quadratic_approximation = quadratic_approximation
+
   def __call__(self, x):
 
-    min_exp = -2**(self.bits - 1)
-    max_exp = 2**(self.bits - 1) - 1
-
-    eps = K.epsilon()
+    need_exponent_sign_bit = (self.max_value > 1)
+    min_exp = -2**(self.bits - need_exponent_sign_bit)
+    max_exp = 2**(self.bits - need_exponent_sign_bit) - 1
+    eps = tf.keras.backend.epsilon()
 
     if min_exp < np.log2(eps):
       warnings.warn(
-          "QKeras: min_exp in relu_po2 quantizer is smaller than K.epsilon()")
+          "QKeras: min_exp in quantized_relu_po2 quantizer "
+          "is smaller than tf.epsilon()")
 
     log2 = np.log(2.0)
 
     if self.max_value != -1:
       max_exp = np.round(np.log2(self.max_value + eps))
 
-    x = K.maximum(x, 0)
-    if self.use_stochastic_rounding:
-      x_log2 = stochastic_round_po2(x)
+    if self.quadratic_approximation:
+      q_factor = 2.0
     else:
-      x_log2 = _round_through(K.log(K.abs(x) + eps) / log2)
-    x_clipped = K.clip(x_log2, min_exp, max_exp)
-    return x + K.stop_gradient(-x + K.pow(2.0, x_clipped))
+      q_factor = 1.0
+    x = tf.maximum(x, 0)
+
+    if self.use_stochastic_rounding:
+      # if True, approximate the power of two to the sqrt(x)
+      # use q_factor to recover the value in x_clipped.
+      if self.quadratic_approximation:
+        x_log2 = stochastic_round_po2(tf.sqrt(x))
+      else:
+        x_log2 = stochastic_round_po2(x)
+    else:
+      if self.quadratic_approximation:
+        x_log2 = _round_through(tf.keras.backend.log(tf.sqrt(x) + eps) / log2)
+      else:
+        x_log2 = _round_through(tf.keras.backend.log(tf.abs(x) + eps) / log2)
+    x_clipped = q_factor * tf.keras.backend.clip(x_log2, min_exp, max_exp)
+    return x + tf.stop_gradient(-x + pow(2.0, x_clipped))
+
 
 #
 # Because it may be hard to get serialization from activation functions,
@@ -722,16 +772,25 @@ class Clip(Constraint):
   # Constrains the weights to be between min/max values.
   #   min_value: the minimum norm for the incoming weights.
   #   max_value: the maximum norm for the incoming weights.
+  #   constraint: previous constraint to be clipped.
+  #   quantizer: quantizer to be applied to constraint.
 
-  def __init__(self, min_value=0.0, max_value=1.0):
+  def __init__(self, min_value=0.0, max_value=1.0,
+               constraint=None, quantizer=None):
     """Initializes Clip constraint class."""
 
     self.min_value = min_value
     self.max_value = max_value
+    self.constraint = constraint
+    self.quantizer = quantizer
 
   def __call__(self, w):
     """Clips values between min and max values."""
-    w = K.clip(w, self.min_value, self.max_value)
+    if self.constraint:
+      w = self.constraint(w)
+      if self.quantizer:
+        w = self.quantizer(w)
+    w = tf.keras.backend.clip(w, self.min_value, self.max_value)
     return w
 
   def get_config(self):
@@ -809,10 +868,16 @@ class QDense(Dense):
 
     kernel_initializer = get_initializer(kernel_initializer, kernel_range)
     if kernel_quantizer:
-      kernel_constraint = Clip(-kernel_range, kernel_range)
+      if kernel_constraint:
+        kernel_constraint = constraint.get(kernel_constraint)
+      kernel_constraint = Clip(-kernel_range, kernel_range, kernel_constraint,
+                               kernel_quantizer)
 
     if bias_quantizer:
-      bias_constraint = Clip(-bias_range, bias_range)
+      if bias_constraint:
+        bias_constraint = constraint.get(bias_constraint)
+      bias_constraint = Clip(-bias_range, bias_range, bias_constraint,
+                             bias_quantizer)
 
     self.kernel_quantizer = kernel_quantizer
     self.bias_quantizer = bias_quantizer
@@ -854,13 +919,14 @@ class QDense(Dense):
       quantized_kernel = self.kernel_quantizer_internal(self.kernel)
     else:
       quantized_kernel = self.kernel
-    output = K.dot(inputs, quantized_kernel)
+    output = tf.keras.backend.dot(inputs, quantized_kernel)
     if self.use_bias:
       if self.bias_quantizer:
         quantized_bias = self.bias_quantizer_internal(self.bias)
       else:
         quantized_bias = self.bias
-      output = K.bias_add(output, quantized_bias, data_format="channels_last")
+      output = tf.keras.backend.bias_add(output, quantized_bias,
+                                         data_format="channels_last")
     if self.activation is not None:
       output = self.activation(output)
     return output
@@ -974,10 +1040,16 @@ class QConv1D(Conv1D):
     ]
 
     if kernel_quantizer:
-      kernel_constraint = Clip(-kernel_range, kernel_range)
+      if kernel_constraint:
+        kernel_constraint = constraints.get(kernel_constraint)
+      kernel_constraint = Clip(-kernel_range, kernel_range, kernel_constraint,
+                               kernel_quantizer)
 
     if bias_quantizer:
-      bias_constraint = Clip(-bias_range, bias_range)
+      if bias_constraint:
+        bias_constraint = constraints.get(bias_constraint)
+      bias_constraint = Clip(-bias_range, bias_range, bias_constraint,
+                             bias_quantizer)
 
     super(QConv1D, self).__init__(
         filters=filters,
@@ -1005,7 +1077,7 @@ class QConv1D(Conv1D):
     else:
       quantized_kernel = self.kernel
 
-    outputs = K.conv1d(
+    outputs = tf.keras.backend.conv1d(
         inputs,
         quantized_kernel,
         strides=self.strides[0],
@@ -1022,7 +1094,7 @@ class QConv1D(Conv1D):
       else:
         quantized_bias = self.bias
 
-      outputs = K.bias_add(
+      outputs = tf.keras.backend.bias_add(
           outputs, quantized_bias, data_format=self.data_format)
 
     if self.activation is not None:
@@ -1110,10 +1182,16 @@ class QConv2D(Conv2D):
     ]
 
     if kernel_quantizer:
-      kernel_constraint = Clip(-kernel_range, kernel_range)
+      if kernel_constraint:
+        kernel_constraint = constraints.get(kernel_constraint)
+      kernel_constraint = Clip(-kernel_range, kernel_range, kernel_constraint,
+                               kernel_quantizer)
 
     if bias_quantizer:
-      bias_constraint = Clip(-bias_range, bias_range)
+      if bias_constraint:
+        bias_constraint = constraints.get(bias_constraint)
+      bias_constraint = Clip(-bias_range, bias_range, bias_constraint,
+                             bias_quantizer)
 
     super(QConv2D, self).__init__(
         filters=filters,
@@ -1142,7 +1220,7 @@ class QConv2D(Conv2D):
     else:
       quantized_kernel = self.kernel
 
-    outputs = K.conv2d(
+    outputs = tf.keras.backend.conv2d(
         inputs,
         quantized_kernel,
         strides=self.strides,
@@ -1159,7 +1237,7 @@ class QConv2D(Conv2D):
       else:
         quantized_bias = self.bias
 
-      outputs = K.bias_add(
+      outputs = tf.keras.backend.bias_add(
           outputs, quantized_bias, data_format=self.data_format)
 
     if self.activation is not None:
@@ -1180,7 +1258,7 @@ class QConv2D(Conv2D):
     return self.quantizers
 
 
-class QDepthwiseConv2D(Conv2D):
+class QDepthwiseConv2D(DepthwiseConv2D):
   """Creates quantized depthwise conv2d. Copied from mobilenet."""
 
   # most of these parameters follow the implementation of DepthwiseConv2D
@@ -1201,7 +1279,7 @@ class QDepthwiseConv2D(Conv2D):
   def __init__(self,
                kernel_size,
                strides=(1, 1),
-               padding="valid",
+               padding="VALID",
                depth_multiplier=1,
                data_format=None,
                activation=None,
@@ -1221,31 +1299,34 @@ class QDepthwiseConv2D(Conv2D):
                **kwargs):
 
     if depthwise_quantizer:
-      depthwise_constraint = Clip(-depthwise_range, depthwise_range)
+      if depthwise_constraint:
+        depthwise_constraint = constraints.get(depthwise_constraint)
+      depthwise_constraint = Clip(-depthwise_range, depthwise_range,
+                                  depthwise_constraint, depthwise_quantizer)
 
-    if use_bias and bias_quantizer:
-      bias_constraint = Clip(-bias_range, bias_range)
+    if bias_quantizer:
+      if bias_constraint:
+        bias_constraint = constraints.get(bias_constraint)
+      bias_constraint = Clip(-bias_range, bias_range, bias_constraint,
+                             bias_quantizer)
 
     super(QDepthwiseConv2D, self).__init__(
-        filters=None,
         kernel_size=kernel_size,
         strides=strides,
         padding=padding,
         data_format=data_format,
         activation=activation,
         use_bias=use_bias,
+        depthwise_regularizer=depthwise_regularizer,
         bias_regularizer=bias_regularizer,
         activity_regularizer=activity_regularizer,
+        depth_multiplier=depth_multiplier,
+        depthwise_initializer=depthwise_initializer,
+        bias_initializer=bias_initializer,
+        depthwise_constraint=depthwise_constraint,
         bias_constraint=bias_constraint,
         dilation_rate=dilation_rate,
         **kwargs)
-    self.depth_multiplier = depth_multiplier
-    self.depthwise_initializer = initializers.get(depthwise_initializer)
-    self.depthwise_regularizer = regularizers.get(depthwise_regularizer)
-    self.depthwise_constraint = constraints.get(depthwise_constraint)
-    self.bias_initializer = initializers.get(bias_initializer)
-
-    self.depthwise_constraint = depthwise_constraint
     self.bias_constraint = bias_constraint
 
     self.depthwise_quantizer = depthwise_quantizer
@@ -1320,7 +1401,7 @@ class QDepthwiseConv2D(Conv2D):
             self.depthwise_quantizer_internal(self.depthwise_kernel))
     else:
       quantized_depthwise_kernel = self.depthwise_kernel
-    outputs = K.depthwise_conv2d(
+    outputs = tf.keras.backend.depthwise_conv2d(
         inputs,
         quantized_depthwise_kernel,
         strides=self.strides,
@@ -1336,7 +1417,7 @@ class QDepthwiseConv2D(Conv2D):
           quantized_bias = self.bias_quantizer_internal(self.bias)
       else:
         quantized_bias = self.bias
-      outputs = K.bias_add(
+      outputs = tf.keras.backend.bias_add(
           outputs, quantized_bias, data_format=self.data_format)
 
     if self.activation is not None:
@@ -1346,27 +1427,6 @@ class QDepthwiseConv2D(Conv2D):
         return self.activation(outputs)
 
     return outputs
-
-  def compute_output_shape(self, input_shape):
-    if self.data_format == "channels_first":
-      rows = input_shape[2]
-      cols = input_shape[3]
-      out_filters = input_shape[1] * self.depth_multiplier
-    elif self.data_format == "channels_last":
-      rows = input_shape[1]
-      cols = input_shape[2]
-      out_filters = input_shape[3] * self.depth_multiplier
-
-    rows = conv_utils.conv_output_length(rows, self.kernel_size[0],
-                                         self.padding, self.strides[0])
-
-    cols = conv_utils.conv_output_length(cols, self.kernel_size[1],
-                                         self.padding, self.strides[1])
-
-    if self.data_format == "channels_first":
-      return (input_shape[0], out_filters, rows, cols)
-    elif self.data_format == "channels_last":
-      return (input_shape[0], rows, cols, out_filters)
 
   def get_config(self):
     config = super(QDepthwiseConv2D, self).get_config()
@@ -1395,7 +1455,7 @@ class QDepthwiseConv2D(Conv2D):
 def QSeparableConv2D(filters,  # pylint: disable=invalid-name
                      kernel_size,
                      strides=(1, 1),
-                     padding="valid",
+                     padding="VALID",
                      dilation_rate=(1, 1),
                      depth_multiplier=1,
                      activation=None,
@@ -1598,8 +1658,8 @@ def model_save_quantized_weights(model, filename=None):
       signs = []
       for quantizer, weight in zip(layer.get_quantizers(), layer.get_weights()):
         if quantizer:
-          weight = K.constant(weight)
-          weight = K.eval(quantizer(weight))
+          weight = tf.constant(weight)
+          weight = tf.keras.backend.eval(quantizer(weight))
 
         # If quantizer is power-of-2 (quantized_po2 or quantized_relu_po2),
         # we would like to process it here.

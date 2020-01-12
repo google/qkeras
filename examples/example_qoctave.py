@@ -16,13 +16,13 @@
 """QOctave example."""
 import numpy as np
 import sys
-from keras import activations
-from keras import initializers
-import keras.backend as K
-from keras.layers import Input
-from keras.models import Model
-from keras.optimizers import Adam
-from keras.utils.np_utils import to_categorical
+from tensorflow.keras import activations
+from tensorflow.keras import initializers
+import tensorflow.keras.backend as K
+from tensorflow.keras.layers import Input
+from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.utils import to_categorical
 from functools import partial
 from qkeras import *   # pylint: disable=wildcard-import
 

@@ -27,7 +27,7 @@ with io.open("README.md", "r", encoding="utf8") as fh:
 
 setuptools.setup(
     name="QKeras",
-    version="0.5.0",
+    version="0.6.0",
     author="Claudionor N. Coelho",
     author_email="nunescoelho@google.com",
     maintainer="Hao Zhuang",
@@ -39,17 +39,15 @@ setuptools.setup(
     description="Quantization package for Keras",
     long_description=long_description,
     install_requires=[
-        "keras>=2.2.4",
-        "numpy>=1.14.5,<1.17",
-        "pyparser>=1.0",
-        "scipy>=1.2.2,<1.3",
+        "numpy>=1.16.0",
+        "scipy==1.2.2",
+        "pyparser",
         "setuptools>=41.0.0",
-        "tensorflow>=1.14.0,<2.0",
     ],
     setup_requires=[
         "pytest-runner",
     ],
     tests_require=[
-        "pytest==4.6.5",
+        "pytest",
     ],
 )

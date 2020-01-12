@@ -21,16 +21,16 @@ from __future__ import print_function
 
 import os
 
-import keras.backend as K
-from keras.datasets import mnist
-from keras.layers import Activation
-from keras.layers import Flatten
-from keras.layers import Input
-from keras.layers import *
-from keras.models import Model
-from keras.optimizers import Adam
-from keras.optimizers import SGD
-from keras.utils.np_utils import to_categorical
+import tensorflow.keras.backend as K
+from tensorflow.keras.datasets import mnist
+from tensorflow.keras.layers import Activation
+from tensorflow.keras.layers import Flatten
+from tensorflow.keras.layers import Input
+from tensorflow.keras.layers import *
+from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.optimizers import SGD
+from tensorflow.keras.utils import to_categorical
 import numpy as np
 
 from qkeras import *

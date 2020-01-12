@@ -1,1 +1,2 @@
 v0.5, 07/18/2019 -- Initial release.
+v0.6, 12/03/2019 -- Support tensorflow 2.0 and tf.keras

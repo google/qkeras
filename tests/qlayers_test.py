@@ -16,6 +16,13 @@
 """Test layers from qlayers.py."""
 
 import numpy as np
+from numpy.testing import assert_allclose
+import pytest
+from tensorflow.keras import backend as K
+from tensorflow.keras.layers import Activation
+from tensorflow.keras.layers import Flatten
+from tensorflow.keras.layers import Input
+from tensorflow.keras.models import Model
 
 from qkeras import binary
 from qkeras import model_save_quantized_weights
@@ -27,15 +34,8 @@ from qkeras import QSeparableConv2D
 from qkeras import quantized_bits
 from qkeras import ternary
 
-import numpy as np
-from numpy.testing import assert_allclose
-import pytest
-from keras import backend as K
-from keras.layers import Activation
-from keras.layers import Flatten
-from keras.layers import Input
-from keras.models import Model
 
+# TODO(hzhuang, rxuniverse): qbatchnormalization tests cases.
 
 def qdense_util(layer_cls,
                 kwargs=None,
@@ -86,6 +86,7 @@ def test_qdense(layer_kwargs, input_data, weight_data, bias_data,
       input_data=input_data,
       weight_data=[weight_data, bias_data],
       expected_output=expected_output)
+
 
 def test_qnetwork():
   x = x_in = Input((28, 28, 1), name='input')
@@ -155,40 +156,38 @@ def test_qnetwork():
 
   all_weights = np.array(all_weights)
 
-
   # test_qnetwork_weight_quantization
-  all_weights_signature = np.array([2.0, -6.75, -0.625, -2.0, -0.25, -56.0,
-                                    1.125, -2.625, -0.75])
+  all_weights_signature = np.array(
+      [2., -6.75, -0.625, -2., -0.25, -56., 1.125, -1.625, -1.125])
+
   assert all_weights.size == all_weights_signature.size
   assert np.all(all_weights == all_weights_signature)
 
-
   # test_qnetwork_forward:
-  y = np.array([[0.000e+00, 0.000e+00, 0.000e+00, 0.000e+00, 0.000e+00,
-               5.341e-02, 9.468e-01, 0.000e+00, 0.000e+00, 0.000e+00],
-              [0.000e+00, 0.000e+00, 0.000e+00, 0.000e+00, 5.960e-08,
-               0.000e+00, 1.919e-01, 0.000e+00, 0.000e+00, 8.081e-01],
-              [0.000e+00, 0.000e+00, 0.000e+00, 0.000e+00, 2.378e-04,
-               0.000e+00, 0.000e+00, 0.000e+00, 2.843e-05, 9.995e-01],
-              [0.000e+00, 0.000e+00, 0.000e+00, 0.000e+00, 0.000e+00,
-               0.000e+00, 1.000e+00, 0.000e+00, 0.000e+00, 0.000e+00],
-              [0.000e+00, 0.000e+00, 0.000e+00, 0.000e+00, 0.000e+00,
-               0.000e+00, 1.000e+00, 0.000e+00, 2.623e-06, 0.000e+00],
-              [0.000e+00, 0.000e+00, 0.000e+00, 0.000e+00, 0.000e+00,
-               7.749e-07, 0.000e+00, 0.000e+00, 1.634e-04, 1.000e+00],
-              [0.000e+00, 0.000e+00, 0.000e+00, 0.000e+00, 0.000e+00,
-               0.000e+00, 1.000e+00, 0.000e+00, 0.000e+00, 0.000e+00],
-              [0.000e+00, 1.000e+00, 0.000e+00, 0.000e+00, 0.000e+00,
-               0.000e+00, 6.557e-07, 0.000e+00, 0.000e+00, 0.000e+00],
-              [0.000e+00, 0.000e+00, 0.000e+00, 0.000e+00, 1.000e+00,
-               0.000e+00, 5.960e-08, 0.000e+00, 0.000e+00, 0.000e+00],
-              [0.000e+00, 0.000e+00, 0.000e+00, 0.000e+00, 9.125e-03,
-               9.907e-01, 9.418e-06, 0.000e+00, 5.597e-05, 0.000e+00
-              ]]).astype(np.float16)
+  expected_output = np.array([[0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
+                 0.e+00, 1.e+00, 0.e+00, 0.e+00, 0.e+00],
+                [0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
+                 0.e+00, 1.e+00, 0.e+00, 0.e+00, 0.e+00],
+                [0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
+                 0.e+00, 0.e+00, 0.e+00, 6.e-08, 1.e+00],
+                [0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
+                 0.e+00, 1.e+00, 0.e+00, 0.e+00, 0.e+00],
+                [0.e+00 ,0.e+00, 0.e+00, 0.e+00, 0.e+00,
+                 0.e+00, 1.e+00, 0.e+00, 0.e+00, 0.e+00],
+                [0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
+                 0.e+00, 0.e+00, 0.e+00, 5.e-07, 1.e+00],
+                [0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
+                 0.e+00 ,1.e+00, 0.e+00, 0.e+00, 0.e+00],
+                [0.e+00, 1.e+00, 0.e+00, 0.e+00, 0.e+00,
+                 0.e+00 ,0.e+00, 0.e+00, 0.e+00, 0.e+00],
+                [0.e+00, 0.e+00, 0.e+00, 0.e+00, 1.e+00,
+                 0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00],
+                [0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
+                 1.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00]]).astype(np.float16)
 
   inputs = 2 * np.random.rand(10, 28, 28, 1)
-  p = model.predict(inputs).astype(np.float16)
-  assert np.all(p == y)
+  actual_output = model.predict(inputs).astype(np.float16)
+  assert_allclose(actual_output, expected_output, rtol=1e-4)
 
 
 def test_qconv1d():
@@ -220,12 +219,16 @@ def test_qconv1d():
 
   inputs = np.random.rand(2, 4, 4)
   p = model.predict(inputs).astype(np.float16)
-
+  '''
   y = np.array([[[0.1309, -1.229], [-0.4165, -2.639], [-0.08105, -2.299],
                  [1.981, -2.195]],
                 [[-0.3174, -3.94], [-0.3352, -2.316], [0.105, -0.833],
                  [0.2115, -2.89]]]).astype(np.float16)
-
+  '''
+  y = np.array([[[-2.441, 3.816], [-3.807, -1.426], [-2.684, -1.317],
+                 [-1.659, 0.9834]],
+                [[-4.99, 1.139], [-2.559, -1.216], [-2.285, 1.905],
+                 [-2.652, -0.467]]]).astype(np.float16)
   assert np.all(p == y)
 
 
