@@ -57,6 +57,7 @@ from tensorflow.keras.layers import Dropout
 from tensorflow.keras.layers import InputSpec
 from tensorflow.keras.layers import Layer
 from tensorflow.keras.models import model_from_json
+from tensorflow.keras.utils import deserialize_keras_object, get_custom_objects
 
 
 import numpy as np
@@ -287,6 +288,25 @@ class quantized_bits(object):  # pylint: disable=invalid-name
         xq = (xq + 1.0) / 2.0
     return x + tf.stop_gradient(-x + xq)
 
+  @classmethod
+  def from_config(cls, config):
+    return cls(**config)
+
+  def get_config(self):
+    config = {
+        "bits":
+            self.bits,
+        "integer":
+            self.integer,
+        "symmetric":
+            self.symmetric,
+        "keep_negative":
+            self.keep_negative,
+        "use_stochastic_rounding":
+            self.use_stochastic_rounding
+    }
+    return config
+
 
 class bernoulli(object):  # pylint: disable=invalid-name
   """Computes a Bernoulli sample with probability sigmoid(x).
@@ -322,6 +342,14 @@ class bernoulli(object):  # pylint: disable=invalid-name
     k_sign = tf.sign(p - tf.random.uniform(tf.shape(p)))
     k_sign += (1.0 - tf.abs(k_sign))
     return x + tf.stop_gradient(-x + self.alpha * (k_sign + 1.0) / 2.0)
+
+  @classmethod
+  def from_config(cls, config):
+    return cls(**config)
+
+  def get_config(self):
+    config = {"alpha": self.alpha}
+    return config
 
 
 class stochastic_ternary(object):  # pylint: disable=invalid-name
@@ -382,6 +410,19 @@ class stochastic_ternary(object):  # pylint: disable=invalid-name
     return x + tf.stop_gradient(-x + self.alpha * tf.where(
         r <= c_fm1, -1 * ones, tf.where(r <= c_f0, zeros, ones)))
 
+  @classmethod
+  def from_config(cls, config):
+    return cls(**config)
+
+  def get_config(self):
+    config = {
+        "alpha":
+            self.alpha,
+        "threshold":
+            self.threshold,
+    }
+    return config
+
 
 class ternary(object):  # pylint: disable=invalid-name
   """Computes an activation function returning -alpha, 0 or +alpha.
@@ -411,6 +452,21 @@ class ternary(object):  # pylint: disable=invalid-name
         -x + self.alpha * tf.where(tf.abs(x) < self.threshold,
                                    tf.zeros_like(x), tf.sign(x)))
 
+  @classmethod
+  def from_config(cls, config):
+    return cls(**config)
+
+  def get_config(self):
+    config = {
+        "alpha":
+            self.alpha,
+        "threshold":
+            self.threshold,
+        "use_stochastic_rounding":
+            self.use_stochastic_rounding
+    }
+    return config
+
 
 class stochastic_binary(object):  # pylint: disable=invalid-name
   """Computes a stochastic activation function returning -alpha or +alpha.
@@ -439,6 +495,14 @@ class stochastic_binary(object):  # pylint: disable=invalid-name
     # exactly 0.0
     k_sign += (1.0 - tf.abs(k_sign))
     return x + tf.stop_gradient(-x + self.alpha * k_sign)
+
+  @classmethod
+  def from_config(cls, config):
+    return cls(**config)
+
+  def get_config(self):
+    config = {"alpha": self.alpha}
+    return config
 
 
 class binary(object):  # pylint: disable=invalid-name
@@ -481,6 +545,21 @@ class binary(object):  # pylint: disable=invalid-name
     if self.use_01:
       k_sign = (k_sign + 1.0) / 2.0
     return x + tf.stop_gradient(-x + self.alpha * k_sign)
+
+  @classmethod
+  def from_config(cls, config):
+    return cls(**config)
+
+  def get_config(self):
+    config = {
+        "use_01":
+            self.use_01,
+        "alpha":
+            self.alpha,
+        "use_stochastic_rounding":
+            self.use_stochastic_rounding
+    }
+    return config
 
 
 class quantized_relu(object):  # pylint: disable=invalid-name
@@ -535,6 +614,23 @@ class quantized_relu(object):  # pylint: disable=invalid-name
           0.0, 1.0 - 1.0 / m)
     return xq
 
+  @classmethod
+  def from_config(cls, config):
+    return cls(**config)
+
+  def get_config(self):
+    config = {
+        "bits":
+            self.bits,
+        "integer":
+            self.integer,
+        "use_sigmoid":
+            self.use_sigmoid,
+        "use_stochastic_rounding":
+            self.use_stochastic_rounding
+    }
+    return config
+
 
 class quantized_ulaw(object):  # pylint: disable=invalid-name
   """Computes a u-law quantization.
@@ -567,6 +663,23 @@ class quantized_ulaw(object):  # pylint: disable=invalid-name
     xq = m_i * tf.keras.backend.clip(u_law_p, -1.0 +
                                      (1.0 * self.symmetric) / m, 1.0 - 1.0 / m)
     return xq
+
+  @classmethod
+  def from_config(cls, config):
+    return cls(**config)
+
+  def get_config(self):
+    config = {
+        "bits":
+            self.bits,
+        "integer":
+            self.integer,
+        "symmetric":
+            self.symmetric,
+        "u":
+            self.u
+    }
+    return config
 
 
 class quantized_tanh(object):  # pylint: disable=invalid-name
@@ -604,6 +717,23 @@ class quantized_tanh(object):  # pylint: disable=invalid-name
         (_round_through(p, self.use_stochastic_rounding) / m) - 1.0, -1.0 +
         (1.0 * self.symmetric) / m, 1.0 - 1.0 / m)
     return xq
+
+  @classmethod
+  def from_config(cls, config):
+    return cls(**config)
+
+  def get_config(self):
+    config = {
+        "bits":
+            self.bits,
+        "integer":
+            self.integer,
+        "symmetric":
+            self.symmetric,
+        "use_stochastic_rounding":
+            self.use_stochastic_rounding
+    }
+    return config
 
 
 class quantized_po2(object):  # pylint: disable=invalid-name
@@ -660,6 +790,23 @@ class quantized_po2(object):  # pylint: disable=invalid-name
     x_clipped = q_factor * tf.keras.backend.clip(x_log2, min_exp, max_exp)
     return x + tf.stop_gradient(-x + x_sign * pow(2.0, x_clipped))
 
+  @classmethod
+  def from_config(cls, config):
+    return cls(**config)
+
+  def get_config(self):
+    config = {
+        "bits":
+            self.bits,
+        "max_value":
+            self.max_value,
+        "use_stochastic_rounding":
+            self.use_stochastic_rounding,
+        "quadratic_approximation":
+            self.quadratic_approximation
+    }
+    return config
+
 
 class quantized_relu_po2(object):  # pylint: disable=invalid-name
   """Quantizes to the closest power of 2."""
@@ -711,6 +858,23 @@ class quantized_relu_po2(object):  # pylint: disable=invalid-name
         x_log2 = _round_through(tf.keras.backend.log(tf.abs(x) + eps) / log2)
     x_clipped = q_factor * tf.keras.backend.clip(x_log2, min_exp, max_exp)
     return x + tf.stop_gradient(-x + pow(2.0, x_clipped))
+
+  @classmethod
+  def from_config(cls, config):
+    return cls(**config)
+
+  def get_config(self):
+    config = {
+        "bits":
+            self.bits,
+        "max_value":
+            self.max_value,
+        "use_stochastic_rounding":
+            self.use_stochastic_rounding,
+        "quadratic_approximation":
+            self.quadratic_approximation
+    }
+    return config
 
 
 #
@@ -781,8 +945,11 @@ class Clip(Constraint):
 
     self.min_value = min_value
     self.max_value = max_value
-    self.constraint = constraint
-    self.quantizer = quantizer
+    self.constraint = constraints.get(constraint)
+    # Don't wrap yourself
+    if isinstance(self.constraint, Clip):
+      self.constraint = None
+    self.quantizer = get_quantizer(quantizer)
 
   def __call__(self, w):
     """Clips values between min and max values."""
@@ -819,6 +986,21 @@ def get_initializer(w_initializer, w_range):
       return initializers.RandomUniform(-w_range, w_range)
 
   return w_initializer
+
+
+def get_quantizer(identifier):
+  if identifier is None:
+    return None
+  if isinstance(identifier, dict):
+    return deserialize_keras_object(identifier,
+      module_objects=globals(),
+      printable_module_name='quantizer')
+  elif isinstance(identifier, six.string_types):
+    return safe_eval(identifier, globals())
+  elif callable(identifier):
+    return identifier
+  else:
+    raise ValueError('Could not interpret quantizer identifier: ' + str(identifier))
 
 
 #
@@ -864,38 +1046,26 @@ class QDense(Dense):
                **kwargs):
 
     self.kernel_range = kernel_range
-    self.bias_max = bias_range
+    self.bias_range = bias_range
 
     kernel_initializer = get_initializer(kernel_initializer, kernel_range)
     if kernel_quantizer:
       if kernel_constraint:
-        kernel_constraint = constraint.get(kernel_constraint)
+        kernel_constraint = constraints.get(kernel_constraint)
       kernel_constraint = Clip(-kernel_range, kernel_range, kernel_constraint,
                                kernel_quantizer)
 
     if bias_quantizer:
       if bias_constraint:
-        bias_constraint = constraint.get(bias_constraint)
+        bias_constraint = constraints.get(bias_constraint)
       bias_constraint = Clip(-bias_range, bias_range, bias_constraint,
                              bias_quantizer)
 
     self.kernel_quantizer = kernel_quantizer
     self.bias_quantizer = bias_quantizer
 
-    # using eval here is far from ideal. once I figure out another
-    # solution to the specification of these quantization functions,
-    # I will use them.
-
-    if isinstance(self.kernel_quantizer, six.string_types):
-      self.kernel_quantizer_internal = safe_eval(
-          self.kernel_quantizer, globals())
-    else:
-      self.kernel_quantizer_internal = self.kernel_quantizer
-
-    if isinstance(self.bias_quantizer, six.string_types):
-      self.bias_quantizer_internal = safe_eval(self.bias_quantizer, globals())
-    else:
-      self.bias_quantizer_internal = self.bias_quantizer
+    self.kernel_quantizer_internal = get_quantizer(self.kernel_quantizer)
+    self.bias_quantizer_internal = get_quantizer(self.bias_quantizer)
 
     self.quantizers = [
         self.kernel_quantizer_internal, self.bias_quantizer_internal
@@ -947,9 +1117,9 @@ class QDense(Dense):
         "use_bias":
             self.use_bias,
         "kernel_quantizer":
-            self.kernel_quantizer,
+            constraints.serialize(self.kernel_quantizer),
         "bias_quantizer":
-            self.bias_quantizer,
+            constraints.serialize(self.bias_quantizer),
         "kernel_initializer":
             initializers.serialize(self.kernel_initializer),
         "bias_initializer":
@@ -1020,20 +1190,8 @@ class QConv1D(Conv1D):
     self.kernel_range = kernel_range
     self.bias_range = bias_range
 
-    # using eval here is far from ideal. once I figure out another
-    # solution to the specification of these quantization functions,
-    # I will use them.
-
-    if isinstance(self.kernel_quantizer, six.string_types):
-      self.kernel_quantizer_internal = safe_eval(
-          self.kernel_quantizer, globals())
-    else:
-      self.kernel_quantizer_internal = self.kernel_quantizer
-
-    if isinstance(self.bias_quantizer, six.string_types):
-      self.bias_quantizer_internal = safe_eval(self.bias_quantizer, globals())
-    else:
-      self.bias_quantizer_internal = self.bias_quantizer
+    self.kernel_quantizer_internal = get_quantizer(self.kernel_quantizer)
+    self.bias_quantizer_internal = get_quantizer(self.bias_quantizer)
 
     self.quantizers = [
         self.kernel_quantizer_internal, self.bias_quantizer_internal
@@ -1103,8 +1261,8 @@ class QConv1D(Conv1D):
 
   def get_config(self):
     config = {
-        "kernel_quantizer": self.kernel_quantizer,
-        "bias_quantizer": self.bias_quantizer,
+        "kernel_quantizer": constraints.serialize(self.kernel_quantizer),
+        "bias_quantizer": constraints.serialize(self.bias_quantizer),
         "kernel_range": self.kernel_range,
         "bias_range": self.bias_range
     }
@@ -1162,20 +1320,8 @@ class QConv2D(Conv2D):
 
     kernel_initializer = get_initializer(kernel_initializer, kernel_range)
 
-    # using eval here is far from ideal. once I figure out another
-    # solution to the specification of these quantization functions,
-    # I will use them.
-
-    if isinstance(self.kernel_quantizer, six.string_types):
-      self.kernel_quantizer_internal = safe_eval(
-          self.kernel_quantizer, globals())
-    else:
-      self.kernel_quantizer_internal = self.kernel_quantizer
-
-    if isinstance(self.bias_quantizer, six.string_types):
-      self.bias_quantizer_internal = safe_eval(self.bias_quantizer, globals())
-    else:
-      self.bias_quantizer_internal = self.bias_quantizer
+    self.kernel_quantizer_internal = get_quantizer(self.kernel_quantizer)
+    self.bias_quantizer_internal = get_quantizer(self.bias_quantizer)
 
     self.quantizers = [
         self.kernel_quantizer_internal, self.bias_quantizer_internal
@@ -1246,8 +1392,8 @@ class QConv2D(Conv2D):
 
   def get_config(self):
     config = {
-        "kernel_quantizer": self.kernel_quantizer,
-        "bias_quantizer": self.bias_quantizer,
+        "kernel_quantizer": constraints.serialize(self.kernel_quantizer),
+        "bias_quantizer": constraints.serialize(self.bias_quantizer),
         "kernel_range": self.kernel_range,
         "bias_range": self.bias_range
     }
@@ -1335,20 +1481,8 @@ class QDepthwiseConv2D(DepthwiseConv2D):
     self.depthwise_range = depthwise_range
     self.bias_range = bias_range
 
-    # using eval here is far from ideal. once I figure out another
-    # solution to the specification of these quantization functions,
-    # I will use them.
-
-    if isinstance(self.depthwise_quantizer, six.string_types):
-      self.depthwise_quantizer_internal = safe_eval(
-          self.depthwise_quantizer, globals())
-    else:
-      self.depthwise_quantizer_internal = self.depthwise_quantizer
-
-    if isinstance(self.bias_quantizer, six.string_types):
-      self.bias_quantizer_internal = safe_eval(self.bias_quantizer, globals())
-    else:
-      self.bias_quantizer_internal = self.bias_quantizer
+    self.depthwise_quantizer_internal = get_quantizer(self.depthwise_quantizer)
+    self.bias_quantizer_internal = get_quantizer(self.bias_quantizer)
 
     self.quantizers = [
         self.depthwise_quantizer_internal, self.bias_quantizer_internal
@@ -1973,3 +2107,29 @@ def model_quantize(model,
         qlayer.set_weights(copy.deepcopy(layer.get_weights()))
 
   return qmodel, custom_objects
+
+
+def quantized_model_from_json(json_string, custom_objects=None):
+  if not custom_objects:
+    custom_objects = {}
+
+  # let's make a deep copy to make sure our objects are not shared elsewhere
+  custom_objects = copy.deepcopy(custom_objects)
+
+  custom_objects["QDense"] = QDense
+  custom_objects["QConv1D"] = QConv1D
+  custom_objects["QConv2D"] = QConv2D
+  custom_objects["QDepthwiseConv2D"] = QDepthwiseConv2D
+  custom_objects["QAveragePooling2D"] = QAveragePooling2D
+  custom_objects["QActivation"] = QActivation
+  
+  from .qnormalization import QBatchNormalization
+  custom_objects["QBatchNormalization"] = QBatchNormalization
+  
+  get_custom_objects()['Clip'] = Clip
+
+  qmodel = model_from_json(json_string, custom_objects=custom_objects)
+  
+  return qmodel
+  
+  
