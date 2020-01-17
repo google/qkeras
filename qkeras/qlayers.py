@@ -1117,9 +1117,9 @@ class QDense(Dense):
         "use_bias":
             self.use_bias,
         "kernel_quantizer":
-            constraints.serialize(self.kernel_quantizer),
+            constraints.serialize(self.kernel_quantizer_internal),
         "bias_quantizer":
-            constraints.serialize(self.bias_quantizer),
+            constraints.serialize(self.bias_quantizer_internal),
         "kernel_initializer":
             initializers.serialize(self.kernel_initializer),
         "bias_initializer":
@@ -1261,8 +1261,8 @@ class QConv1D(Conv1D):
 
   def get_config(self):
     config = {
-        "kernel_quantizer": constraints.serialize(self.kernel_quantizer),
-        "bias_quantizer": constraints.serialize(self.bias_quantizer),
+        "kernel_quantizer": constraints.serialize(self.kernel_quantizer_internal),
+        "bias_quantizer": constraints.serialize(self.bias_quantizer_internal),
         "kernel_range": self.kernel_range,
         "bias_range": self.bias_range
     }
@@ -1392,8 +1392,8 @@ class QConv2D(Conv2D):
 
   def get_config(self):
     config = {
-        "kernel_quantizer": constraints.serialize(self.kernel_quantizer),
-        "bias_quantizer": constraints.serialize(self.bias_quantizer),
+        "kernel_quantizer": constraints.serialize(self.kernel_quantizer_internal),
+        "bias_quantizer": constraints.serialize(self.bias_quantizer_internal),
         "kernel_range": self.kernel_range,
         "bias_range": self.bias_range
     }
@@ -1564,10 +1564,10 @@ class QDepthwiseConv2D(DepthwiseConv2D):
 
   def get_config(self):
     config = super(QDepthwiseConv2D, self).get_config()
-    config.pop("filters")
-    config.pop("kernel_initializer")
-    config.pop("kernel_regularizer")
-    config.pop("kernel_constraint")
+    config.pop("filters", None)
+    config.pop("kernel_initializer", None)
+    config.pop("kernel_regularizer", None)
+    config.pop("kernel_constraint", None)
     config["depth_multiplier"] = self.depth_multiplier
     config["depthwise_initializer"] = initializers.serialize(
         self.depthwise_initializer)
@@ -1576,8 +1576,9 @@ class QDepthwiseConv2D(DepthwiseConv2D):
     config["depthwise_constraint"] = constraints.serialize(
         self.depthwise_constraint)
     config["depthwise_quantizer"] = constraints.serialize(
-        self.depthwise_quantizer)
-    config["bias_quantizer"] = constraints.serialize(self.bias_quantizer)
+        self.depthwise_quantizer_internal)
+    config["bias_quantizer"] = constraints.serialize(
+        self.bias_quantizer_internal)
     config["depthwise_range"] = self.depthwise_range
     config["bias_range"] = self.bias_range
     return config
@@ -2122,11 +2123,21 @@ def quantized_model_from_json(json_string, custom_objects=None):
   custom_objects["QDepthwiseConv2D"] = QDepthwiseConv2D
   custom_objects["QAveragePooling2D"] = QAveragePooling2D
   custom_objects["QActivation"] = QActivation
-  
+  custom_objects["Clip"] = Clip
+  custom_objects["quantized_bits"] = quantized_bits
+  custom_objects["bernoulli"] = bernoulli
+  custom_objects["stochastic_ternary"] = stochastic_ternary
+  custom_objects["ternary"] = ternary
+  custom_objects["stochastic_binary"] = stochastic_binary
+  custom_objects["binary"] = binary
+  custom_objects["quantized_relu"] = quantized_relu
+  custom_objects["quantized_ulaw"] = quantized_ulaw
+  custom_objects["quantized_tanh"] = quantized_tanh
+  custom_objects["quantized_po2"] = quantized_po2
+  custom_objects["quantized_relu_po2"] = quantized_relu_po2
+
   from .qnormalization import QBatchNormalization
   custom_objects["QBatchNormalization"] = QBatchNormalization
-  
-  get_custom_objects()['Clip'] = Clip
 
   qmodel = model_from_json(json_string, custom_objects=custom_objects)
   

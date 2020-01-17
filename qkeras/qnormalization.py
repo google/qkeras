@@ -273,10 +273,14 @@ class QBatchNormalization(BatchNormalization):
         'epsilon': self.epsilon,
         'center': self.center,
         'scale': self.scale,
-        'beta_quantizer': constraints.serialize(self.beta_quantizer),
-        'gamma_quantizer': constraints.serialize(self.gamma_quantizer),
-        'mean_quantizer': constraints.serialize(self.mean_quantizer),
-        'variance_quantizer': constraints.serialize(self.variance_quantizer),
+        'beta_quantizer':
+            constraints.serialize(self.beta_quantizer_internal),
+        'gamma_quantizer':
+            constraints.serialize(self.gamma_quantizer_internal),
+        'mean_quantizer':
+            constraints.serialize(self.mean_quantizer_internal),
+        'variance_quantizer':
+            constraints.serialize(self.variance_quantizer_internal),
         'beta_initializer': initializers.serialize(self.beta_initializer),
         'gamma_initializer': initializers.serialize(self.gamma_initializer),
         'moving_mean_initializer':

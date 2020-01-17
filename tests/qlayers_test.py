@@ -23,9 +23,11 @@ from tensorflow.keras.layers import Activation
 from tensorflow.keras.layers import Flatten
 from tensorflow.keras.layers import Input
 from tensorflow.keras.models import Model
+from tensorflow.keras.backend import clear_session
 
 from qkeras import binary
 from qkeras import model_save_quantized_weights
+from qkeras import quantized_model_from_json
 from qkeras import QActivation
 from qkeras import QConv1D
 from qkeras import QConv2D
@@ -127,6 +129,11 @@ def test_qnetwork():
 
   model = Model(inputs=[x_in], outputs=[x])
 
+  # reload the model to ensure saving/loading works
+  json_string = model.to_json()
+  clear_session()
+  model = quantized_model_from_json(json_string)
+
   # generate same output for weights
 
   np.random.seed(42)
@@ -200,6 +207,11 @@ def test_qconv1d():
       name='qconv1d')(
           x)
   model = Model(inputs=x, outputs=y)
+
+  # reload the model to ensure saving/loading works
+  json_string = model.to_json()
+  clear_session()
+  model = quantized_model_from_json(json_string)
 
   for layer in model.layers:
     all_weights = []
