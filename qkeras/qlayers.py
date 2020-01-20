@@ -40,7 +40,7 @@ import copy
 import json
 import warnings
 
-import tensorflow as tf
+import tensorflow.compat.v2 as tf
 
 from tensorflow.keras import activations
 from tensorflow.keras import constraints
