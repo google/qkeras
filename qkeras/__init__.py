@@ -20,6 +20,8 @@
 from .b2t import *  # pylint: disable=wildcard-import
 from .estimate import *  # pylint: disable=wildcard-import
 from .qlayers import *  # pylint: disable=wildcard-import
+from .quantizers import *  # pylint: disable=wildcard-import
+from .qconvolutional import *  # pylint: disable=wildcard-import
 from .qnormalization import * # pylint: disable=wildcard-import
 from .qoctave import *  # pylint: disable=wildcard-import
 from .safe_eval import *  # pylint: disable=wildcard-import

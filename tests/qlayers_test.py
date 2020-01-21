@@ -25,16 +25,16 @@ from tensorflow.keras.layers import Input
 from tensorflow.keras.models import Model
 from tensorflow.keras.backend import clear_session
 
-from qkeras import binary
-from qkeras import model_save_quantized_weights
-from qkeras import quantized_model_from_json
 from qkeras import QActivation
+from qkeras import QDense
 from qkeras import QConv1D
 from qkeras import QConv2D
-from qkeras import QDense
 from qkeras import QSeparableConv2D
-from qkeras import quantized_bits
+from qkeras import binary
 from qkeras import ternary
+from qkeras import quantized_bits
+from qkeras.utils import model_save_quantized_weights
+from qkeras.utils import quantized_model_from_json
 
 
 # TODO(hzhuang, rxuniverse): qbatchnormalization tests cases.
