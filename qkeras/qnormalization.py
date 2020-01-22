@@ -36,6 +36,7 @@ import numpy as np
 import six
 
 from .qlayers import Clip
+from .qlayers import get_quantizer
 from .safe_eval import safe_eval
 
 
@@ -80,29 +81,10 @@ class QBatchNormalization(BatchNormalization):
     self.beta_range = beta_range
     self.gamma_range = gamma_range
 
-    if isinstance(self.beta_quantizer, six.string_types):
-      self.beta_quantizer_internal = safe_eval(
-          self.beta_quantizer, globals())
-    else:
-      self.beta_quantizer_internal = self.beta_quantizer
-
-    if isinstance(self.gamma_quantizer, six.string_types):
-      self.gamma_quantizer_internal = safe_eval(
-          self.gamma_quantizer, globals())
-    else:
-      self.gamma_quantizer_internal = self.gamma_quantizer
-
-    if isinstance(self.mean_quantizer, six.string_types):
-      self.mean_quantizer_internal = safe_eval(
-          self.mean_quantizer, globals())
-    else:
-      self.mean_quantizer_internal = self.mean_quantizer
-
-    if isinstance(self.variance_quantizer, six.string_types):
-      self.variance_quantizer_internal = safe_eval(
-          self.variance_quantizer, globals())
-    else:
-      self.variance_quantizer_internal = self.variance_quantizer
+    self.beta_quantizer_internal = get_quantizer(self.beta_quantizer)
+    self.gamma_quantizer_internal = get_quantizer(self.gamma_quantizer)
+    self.mean_quantizer_internal = get_quantizer(self.mean_quantizer)
+    self.variance_quantizer_internal = get_quantizer(self.variance_quantizer)
 
     self.quantizers = [
         self.gamma_quantizer_internal,
@@ -115,11 +97,13 @@ class QBatchNormalization(BatchNormalization):
       beta_constraint = Clip(-beta_range, beta_range)
     else:
       beta_constraint = None
+    kwargs.pop('beta_constraint', None)
 
     if scale and gamma_quantizer and gamma_range:
       gamma_constraint = Clip(-gamma_range, gamma_range)
     else:
       gamma_constraint = None
+    kwargs.pop('gamma_constraint', None)
 
     if kwargs.get('fused', None):
       warning.warn('batch normalization fused is disabled '
@@ -289,10 +273,14 @@ class QBatchNormalization(BatchNormalization):
         'epsilon': self.epsilon,
         'center': self.center,
         'scale': self.scale,
-        'beta_quantizer': self.beta_quantizer,
-        'gamma_quantizer': self.gamma_quantizer,
-        'mean_quantizer': self.mean_quantizer,
-        'variance_quantizer': self.variance_quantizer,
+        'beta_quantizer':
+            constraints.serialize(self.beta_quantizer_internal),
+        'gamma_quantizer':
+            constraints.serialize(self.gamma_quantizer_internal),
+        'mean_quantizer':
+            constraints.serialize(self.mean_quantizer_internal),
+        'variance_quantizer':
+            constraints.serialize(self.variance_quantizer_internal),
         'beta_initializer': initializers.serialize(self.beta_initializer),
         'gamma_initializer': initializers.serialize(self.gamma_initializer),
         'moving_mean_initializer':
