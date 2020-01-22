@@ -37,8 +37,6 @@ from qkeras import quantized_bits
 from qkeras import ternary
 
 
-# TODO(hzhuang, rxuniverse): qbatchnormalization tests cases.
-
 def qdense_util(layer_cls,
                 kwargs=None,
                 input_data=None,
