@@ -27,10 +27,10 @@ import numpy as np
 from .qlayers import QActivation
 from .qlayers import QDense
 from .qlayers import Clip
-from .qconvolutional import QAveragePooling2D
 from .qconvolutional import QConv1D
 from .qconvolutional import QConv2D
 from .qconvolutional import QDepthwiseConv2D
+from .qpooling import QAveragePooling2D
 from .quantizers import quantized_bits
 from .quantizers import bernoulli
 from .quantizers import stochastic_ternary

@@ -24,6 +24,7 @@ from .quantizers import *  # pylint: disable=wildcard-import
 from .qconvolutional import *  # pylint: disable=wildcard-import
 from .qnormalization import * # pylint: disable=wildcard-import
 from .qoctave import *  # pylint: disable=wildcard-import
+from .qpooling import *  # pylint: disable=wildcard-import
 from .safe_eval import *  # pylint: disable=wildcard-import
 
 __version__ = "0.6.0"

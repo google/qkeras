@@ -41,9 +41,9 @@ from .qlayers import QActivation
 from .qlayers import QDense
 from .qconvolutional import QConv1D
 from .qconvolutional import QConv2D
-from .qconvolutional import QAveragePooling2D
 from .qconvolutional import QDepthwiseConv2D
 from .qconvolutional import QSeparableConv2D
+from .qpooling import QAveragePooling2D
 from .quantizers import quantized_bits
 from .quantizers import quantized_relu
 from .quantizers import quantized_tanh

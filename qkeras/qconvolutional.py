@@ -22,7 +22,6 @@ from tensorflow.keras import initializers
 from tensorflow.keras import regularizers
 from tensorflow.keras.constraints import Constraint
 from tensorflow.keras.layers import Activation
-from tensorflow.keras.layers import AveragePooling2D
 from tensorflow.keras.layers import Conv1D
 from tensorflow.keras.layers import Conv2D
 from tensorflow.keras.layers import DepthwiseConv2D
@@ -615,31 +614,6 @@ def QSeparableConv2D(filters,  # pylint: disable=invalid-name
         x = activation(x)
       else:
         x = Activation(activation, name=name + "_pw_act")(x)
-    return x
-
-  return _call
-
-
-def QAveragePooling2D(  # pylint: disable=invalid-name
-    pool_size=(2, 2), strides=None, padding="valid", quantizer=None, **kwargs):
-  """Computes the quantized version of AveragePooling2D."""
-
-  # this is just a convenient layer, not being actually anything fancy. Just
-  # reminds us that we need to quantize average pooling before the next layer.
-
-  def _call(x):
-    """Performs inline call to AveragePooling followed by QActivation."""
-
-    x = AveragePooling2D(pool_size, strides, padding, **kwargs)(x)
-
-    if kwargs.get("name", None):
-      name = kwargs["name"] + "_act"
-    else:
-      name = None
-
-    if quantizer:
-      x = QActivation(quantizer, name=name)(x)
-
     return x
 
   return _call
