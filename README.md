@@ -58,6 +58,10 @@ MobileNet SeparableConv2D implementation)
 - QAveragePooling2D (in fact, an AveragePooling2D stacked with a 
 QActivation layer for quantization of the result)
 
+- QBatchNormalization (is still in its experimental stage, as we
+have not seen the need to use this yet due to the normalization 
+and regularization effects of stochastic activation functions.)
+
 - QOctaveConv2D
 
 It is worth noting that not all functionality is safe at this time to
@@ -66,13 +70,6 @@ wrappers. For example, Bidirectional layer wrappers are used with
 RNNs.  If this is required, we encourage users to use quantization
 functions invoked as strings instead of the actual functions as a way
 through this, but we may change that implementation in the future.
-
-QSeparableConv2D is implemented as a depthwise + pointwise quantized
-expansions, which is extended from the SeparableConv2D implementation
-of MobileNet. Finally, QBatchNormalization is still in its
-experimental stage, as we have not seen the need to use this yet due
-to the normalization and regularization effects of stochastic
-activation functions.
 
 A first attempt to create a safe mechanism in QKeras is the adoption
 of QActivation is a wrap-up that provides an encapsulation around the
