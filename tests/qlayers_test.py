@@ -37,8 +37,6 @@ from qkeras.utils import model_save_quantized_weights
 from qkeras.utils import quantized_model_from_json
 
 
-# TODO(hzhuang, rxuniverse): qbatchnormalization tests cases.
-
 def qdense_util(layer_cls,
                 kwargs=None,
                 input_data=None,

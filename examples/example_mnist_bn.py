@@ -37,15 +37,16 @@ from qkeras import *
 
 np.random.seed(42)
 
-TRAIN=1 # int(os.environ.get("TRAIN", 0)):
-NB_EPOCH = 2 # int(os.environ.get("EPOCHS",10))
+TRAIN = 1
+NB_EPOCH = 2
 BATCH_SIZE = 64
 VERBOSE = 1
 NB_CLASSES = 10
 OPTIMIZER = Adam(lr=0.0001)
 VALIDATION_SPLIT = 0.1
-WITH_BN = 1 # int(os.environ.get("WITH_BN",0))
-THRESHOLD = 0.1 # float(os.environ.get("THRESHOLD",0.1))
+WITH_BN = 1
+THRESHOLD = 0.1
+
 
 class LearningRateAdjuster(callbacks.Callback):
   def __init__(self):
