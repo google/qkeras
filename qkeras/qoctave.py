@@ -28,9 +28,9 @@ from tensorflow.keras.layers import Conv2D
 from tensorflow.keras.layers import SeparableConv2D
 from tensorflow.keras.layers import UpSampling2D
 from .qlayers import QActivation
-from .qlayers import QAveragePooling2D
-from .qlayers import QConv2D
-from .qlayers import QSeparableConv2D
+from .qconvolutional import QConv2D
+from .qconvolutional import QSeparableConv2D
+from .qpooling import QAveragePooling2D
 
 
 def GetActivationSuffix(activation):

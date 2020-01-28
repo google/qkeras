@@ -38,16 +38,16 @@ from tensorflow.keras.layers import InputLayer
 from tensorflow.keras.models import Model
 
 from .qlayers import QActivation
-from .qlayers import QAveragePooling2D
-from .qlayers import QConv1D
-from .qlayers import QConv2D
 from .qlayers import QDense
-from .qlayers import QDepthwiseConv2D
-from .qlayers import QSeparableConv2D
-from .qlayers import quantized_bits
-from .qlayers import quantized_relu
-from .qlayers import quantized_tanh
-from .qlayers import quantized_ulaw
+from .qconvolutional import QConv1D
+from .qconvolutional import QConv2D
+from .qconvolutional import QDepthwiseConv2D
+from .qconvolutional import QSeparableConv2D
+from .qpooling import QAveragePooling2D
+from .quantizers import quantized_bits
+from .quantizers import quantized_relu
+from .quantizers import quantized_tanh
+from .quantizers import quantized_ulaw
 
 
 def analyze_accumulator(model, x, verbose=False):
