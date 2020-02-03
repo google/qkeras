@@ -35,7 +35,7 @@ from qkeras import ternary
 from qkeras import quantized_bits
 from qkeras.utils import model_save_quantized_weights
 from qkeras.utils import quantized_model_from_json
-
+from qkeras import print_qstats
 
 def test_qnetwork():
   x = x_in = Input((28, 28, 1), name='input')
@@ -154,6 +154,9 @@ def test_qconv1d():
       name='qconv1d')(
           x)
   model = Model(inputs=x, outputs=y)
+
+  # Print qstats to make sure it works with Conv1D layer
+  print_qstats(model) 
 
   # reload the model to ensure saving/loading works
   json_string = model.to_json()
