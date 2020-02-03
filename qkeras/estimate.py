@@ -412,12 +412,12 @@ def extract_model_operations(model):
 
       weight = layer.get_weights()[0]
 
-      kernel_h, kernel_w, _, _ = weight.shape
+      kernel_length, _, _ = weight.shape
 
       number_of_operations = (
-          time_o * channels_o * kernel_h * kernel_w * channels_i)
+          time_o * channels_o * kernel_length * channels_i)
 
-      number_of_weights = (kernel_h * kernel_w * channels_o * channels_i)
+      number_of_weights = (kernel_length * channels_o * channels_i)
       number_of_bias = 0
       if len(layer.get_weights()) > 1:
         number_of_bias = layer.get_weights()[1].shape[0]
