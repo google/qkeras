@@ -58,7 +58,7 @@ def myadd2(a, b):
   return i_func(a) + i_func(b)
 
 
-def myadd(a=0, b=0):
+def myadd(a=32, b=10):
   return a + b
 
 
@@ -76,6 +76,9 @@ def test_safe_eval4():
   assert safe_eval("myadd2(a= 39)", globals(), b=3) == -42
   assert safe_eval("myadd2(a= 39, b = 3)", globals()) == -42
 
+def test_safe_eval5():
+  assert safe_eval("myadd", globals()) == 42
+  assert safe_eval("myadd()", globals()) == 42
 
 if __name__ == "__main__":
   pytest.main([__file__])

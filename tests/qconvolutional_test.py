@@ -30,8 +30,6 @@ from qkeras import QDense
 from qkeras import QConv1D
 from qkeras import QConv2D
 from qkeras import QSeparableConv2D
-from qkeras import binary
-from qkeras import ternary
 from qkeras import quantized_bits
 from qkeras.utils import model_save_quantized_weights
 from qkeras.utils import quantized_model_from_json
@@ -43,7 +41,7 @@ def test_qnetwork():
   x = QSeparableConv2D(
       32, (2, 2),
       strides=(2, 2),
-      depthwise_quantizer=binary(),
+      depthwise_quantizer="binary",
       pointwise_quantizer=quantized_bits(4, 0, 1),
       depthwise_activation=quantized_bits(6, 2, 1),
       bias_quantizer=quantized_bits(4, 0, 1),
@@ -53,7 +51,7 @@ def test_qnetwork():
   x = QConv2D(
       64, (3, 3),
       strides=(2, 2),
-      kernel_quantizer=ternary(),
+      kernel_quantizer="ternary",
       bias_quantizer=quantized_bits(4, 0, 1),
       name='conv2d_1_m')(
           x)
