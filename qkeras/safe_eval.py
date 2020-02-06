@@ -83,4 +83,4 @@ def safe_eval(eval_str, op_dict, *params, **kwparams):  # pylint: disable=invali
   if len(function_split) == 2 or args or kwargs:
     return quantizer(*args, **kwargs)
   else:
-    return quantizer
+    return quantizer()
