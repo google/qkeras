@@ -61,6 +61,9 @@ def myadd2(a, b):
 def myadd(a=32, b=10):
   return a + b
 
+class myaddcls(object):
+  def __call__(self, a=32, b=10):
+    return a + b
 
 def test_safe_eval2():
   s_add = [3, 39]
@@ -68,6 +71,7 @@ def test_safe_eval2():
 
 
 def test_safe_eval3():
+  assert safe_eval("myadd()", globals()) == 42
   assert safe_eval("myadd(a=39)", globals(), b=3) == 42
 
 
@@ -77,8 +81,9 @@ def test_safe_eval4():
   assert safe_eval("myadd2(a= 39, b = 3)", globals()) == -42
 
 def test_safe_eval5():
-  assert safe_eval("myadd", globals()) == 42
-  assert safe_eval("myadd()", globals()) == 42
+  assert safe_eval("myadd", globals())(3,39) == 42
+  assert safe_eval("myaddcls", globals())(3,39) == 42
+  assert safe_eval("myaddcls()", globals())(3,39) == 42
 
 if __name__ == "__main__":
   pytest.main([__file__])
