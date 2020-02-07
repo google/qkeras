@@ -33,7 +33,8 @@ from qkeras import QSeparableConv2D
 from qkeras import quantized_bits
 from qkeras.utils import model_save_quantized_weights
 from qkeras.utils import quantized_model_from_json
-
+from qkeras import print_qstats
+from qkeras import extract_model_operations
 
 def test_qnetwork():
   x = x_in = Input((28, 28, 1), name='input')
@@ -152,6 +153,15 @@ def test_qconv1d():
       name='qconv1d')(
           x)
   model = Model(inputs=x, outputs=y)
+
+  #Extract model operations
+  model_ops = extract_model_operations(model)
+
+  # Assertion about the number of operations for this Conv1D layer
+  assert model_ops['qconv1d']["number_of_operations"] == 32
+
+  # Print qstats to make sure it works with Conv1D layer
+  print_qstats(model) 
 
   # reload the model to ensure saving/loading works
   json_string = model.to_json()
