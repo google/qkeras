@@ -399,14 +399,9 @@ def model_quantize(model,
 
   return qmodel, custom_objects
 
+def _add_supported_quantized_objects(custom_objects):
 
-def quantized_model_from_json(json_string, custom_objects=None):
-  if not custom_objects:
-    custom_objects = {}
-
-  # let's make a deep copy to make sure our objects are not shared elsewhere
-  custom_objects = copy.deepcopy(custom_objects)
-
+  #Map all the quantized objects
   custom_objects["QDense"] = QDense
   custom_objects["QConv1D"] = QConv1D
   custom_objects["QConv2D"] = QConv2D
@@ -426,6 +421,17 @@ def quantized_model_from_json(json_string, custom_objects=None):
   custom_objects["quantized_tanh"] = quantized_tanh
   custom_objects["quantized_po2"] = quantized_po2
   custom_objects["quantized_relu_po2"] = quantized_relu_po2
+
+
+def quantized_model_from_json(json_string, custom_objects=None):
+  if not custom_objects:
+    custom_objects = {}
+
+
+  # let's make a deep copy to make sure our objects are not shared elsewhere
+  custom_objects = copy.deepcopy(custom_objects)
+
+  _add_supported_quantized_objects(custom_objects)
 
   qmodel = model_from_json(json_string, custom_objects=custom_objects)
 
@@ -462,25 +468,7 @@ def load_qmodel(filepath, custom_objects=None, compile = True):
   # let's make a deep copy to make sure our objects are not shared elsewhere
   custom_objects = copy.deepcopy(custom_objects)
     
-  custom_objects["QDense"] = QDense
-  custom_objects["QConv1D"] = QConv1D
-  custom_objects["QConv2D"] = QConv2D
-  custom_objects["QDepthwiseConv2D"] = QDepthwiseConv2D
-  custom_objects["QAveragePooling2D"] = QAveragePooling2D
-  custom_objects["QActivation"] = QActivation
-  custom_objects["QBatchNormalization"] = QBatchNormalization
-  custom_objects["Clip"] = Clip
-  custom_objects["quantized_bits"] = quantized_bits
-  custom_objects["bernoulli"] = bernoulli
-  custom_objects["stochastic_ternary"] = stochastic_ternary
-  custom_objects["ternary"] = ternary
-  custom_objects["stochastic_binary"] = stochastic_binary
-  custom_objects["binary"] = binary
-  custom_objects["quantized_relu"] = quantized_relu
-  custom_objects["quantized_ulaw"] = quantized_ulaw
-  custom_objects["quantized_tanh"] = quantized_tanh
-  custom_objects["quantized_po2"] = quantized_po2
-  custom_objects["quantized_relu_po2"] = quantized_relu_po2
+  _add_supported_quantized_objects(custom_objects)
     
   qmodel = tf.keras.models.load_model(filepath, custom_objects=custom_objects, compile = compile)
     
