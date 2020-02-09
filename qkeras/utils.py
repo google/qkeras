@@ -401,7 +401,7 @@ def model_quantize(model,
 
 def _add_supported_quantized_objects(custom_objects):
 
-  #Map all the quantized objects
+  # Map all the quantized objects
   custom_objects["QDense"] = QDense
   custom_objects["QConv1D"] = QConv1D
   custom_objects["QConv2D"] = QConv2D
@@ -427,7 +427,6 @@ def quantized_model_from_json(json_string, custom_objects=None):
   if not custom_objects:
     custom_objects = {}
 
-
   # let's make a deep copy to make sure our objects are not shared elsewhere
   custom_objects = copy.deepcopy(custom_objects)
 
@@ -437,7 +436,7 @@ def quantized_model_from_json(json_string, custom_objects=None):
 
   return qmodel
 
-def load_qmodel(filepath, custom_objects=None, compile = True):
+def load_qmodel(filepath, custom_objects=None, compile=True):
   """
   Load quantized model from Keras's model.save() h5 file.
 
@@ -470,6 +469,6 @@ def load_qmodel(filepath, custom_objects=None, compile = True):
     
   _add_supported_quantized_objects(custom_objects)
     
-  qmodel = tf.keras.models.load_model(filepath, custom_objects=custom_objects, compile = compile)
+  qmodel = tf.keras.models.load_model(filepath, custom_objects=custom_objects, compile=compile)
     
   return qmodel
