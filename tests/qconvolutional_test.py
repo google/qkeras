@@ -31,10 +31,16 @@ from qkeras import QConv1D
 from qkeras import QConv2D
 from qkeras import QSeparableConv2D
 from qkeras import quantized_bits
+from qkeras import quantized_relu
 from qkeras.utils import model_save_quantized_weights
 from qkeras.utils import quantized_model_from_json
 from qkeras import print_qstats
 from qkeras import extract_model_operations
+
+
+# TODO:
+#   qoctave_conv test
+#   qbatchnorm test
 
 def test_qnetwork():
   x = x_in = Input((28, 28, 1), name='input')
@@ -53,9 +59,9 @@ def test_qnetwork():
       strides=(2, 2),
       kernel_quantizer="ternary",
       bias_quantizer=quantized_bits(4, 0, 1),
-      name='conv2d_1_m')(
+      name='conv2d_1_m',
+      activation=quantized_relu(6, 3, 1))(
           x)
-  x = QActivation('quantized_relu(6, 3, 1)', name='act1_m')(x)
   x = QConv2D(
       64, (2, 2),
       strides=(2, 2),
@@ -197,7 +203,6 @@ def test_qconv1d():
                 [[-4.99, 1.139], [-2.559, -1.216], [-2.285, 1.905],
                  [-2.652, -0.467]]]).astype(np.float16)
   assert np.all(p == y)
-
 
 
 if __name__ == '__main__':
