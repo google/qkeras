@@ -84,6 +84,8 @@ def safe_eval(eval_str, op_dict, *params, **kwparams):  # pylint: disable=invali
     return quantizer(*args, **kwargs)
   else:
     if isinstance(quantizer, type):
+      # Check if quantizer is a class
       return quantizer()
     else:
+      # Otherwise it is a function, so just return it
       return quantizer
