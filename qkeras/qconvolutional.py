@@ -117,10 +117,7 @@ class QConv1D(Conv1D):
 
   def call(self, inputs):
     if self.kernel_quantizer:
-      if isinstance(self.kernel_quantizer, QActivation):
-        quantized_kernel = self.kernel_quantizer_internal(self.kernel)
-      else:
-        quantized_kernel = self.kernel_quantizer_internal(self.kernel)
+      quantized_kernel = self.kernel_quantizer_internal(self.kernel)
     else:
       quantized_kernel = self.kernel
 
@@ -134,10 +131,7 @@ class QConv1D(Conv1D):
 
     if self.use_bias:
       if self.bias_quantizer:
-        if isinstance(self.bias_quantizer, QActivation):
-          quantized_bias = self.bias_quantizer_internal(self.bias)
-        else:
-          quantized_bias = self.bias_quantizer_internal(self.bias)
+        quantized_bias = self.bias_quantizer_internal(self.bias)
       else:
         quantized_bias = self.bias
 
@@ -248,10 +242,7 @@ class QConv2D(Conv2D):
 
   def call(self, inputs):
     if self.kernel_quantizer:
-      if isinstance(self.kernel_quantizer, QActivation):
-        quantized_kernel = self.kernel_quantizer_internal(self.kernel)
-      else:
-        quantized_kernel = self.kernel_quantizer_internal(self.kernel)
+      quantized_kernel = self.kernel_quantizer_internal(self.kernel)
     else:
       quantized_kernel = self.kernel
 
@@ -265,10 +256,7 @@ class QConv2D(Conv2D):
 
     if self.use_bias:
       if self.bias_quantizer:
-        if isinstance(self.bias_quantizer, QActivation):
-          quantized_bias = self.bias_quantizer_internal(self.bias)
-        else:
-          quantized_bias = self.bias_quantizer_internal(self.bias)
+        quantized_bias = self.bias_quantizer_internal(self.bias)
       else:
         quantized_bias = self.bias
 
@@ -416,11 +404,7 @@ class QDepthwiseConv2D(DepthwiseConv2D):
 
   def call(self, inputs, training=None):
     if self.depthwise_quantizer:
-      if isinstance(self.depthwise_quantizer, QActivation):
-        quantized_depthwise_kernel = (
-            self.depthwise_quantizer_internal(self.depthwise_kernel))
-      else:
-        quantized_depthwise_kernel = (
+      quantized_depthwise_kernel = (
             self.depthwise_quantizer_internal(self.depthwise_kernel))
     else:
       quantized_depthwise_kernel = self.depthwise_kernel
@@ -434,20 +418,14 @@ class QDepthwiseConv2D(DepthwiseConv2D):
 
     if self.bias:
       if self.bias_quantizer:
-        if isinstance(self.bias_quantizer, QActivation):
-          quantized_bias = self.bias_quantizer_internal(self.bias)
-        else:
-          quantized_bias = self.bias_quantizer_internal(self.bias)
+        quantized_bias = self.bias_quantizer_internal(self.bias)
       else:
         quantized_bias = self.bias
       outputs = tf.keras.backend.bias_add(
           outputs, quantized_bias, data_format=self.data_format)
 
     if self.activation is not None:
-      if isinstance(self.activation, QActivation):
-        return self.activation(outputs)
-      else:
-        return self.activation(outputs)
+      return self.activation(outputs)
 
     return outputs
 

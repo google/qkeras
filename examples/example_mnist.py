@@ -34,6 +34,8 @@ from tensorflow.keras.optimizers import SGD
 from tensorflow.keras.utils import to_categorical
 
 from qkeras import *
+from qkeras.utils import model_save_quantized_weights
+
 
 import numpy as np
 import tensorflow.compat.v1 as tf

@@ -187,7 +187,8 @@ class QDense(Dense):
     self.kernel_range = kernel_range
     self.bias_range = bias_range
 
-    kernel_initializer = get_quantized_initializer(kernel_initializer, kernel_range)
+    kernel_initializer = get_quantized_initializer(kernel_initializer,
+                                                   kernel_range)
     if kernel_quantizer:
       if kernel_constraint:
         kernel_constraint = constraints.get(kernel_constraint)
@@ -283,4 +284,3 @@ class QDense(Dense):
 
   def get_quantizers(self):
     return self.quantizers
-
