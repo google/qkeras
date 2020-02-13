@@ -15,6 +15,8 @@
 # ==============================================================================
 """Test layers from qconvolutional.py."""
 
+import os
+import tempfile
 import numpy as np
 from numpy.testing import assert_allclose
 import pytest
@@ -34,6 +36,7 @@ from qkeras import quantized_bits
 from qkeras import quantized_relu
 from qkeras.utils import model_save_quantized_weights
 from qkeras.utils import quantized_model_from_json
+from qkeras.utils import load_qmodel
 from qkeras import print_qstats
 from qkeras import extract_model_operations
 
@@ -186,6 +189,18 @@ def test_qconv1d():
           10.0 * np.random.normal(0.0, np.sqrt(2.0 / input_size), shape))
     if all_weights:
       layer.set_weights(all_weights)
+    
+  # Save the model as an h5 file using Keras's model.save()
+  fd, fname = tempfile.mkstemp('.h5')
+  model.save(fname)
+  del model  # Delete the existing model
+
+  # Returns a compiled model identical to the previous one
+  model = load_qmodel(fname)
+
+  #Clean the created h5 file after loading the model
+  os.close(fd)
+  os.remove(fname)
 
   # apply quantizer to weights
   model_save_quantized_weights(model)
