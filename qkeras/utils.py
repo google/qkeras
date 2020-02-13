@@ -399,14 +399,9 @@ def model_quantize(model,
 
   return qmodel, custom_objects
 
+def _add_supported_quantized_objects(custom_objects):
 
-def quantized_model_from_json(json_string, custom_objects=None):
-  if not custom_objects:
-    custom_objects = {}
-
-  # let's make a deep copy to make sure our objects are not shared elsewhere
-  custom_objects = copy.deepcopy(custom_objects)
-
+  # Map all the quantized objects
   custom_objects["QDense"] = QDense
   custom_objects["QConv1D"] = QConv1D
   custom_objects["QConv2D"] = QConv2D
@@ -427,6 +422,53 @@ def quantized_model_from_json(json_string, custom_objects=None):
   custom_objects["quantized_po2"] = quantized_po2
   custom_objects["quantized_relu_po2"] = quantized_relu_po2
 
+
+def quantized_model_from_json(json_string, custom_objects=None):
+  if not custom_objects:
+    custom_objects = {}
+
+  # let's make a deep copy to make sure our objects are not shared elsewhere
+  custom_objects = copy.deepcopy(custom_objects)
+
+  _add_supported_quantized_objects(custom_objects)
+
   qmodel = model_from_json(json_string, custom_objects=custom_objects)
 
+  return qmodel
+
+def load_qmodel(filepath, custom_objects=None, compile=True):
+  """
+  Load quantized model from Keras's model.save() h5 file.
+
+  # Arguments:
+        filepath: one of the following:
+                  - string, path to the saved model
+                  - h5py.File or h5py.Group object from which to load the model
+                  - any file-like object implementing the method `read` that returns
+                  `bytes` data (e.g. `io.BytesIO`) that represents a valid h5py file image.
+        custom_objects: Optional dictionary mapping names
+                  (strings) to custom classes or functions to be
+                  considered during deserialization.
+        compile: Boolean, whether to compile the model
+                  after loading.
+  
+  # Returns
+        A Keras model instance. If an optimizer was found
+        as part of the saved model, the model is already
+        compiled. Otherwise, the model is uncompiled and
+        a warning will be displayed. When `compile` is set
+        to False, the compilation is omitted without any
+        warning.
+  """
+
+  if not custom_objects:
+    custom_objects = {}
+
+  # let's make a deep copy to make sure our objects are not shared elsewhere
+  custom_objects = copy.deepcopy(custom_objects)
+    
+  _add_supported_quantized_objects(custom_objects)
+    
+  qmodel = tf.keras.models.load_model(filepath, custom_objects=custom_objects, compile=compile)
+    
   return qmodel
