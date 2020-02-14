@@ -28,6 +28,7 @@ from tensorflow.keras.layers import DepthwiseConv2D
 from tensorflow.keras.layers import Dropout
 from tensorflow.keras.layers import InputSpec
 from tensorflow.keras.layers import Layer
+from tensorflow_model_optimization.python.core.sparsity.keras.prunable_layer import PrunableLayer
 
 from .qlayers import Clip
 from .qlayers import QActivation
@@ -35,7 +36,7 @@ from .quantizers import get_quantizer
 from .quantizers import get_quantized_initializer
 
 
-class QConv1D(Conv1D):
+class QConv1D(Conv1D, PrunableLayer):
   """1D convolution layer (e.g. spatial convolution over images)."""
 
   # most of these parameters follow the implementation of Conv1D in Keras,
@@ -155,8 +156,11 @@ class QConv1D(Conv1D):
   def get_quantizers(self):
     return self.quantizers
 
+  def get_prunable_weights(self):
+    return [self.kernel]
 
-class QConv2D(Conv2D):
+
+class QConv2D(Conv2D, PrunableLayer):
   """2D convolution layer (e.g. spatial convolution over images)."""
 
   # most of these parameters follow the implementation of Conv2D in Keras,
@@ -280,8 +284,11 @@ class QConv2D(Conv2D):
   def get_quantizers(self):
     return self.quantizers
 
+  def get_prunable_weights(self):
+    return [self.kernel]
 
-class QDepthwiseConv2D(DepthwiseConv2D):
+
+class QDepthwiseConv2D(DepthwiseConv2D, PrunableLayer):
   """Creates quantized depthwise conv2d. Copied from mobilenet."""
 
   # most of these parameters follow the implementation of DepthwiseConv2D
@@ -452,6 +459,9 @@ class QDepthwiseConv2D(DepthwiseConv2D):
 
   def get_quantizers(self):
     return self.quantizers
+
+  def get_prunable_weights(self):
+    return []
 
 
 def QSeparableConv2D(filters,  # pylint: disable=invalid-name
