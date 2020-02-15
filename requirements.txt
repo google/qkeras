@@ -8,3 +8,4 @@ pyasn1<0.5.0,>=0.4.6
 requests<3,>=2.21.0
 pyparsing
 pytest>=4.6.9
+tensorflow-model-optimization>=0.2.1
