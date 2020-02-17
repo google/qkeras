@@ -34,11 +34,11 @@ from qkeras import QDense
 from qkeras import QConv2D
 from qkeras import quantized_bits
 from qkeras.utils import load_qmodel
+from qkeras.utils import print_model_sparsity
 
 from tensorflow_model_optimization.python.core.sparsity.keras import prune
 from tensorflow_model_optimization.python.core.sparsity.keras import pruning_callbacks
 from tensorflow_model_optimization.python.core.sparsity.keras import pruning_schedule
-from tensorflow_model_optimization.python.core.sparsity.keras import pruning_wrapper
 
 
 batch_size = 128
@@ -114,27 +114,6 @@ def build_layerwise_model(input_shape, **pruning_params):
             **pruning_params),
         Activation("softmax", name="softmax")
   ])
-
-
-def print_model_sparsity(pruned_model):
-    """Prints sparsity for the pruned layers in the model."""
-
-    def _get_sparsity(weights):
-        return 1.0 - np.count_nonzero(weights) / float(weights.size)
-
-    print("Model Sparsity Summary ({})".format(pruned_model.name))
-    print("--")
-    for layer in pruned_model.layers:
-        if isinstance(layer, pruning_wrapper.PruneLowMagnitude):
-            prunable_weights = layer.layer.get_prunable_weights()
-            if prunable_weights:
-                print("{}: {}".format(
-                    layer.name, ", ".join([
-                        "({}, {})".format(weight.name,
-                            str(_get_sparsity(K.get_value(weight))))
-                        for weight in prunable_weights
-                    ])))
-    print("\n")
 
 
 def train_and_save(model, x_train, y_train, x_test, y_test):
