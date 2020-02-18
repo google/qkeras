@@ -83,4 +83,9 @@ def safe_eval(eval_str, op_dict, *params, **kwparams):  # pylint: disable=invali
   if len(function_split) == 2 or args or kwargs:
     return quantizer(*args, **kwargs)
   else:
-    return quantizer()
+    if isinstance(quantizer, type):
+      # Check if quantizer is a class
+      return quantizer()
+    else:
+      # Otherwise it is a function, so just return it
+      return quantizer
