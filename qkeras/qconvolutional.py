@@ -269,10 +269,14 @@ class QConv2D(Conv2D):
 
   def get_config(self):
     config = {
-        "kernel_quantizer": constraints.serialize(self.kernel_quantizer_internal),
-        "bias_quantizer": constraints.serialize(self.bias_quantizer_internal),
-        "kernel_range": self.kernel_range,
-        "bias_range": self.bias_range
+        "kernel_quantizer":
+            constraints.serialize(self.kernel_quantizer_internal),
+        "bias_quantizer":
+            constraints.serialize(self.bias_quantizer_internal),
+        "kernel_range":
+            self.kernel_range,
+        "bias_range":
+            self.bias_range
     }
     base_config = super(QConv2D, self).get_config()
     return dict(list(base_config.items()) + list(config.items()))
@@ -405,7 +409,7 @@ class QDepthwiseConv2D(DepthwiseConv2D):
   def call(self, inputs, training=None):
     if self.depthwise_quantizer:
       quantized_depthwise_kernel = (
-            self.depthwise_quantizer_internal(self.depthwise_kernel))
+          self.depthwise_quantizer_internal(self.depthwise_kernel))
     else:
       quantized_depthwise_kernel = self.depthwise_kernel
     outputs = tf.keras.backend.depthwise_conv2d(
@@ -595,4 +599,3 @@ def QSeparableConv2D(filters,  # pylint: disable=invalid-name
     return x
 
   return _call
-
