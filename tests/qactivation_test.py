@@ -29,11 +29,9 @@ from qkeras import quantized_relu_po2
 from qkeras import smooth_sigmoid
 from qkeras import ternary
 
-
 @pytest.mark.parametrize(
-    ('bits, max_value, use_stochastic_rounding, quadratic_approximation,'
-     'test_values, expected_values'),
-    [
+    'bits, max_value, use_stochastic_rounding, quadratic_approximation, ' +
+    'test_values, expected_values', [
         # bits=4 without max_value. Therefore the max exponent is 4 when
         # quadratic approximiation is enabled. The max and min values from this
         # quantization function are 16 and -16 respectively.
@@ -60,22 +58,64 @@ from qkeras import ternary
             np.array([[-7, -0.12, -0.03, 0.01, 5]], dtype=K.floatx()),
             np.array([[-0.5, -0.125, -0.0625, 0.0625, 0.5]], dtype=K.floatx()),
         ),
+        (8, None, 0, 0,
+         np.array(
+             [[-3, -2, -1.5, -0.5, -0.033, 0.5, 0.667, 1, 1.5, 4, 10]],
+             dtype=K.floatx()),
+         np.array(
+             [[-4, -2, -2, -0.5, -0.03125, 0.5, 0.5, 1, 2, 4, 8]],
+             dtype=K.floatx()),
+        ),
+        (4, None, 0, 0,
+         np.array(
+             [[-16, -7, -0.12, -0.03, 0, 0.01, 5, 10]],
+             dtype=K.floatx()),
+         np.array(
+             [[-8, -8, -0.125, -0.0625, 0.0625, 0.0625, 4, 8]],
+             dtype=K.floatx()),
+        ),
+        (3, 0.5, 0, 0,
+         np.array([[-7, -0.12, -0.03, 0.01, 5]], dtype=K.floatx()),
+         np.array([[-0.5, -0.125, -0.0625, 0.0625, 0.5]], dtype=K.floatx()),
+        ),
+        (4, 4, 0, 0,
+         np.array([[-7, -0.12, -0.03, 0, 0.01, 5]], dtype=K.floatx()),
+         np.array([[-4, -0.125, -0.0625, 0.0625, 0.0625, 4]], dtype=K.floatx()),
+        ),
+        (4, None, 0, 1,
+         np.array(
+             [[0.01, 0.03, 0.06, 0.5, 1, 2, 5, 10, 16, 32]],
+             dtype=K.floatx()),
+         np.array(
+             [[0.015625, 0.015625, 0.0625, 0.25, 1, 1, 4, 16, 16, 16]],
+             dtype=K.floatx()),
+        ),
+        (4, None, 0, 1,
+         np.array(
+             [[-32, -16, -10, -5, -2, -1, -0.5, -0.03, -0.01]],
+             dtype=K.floatx()),
+         np.array(
+             [[-16, -16, -16, -4, -1, -1, -0.25, -0.015625, -0.015625]],
+             dtype=K.floatx()),
+        ),
     ])
-def test_quantized_po2(bits, max_value, use_stochastic_rounding,
-                       quadratic_approximation, test_values, expected_values):
+def test_quantized_po2(bits,
+                       max_value,
+                       use_stochastic_rounding,
+                       quadratic_approximation,
+                       test_values,
+                       expected_values):
   """Test quantized_po2 function."""
   x = K.placeholder(ndim=2)
-  f = K.function([x], [
-      quantized_po2(bits, max_value, use_stochastic_rounding,
-                    quadratic_approximation)(x)
-  ])
+  f = K.function([x], [quantized_po2(bits, max_value, use_stochastic_rounding,
+                                     quadratic_approximation)(x)])
   result = f([test_values])[0]
-  assert_allclose(result, expected_values, rtol=1e-05)
+  assert_allclose(result, expected_values, rtol=1e-05, atol=1e-05)
 
 
 @pytest.mark.parametrize(
-    ('bits, max_value, use_stochastic_rounding, quadratic_approximation,'
-     'test_values, expected_values'),
+    'bits, max_value, use_stochastic_rounding, quadratic_approximation, ' +
+    'test_values, expected_values',
     [
         # bits=3 without max_value. Therefore the max exponent is 4 when
         # quadratic approximiation is enabled. The max value from this
@@ -99,19 +139,55 @@ def test_quantized_po2(bits, max_value, use_stochastic_rounding,
         (3, 4, 0, 0,
          np.array([[-7.0, -0.12, -0.03, 0, 0.01, 5.0]], dtype=K.floatx()),
          np.array([[0.0625, 0.0625, 0.0625, 0.0625, 0.0625, 4.0]],
-                  dtype=K.floatx())),
+                  dtype=K.floatx())
+        ),
+
+        (8, None, 0, 0,
+         np.array([[-0.033, 0.5, 0.667, 1, 1.5, 4, 10]], dtype=K.floatx()),
+         np.array([[2**(-2**7), 0.5, 0.5, 1, 2, 4, 8]], dtype=K.floatx()),
+        ),
+        (3, None, 0, 0,
+         np.array(
+             [[-16.0, -7.0, -0.12, -0.03, 0, 0.01, 5.0, 10.0]],
+             dtype=K.floatx()),
+         np.array(
+             [[0.0625, 0.0625, 0.0625, 0.0625, 0.0625, 0.0625, 4.0, 8.0]],
+             dtype=K.floatx()),
+        ),
+        (2, 0.5, 0, 0,
+         np.array([[-7.0, -0.12, -0.03, 0.01, 5.0]], dtype=K.floatx()),
+         np.array([[0.0625, 0.0625, 0.0625, 0.0625, 0.5]], dtype=K.floatx()),
+        ),
+        (3, 4, 0, 0,
+         np.array(
+             [[-7.0, -0.12, -0.03, 0, 0.01, 5.0]],
+             dtype=K.floatx()),
+         np.array(
+             [[0.0625, 0.0625, 0.0625, 0.0625, 0.0625, 4.0]],
+             dtype=K.floatx()),
+        ),
+        (3, None, 0, 1,
+         np.array(
+             [[0.01, 0.03, 0.06, 0.5, 1, 2, 5, 10, 16, 32]],
+             dtype=K.floatx()),
+         np.array(
+             [[0.015625, 0.015625, 0.0625, 0.25, 1, 1, 4, 16, 16, 16]],
+             dtype=K.floatx()),
+        ),
     ])
-def test_quantized_relu_po2(bits, max_value, use_stochastic_rounding,
-                            quadratic_approximation, test_values,
+def test_quantized_relu_po2(bits,
+                            max_value,
+                            use_stochastic_rounding,
+                            quadratic_approximation,
+                            test_values,
                             expected_values):
   """Test quantized_po2 function."""
   x = K.placeholder(ndim=2)
-  f = K.function([x], [
-      quantized_relu_po2(bits, max_value, use_stochastic_rounding,
-                         quadratic_approximation)(x)
-  ])
+  f = K.function([x],
+                 [quantized_relu_po2(bits, max_value, use_stochastic_rounding,
+                                     quadratic_approximation)(x)])
   result = f([test_values])[0]
-  assert_allclose(result, expected_values, rtol=1e-05, atol=1e-5)
+  assert_allclose(result, expected_values, rtol=1e-05, atol=1e-05)
 
 
 def test_smooth_sigmoid():
