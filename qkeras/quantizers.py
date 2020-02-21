@@ -683,70 +683,168 @@ class quantized_tanh(object):  # pylint: disable=invalid-name
 
   def get_config(self):
     config = {
-        "bits":
-            self.bits,
-        "integer":
-            self.integer,
-        "symmetric":
-            self.symmetric,
-        "use_stochastic_rounding":
-            self.use_stochastic_rounding
+        "bits": self.bits,
+        "integer": self.integer,
+        "symmetric": self.symmetric,
+        "use_stochastic_rounding": self.use_stochastic_rounding
     }
     return config
 
 
+def _clip_power_of_two(x_abs,
+                       min_exp,
+                       max_exp,
+                       quadratic_approximation=False,
+                       use_stochastic_rounding=False):
+  """Clips a tensor using power-of-two quantizer.
+
+
+  Args:
+    x_abs: A tensor object. Its elements should be non-negative.
+    min_exp: An integer representing the smallest exponent.
+    max_exp: An integer representing the largest exponent.
+    quadratic_approximation: An boolean representing whether the quadratic
+      approximation is applied.
+    use_stochastic_rounding: An boolean representing whether the stochastic
+      rounding method is applied.
+
+  Returns:
+    A tensor object, the values are clipped by min_exp and max_exp.
+  """
+
+  eps = tf.keras.backend.epsilon()
+  log2 = np.log(2.0)
+  # if quadratic_approximation is True, round to the exponent for sqrt(x),
+  # so that the return value can be divided by two without remainder.
+  x_eps_pad = tf.where(x_abs < eps, eps, x_abs)
+
+  def power_of_two_clip(x_abs, min_exp, max_exp, quadratic_approximation,
+                        use_stochastic_rounding):
+    if quadratic_approximation:
+      q_factor = 2.0
+    else:
+      q_factor = 1.0
+    if use_stochastic_rounding:
+      if quadratic_approximation:
+        x_log2 = stochastic_round_po2(tf.sqrt(x_abs))
+      else:
+        x_log2 = stochastic_round_po2(x_abs)
+    else:
+      if quadratic_approximation:
+        x_log2 = _round_through(tf.keras.backend.log(tf.sqrt(x_abs)) / log2)
+      else:
+        x_log2 = _round_through(tf.keras.backend.log(x_abs) / log2)
+    x_clipped = q_factor * tf.keras.backend.clip(x_log2, min_exp, max_exp)
+    return x_clipped
+
+  x_clipped = tf.where(
+      x_abs < eps,
+      tf.ones_like(x_abs) * min_exp,
+      power_of_two_clip(x_eps_pad, min_exp, max_exp, quadratic_approximation,
+                        use_stochastic_rounding))
+
+  return x_clipped
+
+
+def _need_exponent_sign_bit_check(max_value):
+  """Checks whether the sign bit of exponent is needed.
+
+  This is used by quantized_po2 and quantized_relu_po2.
+
+  Args:
+    max_value: the maximum value allowed.
+
+  Returns:
+    An integer. 1: sign_bit is needed. 0: sign_bit is not needed.
+  """
+
+  if max_value is not None:
+    if max_value < 0:
+      raise ValueError("po2 max_value should be non-negative.")
+    if max_value > 1:
+      # if max_value is larger than 1,
+      #   the exponent could be positive and negative.
+      #   e.g., log(max_value) > 0 when max_value > 1
+      need_exponent_sign_bit = 1
+    else:
+      need_exponent_sign_bit = 0
+  else:
+    # max_value is not specified, so we cannot decide the range.
+    # Then we need to put sign_bit for exponent to be safe
+    need_exponent_sign_bit = 1
+  return need_exponent_sign_bit
+
+
+def _get_min_max_exponents(non_sign_bits, need_exponent_sign_bit,
+                           quadratic_approximation):
+  """Given a bitwidth, gets min and max exponents that it can represent.
+
+  Args:
+    non_sign_bits: An integer representing the bitwidth of the exponent.
+    need_exponent_sign_bit: An integer representing whether it needs sign bit
+      in exponent. (1: need sign bit. 0: sign bit is not needed.)
+    quadratic_approximation: A boolean representing whether the quadratic
+      approximiation method is enforced.
+
+  Returns:
+    A tuple of integers: min_exp, max_exp
+  """
+
+  effect_bits = non_sign_bits - need_exponent_sign_bit
+  if quadratic_approximation:
+    if effect_bits % 2:
+      effect_bits = effect_bits - 1
+    min_exp = -2**(effect_bits)
+    max_exp = 2**(effect_bits)
+  else:
+    min_exp = -2**(effect_bits)
+    max_exp = 2**(effect_bits) - 1
+  return min_exp, max_exp
+
+
 class quantized_po2(object):  # pylint: disable=invalid-name
-  """Quantizes to the closest power of 2."""
+  """Quantizes to the closest power of 2.
+
+  Attributes:
+    bits: An integer, the bits allocated for the exponent, its sign and the sign
+      of x.
+    max_value: default is None, or a non-negative value to put a constraint for
+      the max value.
+    use_stochastic_rounding: A boolean, default is False, if True, it uses
+      stochastic rounding and forces the mean of x to be x statstically.
+    quadratic_approximation: A boolean, default is False if True, it forces the
+      exponent to be even number that closted to x.
+  """
 
   def __init__(self,
                bits=8,
-               max_value=-1,
+               max_value=None,
                use_stochastic_rounding=False,
                quadratic_approximation=False):
     self.bits = bits
     self.max_value = max_value
     self.use_stochastic_rounding = use_stochastic_rounding
-
-    # if True, round to the exponent for sqrt(x),
-    # so that the return value can be divided by two without remainder.
     self.quadratic_approximation = quadratic_approximation
 
   def __call__(self, x):
-
-    need_exponent_sign_bit = (self.max_value > 1)
+    need_exponent_sign_bit = _need_exponent_sign_bit_check(self.max_value)
     non_sign_bits = self.bits - 1
-    min_exp = -2**(non_sign_bits - need_exponent_sign_bit)
-    max_exp = 2**(non_sign_bits - need_exponent_sign_bit) - 1
+    min_exp, max_exp = _get_min_max_exponents(non_sign_bits,
+                                              need_exponent_sign_bit,
+                                              self.quadratic_approximation)
     eps = tf.keras.backend.epsilon()
     if min_exp < np.log2(eps):
       warnings.warn(
-          "QKeras: min_exp in po2 quantizer is smaller than tf.epsilon()")
-
-    if self.max_value != -1:
-      max_exp = np.round(np.log2(self.max_value + eps))
+          "QKeras: min_exp in po2 quantizer is smaller than tf.epsilon().")
+    if self.max_value:
+      max_exp = np.minimum(max_exp, np.round(np.log2(self.max_value + eps)))
 
     x_sign = tf.sign(x)
     x_sign += (1.0 - tf.abs(x_sign))
-    log2 = np.log(2.0)
-
-    # if True, round to the exponent for sqrt(x),
-    # so that the return value can be divided by two without remainder.
-    if self.quadratic_approximation:
-      q_factor = 2.0
-    else:
-      q_factor = 1.0
-
-    if self.use_stochastic_rounding:
-      if self.quadratic_approximation:
-        x_log2 = stochastic_round_po2(tf.sqrt(x))
-      else:
-        x_log2 = stochastic_round_po2(x)
-    else:
-      if self.quadratic_approximation:
-        x_log2 = _round_through(tf.keras.backend.log(tf.sqrt(x) + eps) / log2)
-      else:
-        x_log2 = _round_through(tf.keras.backend.log(tf.abs(x) + eps) / log2)
-    x_clipped = q_factor * tf.keras.backend.clip(x_log2, min_exp, max_exp)
+    x_abs = tf.abs(x)
+    x_clipped = _clip_power_of_two(x_abs, min_exp, max_exp,
+                                   self.quadratic_approximation,
+                                   self.use_stochastic_rounding)
     return x + tf.stop_gradient(-x + x_sign * pow(2.0, x_clipped))
 
   @classmethod
@@ -754,6 +852,7 @@ class quantized_po2(object):  # pylint: disable=invalid-name
     return cls(**config)
 
   def get_config(self):
+    """Gets config."""
     config = {
         "bits":
             self.bits,
@@ -768,54 +867,44 @@ class quantized_po2(object):  # pylint: disable=invalid-name
 
 
 class quantized_relu_po2(object):  # pylint: disable=invalid-name
-  """Quantizes to the closest power of 2."""
+  """Quantizes x to the closest power of 2 when x > 0 else 2**min_exp.
 
-  def __init__(self, bits=8, max_value=-1, use_stochastic_rounding=False,
+  Attributes:
+    bits: An integer, the bits allocated for the exponent and its sign.
+    max_value: default is None, or a non-negative value to put a constraint for
+      the max value.
+    use_stochastic_rounding: A boolean, default is False, if True, it uses
+      stochastic rounding and forces the mean of x to be x statstically.
+    quadratic_approximation: A boolean, default is False if True, it forces the
+      exponent to be even number that is closest to x.
+  """
+
+  def __init__(self,
+               bits=8,
+               max_value=None,
+               use_stochastic_rounding=False,
                quadratic_approximation=False):
     self.bits = bits
     self.max_value = max_value
     self.use_stochastic_rounding = use_stochastic_rounding
-
     # if True, round to the exponent for sqrt(x),
     # so that the return value can be divided by two without remainder.
     self.quadratic_approximation = quadratic_approximation
 
   def __call__(self, x):
-
-    need_exponent_sign_bit = (self.max_value > 1)
+    need_exponent_sign_bit = _need_exponent_sign_bit_check(self.max_value)
     min_exp = -2**(self.bits - need_exponent_sign_bit)
     max_exp = 2**(self.bits - need_exponent_sign_bit) - 1
     eps = tf.keras.backend.epsilon()
-
     if min_exp < np.log2(eps):
-      warnings.warn(
-          "QKeras: min_exp in quantized_relu_po2 quantizer "
-          "is smaller than tf.epsilon()")
-
-    log2 = np.log(2.0)
-
-    if self.max_value != -1:
-      max_exp = np.round(np.log2(self.max_value + eps))
-
-    if self.quadratic_approximation:
-      q_factor = 2.0
-    else:
-      q_factor = 1.0
+      warnings.warn("QKeras: min_exp in quantized_relu_po2 quantizer "
+                    "is smaller than tf.epsilon().")
+    if self.max_value:
+      max_exp = np.minimum(max_exp, np.round(np.log2(self.max_value + eps)))
     x = tf.maximum(x, 0)
-
-    if self.use_stochastic_rounding:
-      # if True, approximate the power of two to the sqrt(x)
-      # use q_factor to recover the value in x_clipped.
-      if self.quadratic_approximation:
-        x_log2 = stochastic_round_po2(tf.sqrt(x))
-      else:
-        x_log2 = stochastic_round_po2(x)
-    else:
-      if self.quadratic_approximation:
-        x_log2 = _round_through(tf.keras.backend.log(tf.sqrt(x) + eps) / log2)
-      else:
-        x_log2 = _round_through(tf.keras.backend.log(tf.abs(x) + eps) / log2)
-    x_clipped = q_factor * tf.keras.backend.clip(x_log2, min_exp, max_exp)
+    x_clipped = _clip_power_of_two(x, min_exp, max_exp,
+                                   self.quadratic_approximation,
+                                   self.use_stochastic_rounding)
     return x + tf.stop_gradient(-x + pow(2.0, x_clipped))
 
   @classmethod
@@ -823,32 +912,57 @@ class quantized_relu_po2(object):  # pylint: disable=invalid-name
     return cls(**config)
 
   def get_config(self):
+    """Gets configugration of the quantizer.
+
+    Returns:
+      A dict mapping quantization configuration, including
+        bits: bitwidth for exponents.
+        max_value: the maximum value of this quantized_relu_po2 can represent.
+        use_stochastic_rounding:
+          if True, stochastic rounding is used.
+        quadratic_approximation:
+          if True, the exponent is enforced to be even number, which is
+          the closest one to x.
+    """
+
     config = {
-        "bits":
-            self.bits,
-        "max_value":
-            self.max_value,
-        "use_stochastic_rounding":
-            self.use_stochastic_rounding,
-        "quadratic_approximation":
-            self.quadratic_approximation
+        "bits": self.bits,
+        "max_value": self.max_value,
+        "use_stochastic_rounding": self.use_stochastic_rounding,
+        "quadratic_approximation": self.quadratic_approximation
     }
     return config
 
 
 def get_quantizer(identifier):
+  """Gets the quantizer.
+
+  Args:
+    identifier: An quantizer, which could be dict, string, or callable function.
+
+  Returns:
+    A quantizer class or quantization function from this file. For example,
+      Quantizer classes: quantized_bits, quantized_po2, quantized_relu_po2,
+      binary, stochastic_binary, ternary, stochastic_ternary, etc.
+
+      Quantization functions: binary_sigmoid, hard_sigmoid, soft_sigmoid, etc.
+
+  Raises:
+    ValueError: An error occurred when quantizer cannot be interpreted.
+  """
+
   if identifier is None:
     return None
   if isinstance(identifier, dict):
-    return deserialize_keras_object(identifier,
-      module_objects=globals(),
-      printable_module_name='quantizer')
+    return deserialize_keras_object(
+        identifier, module_objects=globals(), printable_module_name="quantizer")
   elif isinstance(identifier, six.string_types):
     return safe_eval(identifier, globals())
   elif callable(identifier):
     return identifier
   else:
-    raise ValueError('Could not interpret quantizer identifier: ' + str(identifier))
+    raise ValueError("Could not interpret quantizer identifier: " +
+                     str(identifier))
 
 
 def get_quantized_initializer(w_initializer, w_range):
@@ -872,4 +986,3 @@ def get_quantized_initializer(w_initializer, w_range):
       return initializers.RandomUniform(-w_range, w_range)
 
   return w_initializer
-

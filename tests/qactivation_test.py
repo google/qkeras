@@ -22,15 +22,97 @@ from tensorflow.keras import backend as K
 
 from qkeras import binary
 from qkeras import hard_sigmoid
-from qkeras import smooth_sigmoid
 from qkeras import quantized_bits
-from qkeras import quantized_relu
-from qkeras import ternary
 from qkeras import quantized_po2
+from qkeras import quantized_relu
 from qkeras import quantized_relu_po2
+from qkeras import smooth_sigmoid
+from qkeras import ternary
 
-# TODO(hzhuang, rxuniverse): quantization_po2/_relu_po2,
-# test cases with quadratic_approximation
+
+@pytest.mark.parametrize(
+    ('bits, max_value, use_stochastic_rounding, quadratic_approximation,'
+     'test_values, expected_values'),
+    [
+        # bits=4 without max_value. Therefore the max exponent is 4 when
+        # quadratic approximiation is enabled. The max and min values from this
+        # quantization function are 16 and -16 respectively.
+        (
+            4,
+            None,
+            0,
+            1,
+            np.array(
+                [[-10.0, -0.25, 0.25, 1.0, 1.99, 2.0, 5.0, 10.0, 16.0, 32.0]],
+                dtype=K.floatx()),
+            np.array(
+                [[-16.0, -0.25, 0.25, 1.0, 1.0, 1.0, 4.0, 16.0, 16.0, 16.0]],
+                dtype=K.floatx()),
+        ),
+        # bits=3. The minimum exponent is -4. Therefore, the smallest absolute
+        # value is 0.0625 in this quantization. The max absolute value is 0.5,
+        # which is specified by the second input argument.
+        (
+            3,
+            0.5,
+            0,
+            0,
+            np.array([[-7, -0.12, -0.03, 0.01, 5]], dtype=K.floatx()),
+            np.array([[-0.5, -0.125, -0.0625, 0.0625, 0.5]], dtype=K.floatx()),
+        ),
+    ])
+def test_quantized_po2(bits, max_value, use_stochastic_rounding,
+                       quadratic_approximation, test_values, expected_values):
+  """Test quantized_po2 function."""
+  x = K.placeholder(ndim=2)
+  f = K.function([x], [
+      quantized_po2(bits, max_value, use_stochastic_rounding,
+                    quadratic_approximation)(x)
+  ])
+  result = f([test_values])[0]
+  assert_allclose(result, expected_values, rtol=1e-05)
+
+
+@pytest.mark.parametrize(
+    ('bits, max_value, use_stochastic_rounding, quadratic_approximation,'
+     'test_values, expected_values'),
+    [
+        # bits=3 without max_value. Therefore the max exponent is 4 when
+        # quadratic approximiation is enabled. The max value from this
+        # quantization function is 16. For the negative value, relu enforce it
+        # to be the minimum value of this quantization function, which is 2**-4.
+        (
+            3,
+            None,
+            0,
+            1,
+            np.array(
+                [[-10.0, -0.25, 0.25, 1.0, 1.99, 2.01, 5.0, 10.0, 16.0, 32.0]],
+                dtype=K.floatx()),
+            np.array(
+                [[0.0625, 0.0625, 0.25, 1.0, 1.0, 4.0, 4.0, 16.0, 16.0, 16.0]],
+                dtype=K.floatx()),
+        ),
+        # bits=3. The minimum exponent is -4. Therefore, the smallest absolute
+        # value is 0.0625 in this quantization. The max absolute value is 4,
+        # which is specified by the second input argument.
+        (3, 4, 0, 0,
+         np.array([[-7.0, -0.12, -0.03, 0, 0.01, 5.0]], dtype=K.floatx()),
+         np.array([[0.0625, 0.0625, 0.0625, 0.0625, 0.0625, 4.0]],
+                  dtype=K.floatx())),
+    ])
+def test_quantized_relu_po2(bits, max_value, use_stochastic_rounding,
+                            quadratic_approximation, test_values,
+                            expected_values):
+  """Test quantized_po2 function."""
+  x = K.placeholder(ndim=2)
+  f = K.function([x], [
+      quantized_relu_po2(bits, max_value, use_stochastic_rounding,
+                         quadratic_approximation)(x)
+  ])
+  result = f([test_values])[0]
+  assert_allclose(result, expected_values, rtol=1e-05, atol=1e-5)
+
 
 def test_smooth_sigmoid():
   """Test smooth_sigmoid function."""
@@ -152,22 +234,15 @@ def test_quantized_bits(bits, integer, symmetric, keep_negative, test_values,
   result = f([test_values])[0]
   assert_allclose(result, expected_values, rtol=1e-05)
 
-
-@pytest.mark.parametrize(
-    'alpha, threshold, test_values, expected_values', [
-        (1.0, 0.33,
-         np.array([[-3.0, -2.0, -1.0, -0.2, 0.0, 0.3, 1, 4, 10]],
-                   dtype=K.floatx()),
-         np.array([[-1.0, -1.0, -1.0, 0, 0.0, 0.0, 1, 1, 1]],
-                   dtype=K.floatx())),
-         (10.0, 5.0,
-         np.array([[-11.0, -7.0, -4.0, -0.2, 0.0, 0.3, 1, 4, 10]],
-                   dtype=K.floatx()),
-         np.array([[-10.0, -10.0, 0.0, 0, 0.0, 0.0, 0, 0, 10]],
-                   dtype=K.floatx())),
-
-    ]
-)
+@pytest.mark.parametrize('alpha, threshold, test_values, expected_values', [
+    (1.0, 0.33,
+     np.array([[-3.0, -2.0, -1.0, -0.2, 0.0, 0.3, 1, 4, 10]], dtype=K.floatx()),
+     np.array([[-1.0, -1.0, -1.0, 0, 0.0, 0.0, 1, 1, 1]], dtype=K.floatx())),
+    (10.0, 5.0,
+     np.array([[-11.0, -7.0, -4.0, -0.2, 0.0, 0.3, 1, 4, 10]],
+              dtype=K.floatx()),
+     np.array([[-10.0, -10.0, 0.0, 0, 0.0, 0.0, 0, 0, 10]], dtype=K.floatx())),
+])
 def test_ternary(alpha, threshold, test_values, expected_values):
   x = K.placeholder(ndim=2)
   f = K.function([x],
@@ -196,12 +271,12 @@ def test_binary(use_01, alpha, test_values, expected_values):
   assert_allclose(result, expected_values, rtol=1e-05)
 
 
-@pytest.mark.parametrize('test_values, expected_values',[
+@pytest.mark.parametrize('test_values, expected_values', [
     (np.array([[42.0] * 100000], dtype=K.floatx()), 42.0),
     (np.array([[100.0] * 100000], dtype=K.floatx()), 100.0),
     (np.array([[48.0] * 100000], dtype=K.floatx()), 48.0),
     (np.array([[-141.0] * 100000], dtype=K.floatx()), -141.0),
-    (np.array([[-32.0] * 100000], dtype=K.floatx()), -42.0),
+    (np.array([[-32.0] * 100000], dtype=K.floatx()), -32.0),
     (np.array([[32.0] * 100000], dtype=K.floatx()), 32.0),
     (np.array([[10031.0] * 100000], dtype=K.floatx()), 10031.0),
     (np.array([[0.0] * 100000], dtype=K.floatx()), 0.0),
@@ -215,21 +290,20 @@ def test_stochastic_round_quantized_po2(test_values, expected_values):
   assert_allclose(res, expected_values, rtol=1e-01, atol=1e-6)
 
 
-@pytest.mark.parametrize('test_values, expected_values',[
+@pytest.mark.parametrize('test_values, expected_values', [
     (np.array([[42.0] * 100000], dtype=K.floatx()), 42.0),
     (np.array([[-42.0] * 100000], dtype=K.floatx()), 0.0),
     (np.array([[0.0] * 100000], dtype=K.floatx()), 0.0),
     (np.array([[100.0] * 100000], dtype=K.floatx()), 100.0),
     (np.array([[48.0] * 100000], dtype=K.floatx()), 48.0),
 ])
-def test_stochastic_round_quantized_po2(test_values, expected_values):
+def test_stochastic_round_quantized_relu_po2(test_values, expected_values):
   np.random.seed(666)
   x = K.placeholder(ndim=2)
   f = K.function([x], [quantized_relu_po2(use_stochastic_rounding=True)(x)])
   res = f([test_values])[0]
   res = np.average(res)
   assert_allclose(res, expected_values, rtol=1e-01, atol=1e-6)
-
 
 
 if __name__ == '__main__':

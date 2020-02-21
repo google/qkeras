@@ -42,5 +42,3 @@ def QAveragePooling2D(  # pylint: disable=invalid-name
     return x
 
   return _call
-
-  
