@@ -18,9 +18,14 @@ import json
 import six
 
 import tensorflow as tf
+import tensorflow.keras.backend as K
 
 from tensorflow.keras import initializers
 from tensorflow.keras.models import model_from_json
+
+from tensorflow_model_optimization.python.core.sparsity.keras import pruning_wrapper
+from tensorflow_model_optimization.python.core.sparsity.keras import prune_registry
+from tensorflow_model_optimization.python.core.sparsity.keras import prunable_layer
 
 import numpy as np
 
@@ -472,3 +477,31 @@ def load_qmodel(filepath, custom_objects=None, compile=True):
   qmodel = tf.keras.models.load_model(filepath, custom_objects=custom_objects, compile=compile)
     
   return qmodel
+
+
+def print_model_sparsity(model):
+    """Prints sparsity for the pruned layers in the model."""
+
+    def _get_sparsity(weights):
+        return 1.0 - np.count_nonzero(weights) / float(weights.size)
+
+    print("Model Sparsity Summary ({})".format(model.name))
+    print("--")
+    for layer in model.layers:
+        if isinstance(layer, pruning_wrapper.PruneLowMagnitude):
+            prunable_weights = layer.layer.get_prunable_weights()
+        elif isinstance(layer, prunable_layer.PrunableLayer):
+            prunable_weights = layer.get_prunable_weights()
+        elif prune_registry.PruneRegistry.supports(layer):
+            weight_names = prune_registry.PruneRegistry._weight_names(layer)
+            prunable_weights = [getattr(layer, weight) for weight in weight_names]
+        else:
+            prunable_weights = None
+        if prunable_weights:
+            print("{}: {}".format(
+                layer.name, ", ".join([
+                    "({}, {})".format(weight.name,
+                        str(_get_sparsity(K.get_value(weight))))
+                    for weight in prunable_weights
+                ])))
+    print("\n")

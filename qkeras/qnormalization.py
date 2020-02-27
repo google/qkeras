@@ -31,6 +31,7 @@ from tensorflow.python.keras.utils import tf_utils
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import nn
+from tensorflow_model_optimization.python.core.sparsity.keras.prunable_layer import PrunableLayer
 
 import numpy as np
 import six
@@ -40,7 +41,7 @@ from .qlayers import get_quantizer
 from .safe_eval import safe_eval
 
 
-class QBatchNormalization(BatchNormalization):
+class QBatchNormalization(BatchNormalization, PrunableLayer):
   """Quantized Batch Normalization layer.
   For training, mean and variance are not quantized.
   For inference, the quantized moving mean and moving variance are used.
@@ -302,3 +303,7 @@ class QBatchNormalization(BatchNormalization):
 
   def get_quantizers(self):
     return self.quantizers
+
+  def get_prunable_weights(self):
+    return []
+
