@@ -45,6 +45,7 @@ from tensorflow.keras import regularizers
 from tensorflow.keras.constraints import Constraint
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.layers import Layer
+from tensorflow_model_optimization.python.core.sparsity.keras.prunable_layer import PrunableLayer
 
 
 import numpy as np
@@ -60,7 +61,7 @@ from .quantizers import get_quantizer
 #
 
 
-class QActivation(Layer):
+class QActivation(Layer, PrunableLayer):
   """Implements quantized activation layers."""
 
   def __init__(self, activation, **kwargs):
@@ -96,6 +97,9 @@ class QActivation(Layer):
 
   def compute_output_shape(self, input_shape):
     return input_shape
+
+  def get_prunable_weights(self):
+    return []
 
 
 #
@@ -149,7 +153,7 @@ class Clip(Constraint):
 #
 
 
-class QDense(Dense):
+class QDense(Dense, PrunableLayer):
   """Implements a quantized Dense layer."""
 
   # most of these parameters follow the implementation of Dense in
@@ -284,3 +288,7 @@ class QDense(Dense):
 
   def get_quantizers(self):
     return self.quantizers
+
+  def get_prunable_weights(self):
+    return [self.kernel]
+
