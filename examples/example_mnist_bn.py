@@ -21,17 +21,18 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import os
 from collections import defaultdict
+import os
 
-import tensorflow.keras.backend as K
+import numpy as np
+from six.moves import zip
 from tensorflow.keras import callbacks
+import tensorflow.keras.backend as K
 from tensorflow.keras.datasets import mnist
 from tensorflow.keras.layers import *
 from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import *
 from tensorflow.keras.utils import to_categorical
-import numpy as np
 
 from qkeras import *
 
