@@ -14,6 +14,9 @@
 # limitations under the License.
 # ==============================================================================
 """Test activation from qlayers.py."""
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 import numpy as np
 from numpy.testing import assert_allclose
 
@@ -27,10 +30,12 @@ from qkeras import quantized_po2
 from qkeras import quantized_relu
 from qkeras import quantized_relu_po2
 from qkeras import smooth_sigmoid
+from qkeras import stochastic_binary
+from qkeras import stochastic_ternary
 from qkeras import ternary
 
 @pytest.mark.parametrize(
-    'bits, max_value, use_stochastic_rounding, quadratic_approximation, ' +
+    'bits, max_value, use_stochastic_rounding, quadratic_approximation, '
     'test_values, expected_values', [
         # bits=4 without max_value. Therefore the max exponent is 4 when
         # quadratic approximiation is enabled. The max and min values from this
@@ -380,6 +385,67 @@ def test_stochastic_round_quantized_relu_po2(test_values, expected_values):
   res = f([test_values])[0]
   res = np.average(res)
   assert_allclose(res, expected_values, rtol=1e-01, atol=1e-6)
+
+
+def test_stochastic_binary():
+  np.random.seed(42)
+
+  x = np.random.uniform(-0.01, 0.01, size=10)
+  x = np.sort(x)
+
+  s = stochastic_binary(alpha="auto_po2")
+  ty = np.zeros_like(s)
+  ts = 0.0
+
+  n = 1000
+
+  for _ in range(n):
+    y = K.eval(s(K.constant(x)))
+    scale = K.eval(s.scale)[0]
+    ts = ts + scale
+    ty = ty + (y / scale)
+
+  result = (ty/n).astype(np.float32)
+  scale = np.array([ts/n])
+
+  expected = np.array(
+      [-1., -1., -1., -0.852, 0.782, 0.768, 0.97, 0.978, 1.0, 1.0]
+  ).astype(np.float32)
+  expected_scale =  np.array([0.003906])
+
+  assert_allclose(result, expected, atol=0.1)
+  assert_allclose(scale, expected_scale, rtol=0.1)
+
+
+def test_stochastic_ternary():
+  np.random.seed(42)
+
+  x = np.random.uniform(-0.01, 0.01, size=10)
+  x = np.sort(x)
+
+  s = stochastic_ternary(alpha="auto_po2", temperature=8)
+  ty = np.zeros_like(s)
+  ts = 0.0
+
+  n = 1000
+
+  for _ in range(n):
+    y = K.eval(s(K.constant(x)))
+    scale = K.eval(s.scale)[0]
+    ts = ts + scale
+    ty = ty + (y / scale)
+
+  result = (ty/n).astype(np.float32)
+  scale = np.array([ts/n])
+
+  expected = np.array(
+      [-0.998, -0.992, -0.992, -0.208,  0.048,  0.04 ,  0.448,  0.606,
+        0.987,  0.998]
+  ).astype(np.float32)
+  expected_scale =  np.array([0.007812])
+
+  assert_allclose(result, expected, atol=0.1)
+  assert_allclose(scale, expected_scale, rtol=0.1)
 
 
 if __name__ == '__main__':

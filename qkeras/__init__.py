@@ -27,4 +27,4 @@ from .qoctave import *  # pylint: disable=wildcard-import
 from .qpooling import *  # pylint: disable=wildcard-import
 from .safe_eval import *  # pylint: disable=wildcard-import
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"

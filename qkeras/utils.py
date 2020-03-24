@@ -13,14 +13,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 import copy
 import json
 import six
+import types
 
 import tensorflow as tf
 import tensorflow.keras.backend as K
 
 from tensorflow.keras import initializers
+
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Conv1D
 from tensorflow.keras.models import model_from_json
 
 from tensorflow_model_optimization.python.core.sparsity.keras import pruning_wrapper
@@ -28,6 +35,8 @@ from tensorflow_model_optimization.python.core.sparsity.keras import prune_regis
 from tensorflow_model_optimization.python.core.sparsity.keras import prunable_layer
 
 import numpy as np
+import matplotlib.pyplot as plt
+
 
 from .qlayers import QActivation
 from .qlayers import QDense
@@ -35,26 +44,25 @@ from .qlayers import Clip
 from .qconvolutional import QConv1D
 from .qconvolutional import QConv2D
 from .qconvolutional import QDepthwiseConv2D
+from .qnormalization import QBatchNormalization
 from .qpooling import QAveragePooling2D
-from .quantizers import quantized_bits
-from .quantizers import bernoulli
-from .quantizers import stochastic_ternary
-from .quantizers import ternary
-from .quantizers import stochastic_binary
 from .quantizers import binary
+from .quantizers import bernoulli
+from .quantizers import get_weight_scale
+from .quantizers import quantized_bits
 from .quantizers import quantized_relu
 from .quantizers import quantized_ulaw
 from .quantizers import quantized_tanh
 from .quantizers import quantized_po2
 from .quantizers import quantized_relu_po2
-from .qnormalization import QBatchNormalization
-
+from .quantizers import stochastic_binary
+from .quantizers import stochastic_ternary
+from .quantizers import ternary
 from .safe_eval import safe_eval
 
 #
 # Model utilities: before saving the weights, we want to apply the quantizers
 #
-
 def model_save_quantized_weights(model, filename=None):
   """Quantizes model for inference and save it.
 
@@ -144,25 +152,39 @@ def model_save_quantized_weights(model, filename=None):
   return saved_weights
 
 
-def quantize_activation(layer_config, custom_objects, activation_bits):
+def quantize_activation(layer_config, activation_bits):
   """Replaces activation by quantized activation functions."""
-
   str_act_bits = str(activation_bits)
-
   # relu -> quantized_relu(bits)
   # tanh -> quantized_tanh(bits)
   #
   # more to come later
+  if layer_config.get("activation", None) is None:
+    return
+  if isinstance(layer_config["activation"], six.string_types):
+    a_name = layer_config["activation"]
+  elif isinstance(layer_config["activation"], types.FunctionType):
+    a_name = layer_config["activation"].__name__
+  else:
+    a_name = layer_config["activation"].__class__.__name__
 
-  if layer_config["activation"] == "relu":
+  if a_name == "linear":
+    return
+  if a_name == "relu":
     layer_config["activation"] = "quantized_relu(" + str_act_bits + ")"
-    custom_objects["quantized_relu(" + str_act_bits + ")"] = (
-        quantized_relu(activation_bits))
-
-  elif layer_config["activation"] == "tanh":
+  elif a_name == "tanh":
     layer_config["activation"] = "quantized_tanh(" + str_act_bits + ")"
-    custom_objects["quantized_tanh(" + str_act_bits + ")"] = (
-        quantized_tanh(activation_bits))
+
+
+def get_config(quantizer_config, layer, layer_class, parameter=None):
+  """Returns search of quantizer on quantizer_config."""
+  quantizer = quantizer_config.get(layer["name"],
+                                   quantizer_config.get(layer_class, None))
+
+  if quantizer is not None and parameter is not None:
+    quantizer = quantizer.get(parameter, None)
+
+  return quantizer
 
 
 def model_quantize(model,
@@ -239,31 +261,8 @@ def model_quantize(model,
   # let's make a deep copy to make sure our objects are not shared elsewhere
   jm = copy.deepcopy(json.loads(model.to_json()))
   custom_objects = copy.deepcopy(custom_objects)
-
   config = jm["config"]
-
   layers = config["layers"]
-
-  custom_objects["QDense"] = QDense
-  custom_objects["QConv1D"] = QConv1D
-  custom_objects["QConv2D"] = QConv2D
-  custom_objects["QDepthwiseConv2D"] = QDepthwiseConv2D
-  custom_objects["QAveragePooling2D"] = QAveragePooling2D
-  custom_objects["QActivation"] = QActivation
-
-  # just add all the objects from quantizer_config to
-  # custom_objects first.
-
-  for layer_name in quantizer_config.keys():
-
-    if isinstance(quantizer_config[layer_name], six.string_types):
-      name = quantizer_config[layer_name]
-      custom_objects[name] = safe_eval(name, globals())
-
-    else:
-      for name in quantizer_config[layer_name].keys():
-        custom_objects[quantizer_config[layer_name][name]] = (
-            safe_eval(quantizer_config[layer_name][name], globals()))
 
   for layer in layers:
     layer_config = layer["config"]
@@ -273,92 +272,69 @@ def model_quantize(model,
 
     if layer["class_name"] == "Dense":
       layer["class_name"] = "QDense"
-
       # needs to add kernel/bias quantizers
-
-      kernel_quantizer = quantizer_config.get(
-          layer["name"], quantizer_config.get("QDense",
-                                              None))["kernel_quantizer"]
-
-      bias_quantizer = quantizer_config.get(
-          layer["name"], quantizer_config.get("QDense", None))["bias_quantizer"]
-
+      kernel_quantizer = get_config(
+          quantizer_config, layer, "QDense", "kernel_quantizer")
+      bias_quantizer = get_config(
+          quantizer_config, layer, "QDense", "bias_quantizer")
       layer_config["kernel_quantizer"] = kernel_quantizer
       layer_config["bias_quantizer"] = bias_quantizer
 
       # if activation is present, add activation here
-
-      quantizer = quantizer_config.get(layer["name"],
-                                       quantizer_config.get(
-                                           "QDense", None)).get(
-                                               "activation_quantizer", None)
+      quantizer = get_config(
+          quantizer_config, layer, "QDense", "activation_quantizer")
 
       if quantizer:
         layer_config["activation"] = quantizer
         custom_objects[quantizer] = safe_eval(quantizer, globals())
       else:
-        quantize_activation(layer_config, custom_objects, activation_bits)
+        quantize_activation(layer_config, activation_bits)
 
-    elif layer["class_name"] == "Conv2D":
-      layer["class_name"] = "QConv2D"
-
+    elif layer["class_name"] in ["Conv1D", "Conv2D"]:
+      q_name = "Q" + layer["class_name"]
+      layer["class_name"] = q_name
       # needs to add kernel/bias quantizers
+      kernel_quantizer = get_config(
+          quantizer_config, layer, q_name, "kernel_quantizer")
 
-      kernel_quantizer = quantizer_config.get(
-          layer["name"], quantizer_config.get("QConv2D", None)).get(
-              "kernel_quantizer", None)
-
-      bias_quantizer = quantizer_config.get(
-          layer["name"], quantizer_config.get("QConv2D", None)).get(
-              "bias_quantizer", None)
-
+      bias_quantizer = get_config(
+          quantizer_config, layer, q_name, "bias_quantizer")
       layer_config["kernel_quantizer"] = kernel_quantizer
       layer_config["bias_quantizer"] = bias_quantizer
 
       # if activation is present, add activation here
-
-      quantizer = quantizer_config.get(layer["name"],
-                                       quantizer_config.get(
-                                           "QConv2D", None)).get(
-                                               "activation_quantizer", None)
+      quantizer = get_config(
+          quantizer_config, layer, q_name, "activation_quantizer")
 
       if quantizer:
         layer_config["activation"] = quantizer
-        custom_objects[quantizer] = safe_eval(quantizer, globals())
       else:
-        quantize_activation(layer_config, custom_objects, activation_bits)
+        quantize_activation(layer_config, activation_bits)
 
     elif layer["class_name"] == "DepthwiseConv2D":
       layer["class_name"] = "QDepthwiseConv2D"
-
       # needs to add kernel/bias quantizers
-
-      depthwise_quantizer = quantizer_config.get(
-          layer["name"], quantizer_config.get("QDepthwiseConv2D", None)).get(
-              "depthwise_quantizer", None)
-
-      bias_quantizer = quantizer_config.get(
-          layer["name"], quantizer_config.get("QDepthwiseConv2D", None)).get(
-              "bias_quantizer", None)
+      depthwise_quantizer = get_config(quantizer_config, layer,
+          "QDepthwiseConv2D", "depthwise_quantizer")
+      bias_quantizer = get_config(quantizer_config, layer,
+          "QDepthwiseConv2D", "bias_quantizer")
 
       layer_config["depthwise_quantizer"] = depthwise_quantizer
       layer_config["bias_quantizer"] = bias_quantizer
-
       # if activation is present, add activation here
-
-      quantizer = quantizer_config.get(
-          layer["name"], quantizer_config.get("QDepthwiseConv2D", None)).get(
-              "activation_quantizer", None)
+      quantizer = get_config(quantizer_config, layer,
+          "QDepthwiseConv2D", "activation_quantizer",)
 
       if quantizer:
         layer_config["activation"] = quantizer
-        custom_objects[quantizer] = safe_eval(quantizer, globals())
       else:
-        quantize_activation(layer_config, custom_objects, activation_bits)
+        quantize_activation(layer_config, activation_bits)
 
     elif layer["class_name"] == "Activation":
-      quantizer = quantizer_config.get(
-          layer["name"], quantizer_config.get("QActivation", None))
+      quantizer = get_config(quantizer_config, layer, "QActivation")
+      # this is to avoid softmax from quantizing in autoq
+      if quantizer is None:
+        continue
 
       # if quantizer exists in dictionary related to this name,
       # use it, otherwise, use normal transformations
@@ -372,28 +348,34 @@ def model_quantize(model,
           quantizer = quantizer[layer_config["activation"]]
         if quantizer:
           layer_config["activation"] = quantizer
-          custom_objects[quantizer] = safe_eval(quantizer, globals())
         else:
-          quantize_activation(layer_config, custom_objects, activation_bits)
+          quantize_activation(layer_config, activation_bits)
 
-    elif layer["class_name"] == "AveragePooling2D":
-      layer["class_name"] = "QAveragePooling2D"
+    elif layer["class_name"] == "BatchNormalization":
+      layer["class_name"] = "QBatchNormalization"
+      # needs to add kernel/bias quantizers
+      gamma_quantizer = get_config(
+          quantizer_config, layer, "QBatchNormalization",
+          "gamma_quantizer")
+      beta_quantizer = get_config(
+          quantizer_config, layer, "QBatchNormalization",
+          "beta_quantizer")
+      mean_quantizer = get_config(
+          quantizer_config, layer, "QBatchNormalization",
+          "mean_quantizer")
+      variance_quantizer = get_config(
+          quantizer_config, layer, "QBatchNormalization",
+          "variance_quantizer")
 
-      quantizer = quantizer_config.get(layer["name"], None)
-
-      # if quantizer exists in dictionary related to this name,
-      # use it, otherwise, use normal transformations
-
-      if quantizer:
-        layer_config["activation"] = quantizer
-        custom_objects[quantizer] = safe_eval(quantizer, globals())
-      else:
-        quantize_activation(layer_config, custom_objects, activation_bits)
+      layer_config["gamma_quantizer"] = gamma_quantizer
+      layer_config["beta_quantizer"] = beta_quantizer
+      layer_config["mean_quantizer"] = mean_quantizer
+      layer_config["variance_quantizer"] = variance_quantizer
 
   # we need to keep a dictionary of custom objects as our quantized library
   # is not recognized by keras.
 
-  qmodel = model_from_json(json.dumps(jm), custom_objects=custom_objects)
+  qmodel = quantized_model_from_json(json.dumps(jm), custom_objects)
 
   # if transfer_weights is true, we load the weights from model to qmodel
 
@@ -402,7 +384,8 @@ def model_quantize(model,
       if layer.get_weights():
         qlayer.set_weights(copy.deepcopy(layer.get_weights()))
 
-  return qmodel, custom_objects
+  return qmodel
+
 
 def _add_supported_quantized_objects(custom_objects):
 
@@ -411,7 +394,6 @@ def _add_supported_quantized_objects(custom_objects):
   custom_objects["QConv1D"] = QConv1D
   custom_objects["QConv2D"] = QConv2D
   custom_objects["QDepthwiseConv2D"] = QDepthwiseConv2D
-  custom_objects["QAveragePooling2D"] = QAveragePooling2D
   custom_objects["QActivation"] = QActivation
   custom_objects["QBatchNormalization"] = QBatchNormalization
   custom_objects["Clip"] = Clip
@@ -441,6 +423,7 @@ def quantized_model_from_json(json_string, custom_objects=None):
 
   return qmodel
 
+
 def load_qmodel(filepath, custom_objects=None, compile=True):
   """
   Load quantized model from Keras's model.save() h5 file.
@@ -456,7 +439,7 @@ def load_qmodel(filepath, custom_objects=None, compile=True):
                   considered during deserialization.
         compile: Boolean, whether to compile the model
                   after loading.
-  
+
   # Returns
         A Keras model instance. If an optimizer was found
         as part of the saved model, the model is already
@@ -471,37 +454,90 @@ def load_qmodel(filepath, custom_objects=None, compile=True):
 
   # let's make a deep copy to make sure our objects are not shared elsewhere
   custom_objects = copy.deepcopy(custom_objects)
-    
+
   _add_supported_quantized_objects(custom_objects)
-    
-  qmodel = tf.keras.models.load_model(filepath, custom_objects=custom_objects, compile=compile)
-    
+
+  qmodel = tf.keras.models.load_model(filepath, custom_objects=custom_objects,
+                                      compile=compile)
   return qmodel
 
 
 def print_model_sparsity(model):
-    """Prints sparsity for the pruned layers in the model."""
+  """Prints sparsity for the pruned layers in the model."""
 
-    def _get_sparsity(weights):
-        return 1.0 - np.count_nonzero(weights) / float(weights.size)
+  def _get_sparsity(weights):
+    return 1.0 - np.count_nonzero(weights) / float(weights.size)
 
-    print("Model Sparsity Summary ({})".format(model.name))
-    print("--")
-    for layer in model.layers:
-        if isinstance(layer, pruning_wrapper.PruneLowMagnitude):
-            prunable_weights = layer.layer.get_prunable_weights()
-        elif isinstance(layer, prunable_layer.PrunableLayer):
-            prunable_weights = layer.get_prunable_weights()
-        elif prune_registry.PruneRegistry.supports(layer):
-            weight_names = prune_registry.PruneRegistry._weight_names(layer)
-            prunable_weights = [getattr(layer, weight) for weight in weight_names]
-        else:
-            prunable_weights = None
-        if prunable_weights:
-            print("{}: {}".format(
-                layer.name, ", ".join([
-                    "({}, {})".format(weight.name,
-                        str(_get_sparsity(K.get_value(weight))))
-                    for weight in prunable_weights
-                ])))
-    print("\n")
+  print("Model Sparsity Summary ({})".format(model.name))
+  print("--")
+  for layer in model.layers:
+    if isinstance(layer, pruning_wrapper.PruneLowMagnitude):
+      prunable_weights = layer.layer.get_prunable_weights()
+    elif isinstance(layer, prunable_layer.PrunableLayer):
+      prunable_weights = layer.get_prunable_weights()
+    elif prune_registry.PruneRegistry.supports(layer):
+      weight_names = prune_registry.PruneRegistry._weight_names(layer)
+      prunable_weights = [getattr(layer, weight) for weight in weight_names]
+    else:
+      prunable_weights = None
+    if prunable_weights:
+      print("{}: {}".format(
+          layer.name, ", ".join([
+              "({}, {})".format(weight.name,
+                  str(_get_sparsity(K.get_value(weight))))
+              for weight in prunable_weights
+          ])))
+  print("\n")
+
+
+def quantized_model_debug(model, X_test, plot=False):
+  """Debugs and plots model weights and activations."""
+  outputs = []
+  output_names = []
+
+  for layer in model.layers:
+    if layer.__class__.__name__ in [
+        "QActivation", "QBatchNormalization", "Activation", "QDense",
+        "QConv2D", "QDepthwiseConv2D"
+    ]:
+      output_names.append(layer.name)
+      outputs.append(layer.output)
+
+  model_debug = Model(inputs=model.inputs, outputs=outputs)
+
+  y_pred = model_debug.predict(X_test)
+
+  print("{:30} {: 8.4f} {: 8.4f}".format(
+      "input", np.min(X_test), np.max(X_test)))
+
+  for n, p in zip(output_names, y_pred):
+    layer = model.get_layer(n)
+    print("{:30} {: 8.4f} {: 8.4f}".format(n, np.min(p), np.max(p)), end="")
+    if plot and layer.__class__.__name__ in ["QConv2D", "QDense", "QActivation"]:
+      plt.hist(p.flatten(), bins=25)
+      plt.title(layer.name + "(output)")
+      plt.show()
+    alpha = None
+    for i, weights in enumerate(layer.get_weights()):
+      if hasattr(layer, "get_quantizers") and layer.get_quantizers()[i]:
+        weights = K.eval(layer.get_quantizers()[i](K.constant(weights)))
+        if i == 0 and layer.__class__.__name__ in [
+            "QConv1D", "QConv2D", "QDense"]:
+          alpha = get_weight_scale(layer.get_quantizers()[i], weights)
+          # if alpha is 0, let's remove all weights.
+          alpha_mask = (alpha == 0.0)
+          weights = np.where(
+            alpha_mask,
+            weights * alpha,
+            weights / alpha
+          )
+          if plot:
+            plt.hist(weights.flatten(), bins=25)
+            plt.title(layer.name + "(weights)")
+            plt.show()
+      print(" ({: 8.4f} {: 8.4f})".format(np.min(weights), np.max(weights)),
+            end="")
+    if alpha is not None and isinstance(alpha, np.ndarray):
+      print(" a({: 10.6f} {: 10.6f})".format(
+          np.min(alpha), np.max(alpha)), end="")
+    print("")

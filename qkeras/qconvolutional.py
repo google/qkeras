@@ -13,27 +13,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+import warnings
 import tensorflow as tf
-
-from tensorflow.keras import activations
 from tensorflow.keras import constraints
 from tensorflow.keras import initializers
 from tensorflow.keras import regularizers
-from tensorflow.keras.constraints import Constraint
 from tensorflow.keras.layers import Activation
 from tensorflow.keras.layers import Conv1D
 from tensorflow.keras.layers import Conv2D
 from tensorflow.keras.layers import DepthwiseConv2D
 from tensorflow.keras.layers import Dropout
 from tensorflow.keras.layers import InputSpec
-from tensorflow.keras.layers import Layer
-from tensorflow_model_optimization.python.core.sparsity.keras.prunable_layer import PrunableLayer
-
-from .qlayers import Clip
+from .qlayers import get_auto_range_constraint_initializer
 from .qlayers import QActivation
-from .quantizers import get_quantizer
 from .quantizers import get_quantized_initializer
+from .quantizers import get_quantizer
+
+from tensorflow_model_optimization.python.core.sparsity.keras.prunable_layer import PrunableLayer
 
 
 class QConv1D(Conv1D, PrunableLayer):
@@ -71,33 +70,45 @@ class QConv1D(Conv1D, PrunableLayer):
                bias_constraint=None,
                kernel_quantizer=None,
                bias_quantizer=None,
-               kernel_range=1.0,
-               bias_range=1.0,
+               kernel_range=None,
+               bias_range=None,
                **kwargs):
 
-    self.kernel_quantizer = kernel_quantizer
-    self.bias_quantizer = bias_quantizer
+    if kernel_range is not None:
+      warnings.warn("kernel_range is deprecated in QConv1D layer.")
+
+    if bias_range is not None:
+      warnings.warn("bias_range is deprecated in QConv1D layer.")
+
     self.kernel_range = kernel_range
     self.bias_range = bias_range
 
+    self.kernel_quantizer = kernel_quantizer
+    self.bias_quantizer = bias_quantizer
+
     self.kernel_quantizer_internal = get_quantizer(self.kernel_quantizer)
     self.bias_quantizer_internal = get_quantizer(self.bias_quantizer)
+
+    # optimize parameter set to "auto" scaling mode if possible
+    if hasattr(self.kernel_quantizer_internal, "_set_trainable_parameter"):
+      self.kernel_quantizer_internal._set_trainable_parameter()
 
     self.quantizers = [
         self.kernel_quantizer_internal, self.bias_quantizer_internal
     ]
 
-    if kernel_quantizer:
-      if kernel_constraint:
-        kernel_constraint = constraints.get(kernel_constraint)
-      kernel_constraint = Clip(-kernel_range, kernel_range, kernel_constraint,
-                               kernel_quantizer)
+    kernel_constraint, kernel_initializer = (
+        get_auto_range_constraint_initializer(self.kernel_quantizer_internal,
+                                              kernel_constraint,
+                                              kernel_initializer))
 
-    if bias_quantizer:
-      if bias_constraint:
-        bias_constraint = constraints.get(bias_constraint)
-      bias_constraint = Clip(-bias_range, bias_range, bias_constraint,
-                             bias_quantizer)
+    if use_bias:
+      bias_constraint, bias_initializer = (
+          get_auto_range_constraint_initializer(self.bias_quantizer_internal,
+                                                bias_constraint,
+                                                bias_initializer))
+    if activation is not None:
+      activation = get_quantizer(activation)
 
     super(QConv1D, self).__init__(
         filters=filters,
@@ -145,8 +156,10 @@ class QConv1D(Conv1D, PrunableLayer):
 
   def get_config(self):
     config = {
-        "kernel_quantizer": constraints.serialize(self.kernel_quantizer_internal),
-        "bias_quantizer": constraints.serialize(self.bias_quantizer_internal),
+        "kernel_quantizer":
+            constraints.serialize(self.kernel_quantizer_internal),
+        "bias_quantizer":
+            constraints.serialize(self.bias_quantizer_internal),
         "kernel_range": self.kernel_range,
         "bias_range": self.bias_range
     }
@@ -194,37 +207,48 @@ class QConv2D(Conv2D, PrunableLayer):
                activity_regularizer=None,
                kernel_constraint=None,
                bias_constraint=None,
-               kernel_range=1.0,
-               bias_range=1.0,
+               kernel_range=None,
+               bias_range=None,
                kernel_quantizer=None,
                bias_quantizer=None,
                **kwargs):
 
-    self.kernel_quantizer = kernel_quantizer
-    self.bias_quantizer = bias_quantizer
+    if kernel_range is not None:
+      warnings.warn("kernel_range is deprecated in QConv2D layer.")
+
+    if bias_range is not None:
+      warnings.warn("bias_range is deprecated in QConv2D layer.")
+
     self.kernel_range = kernel_range
     self.bias_range = bias_range
 
-    kernel_initializer = get_quantized_initializer(kernel_initializer, kernel_range)
+    self.kernel_quantizer = kernel_quantizer
+    self.bias_quantizer = bias_quantizer
 
     self.kernel_quantizer_internal = get_quantizer(self.kernel_quantizer)
     self.bias_quantizer_internal = get_quantizer(self.bias_quantizer)
+
+    # optimize parameter set to "auto" scaling mode if possible
+    if hasattr(self.kernel_quantizer_internal, "_set_trainable_parameter"):
+      self.kernel_quantizer_internal._set_trainable_parameter()
 
     self.quantizers = [
         self.kernel_quantizer_internal, self.bias_quantizer_internal
     ]
 
-    if kernel_quantizer:
-      if kernel_constraint:
-        kernel_constraint = constraints.get(kernel_constraint)
-      kernel_constraint = Clip(-kernel_range, kernel_range, kernel_constraint,
-                               kernel_quantizer)
+    kernel_constraint, kernel_initializer = (
+        get_auto_range_constraint_initializer(self.kernel_quantizer_internal,
+                                              kernel_constraint,
+                                              kernel_initializer))
 
-    if bias_quantizer:
-      if bias_constraint:
-        bias_constraint = constraints.get(bias_constraint)
-      bias_constraint = Clip(-bias_range, bias_range, bias_constraint,
-                             bias_quantizer)
+    if use_bias:
+      bias_constraint, bias_initializer = (
+          get_auto_range_constraint_initializer(self.bias_quantizer_internal,
+                                                bias_constraint,
+                                                bias_initializer))
+
+    if activation is not None:
+      activation = get_quantizer(activation)
 
     super(QConv2D, self).__init__(
         filters=filters,
@@ -277,10 +301,8 @@ class QConv2D(Conv2D, PrunableLayer):
             constraints.serialize(self.kernel_quantizer_internal),
         "bias_quantizer":
             constraints.serialize(self.bias_quantizer_internal),
-        "kernel_range":
-            self.kernel_range,
-        "bias_range":
-            self.bias_range
+        "kernel_range": self.kernel_range,
+        "bias_range": self.bias_range
     }
     base_config = super(QConv2D, self).get_config()
     return dict(list(base_config.items()) + list(config.items()))
@@ -328,21 +350,45 @@ class QDepthwiseConv2D(DepthwiseConv2D, PrunableLayer):
                dilation_rate=(1, 1),
                depthwise_quantizer=None,
                bias_quantizer=None,
-               depthwise_range=1.0,
-               bias_range=1.0,
+               depthwise_range=None,
+               bias_range=None,
                **kwargs):
 
-    if depthwise_quantizer:
-      if depthwise_constraint:
-        depthwise_constraint = constraints.get(depthwise_constraint)
-      depthwise_constraint = Clip(-depthwise_range, depthwise_range,
-                                  depthwise_constraint, depthwise_quantizer)
+    if depthwise_range is not None:
+      warnings.warn("depthwise_range is deprecated in QDepthwiseConv2D layer.")
 
-    if bias_quantizer:
-      if bias_constraint:
-        bias_constraint = constraints.get(bias_constraint)
-      bias_constraint = Clip(-bias_range, bias_range, bias_constraint,
-                             bias_quantizer)
+    if bias_range is not None:
+      warnings.warn("bias_range is deprecated in QDepthwiseConv2D layer.")
+
+    self.depthwise_range = depthwise_range
+    self.bias_range = bias_range
+
+    self.depthwise_quantizer = depthwise_quantizer
+    self.bias_quantizer = bias_quantizer
+
+    self.depthwise_quantizer_internal = get_quantizer(self.depthwise_quantizer)
+    self.bias_quantizer_internal = get_quantizer(self.bias_quantizer)
+
+    # optimize parameter set to "auto" scaling mode if possible
+    if hasattr(self.depthwise_quantizer_internal, "_set_trainable_parameter"):
+      self.depthwise_quantizer_internal._set_trainable_parameter()
+
+    self.quantizers = [
+        self.depthwise_quantizer_internal, self.bias_quantizer_internal
+    ]
+
+    depthwise_constraint, depthwise_initializer = (
+        get_auto_range_constraint_initializer(self.depthwise_quantizer_internal,
+                                              depthwise_constraint,
+                                              depthwise_initializer))
+
+    if use_bias:
+      bias_constraint, bias_initializer = (
+          get_auto_range_constraint_initializer(self.bias_quantizer_internal,
+                                                bias_constraint,
+                                                bias_initializer))
+    if activation is not None:
+      activation = get_quantizer(activation)
 
     super(QDepthwiseConv2D, self).__init__(
         kernel_size=kernel_size,
@@ -361,20 +407,6 @@ class QDepthwiseConv2D(DepthwiseConv2D, PrunableLayer):
         bias_constraint=bias_constraint,
         dilation_rate=dilation_rate,
         **kwargs)
-    self.bias_constraint = bias_constraint
-
-    self.depthwise_quantizer = depthwise_quantizer
-    self.bias_quantizer = bias_quantizer
-
-    self.depthwise_range = depthwise_range
-    self.bias_range = bias_range
-
-    self.depthwise_quantizer_internal = get_quantizer(self.depthwise_quantizer)
-    self.bias_quantizer_internal = get_quantizer(self.bias_quantizer)
-
-    self.quantizers = [
-        self.depthwise_quantizer_internal, self.bias_quantizer_internal
-    ]
 
   def build(self, input_shape):
     if len(input_shape) < 4:
@@ -468,34 +500,35 @@ class QDepthwiseConv2D(DepthwiseConv2D, PrunableLayer):
     return []
 
 
-def QSeparableConv2D(filters,  # pylint: disable=invalid-name
-                     kernel_size,
-                     strides=(1, 1),
-                     padding="VALID",
-                     dilation_rate=(1, 1),
-                     depth_multiplier=1,
-                     activation=None,
-                     use_bias=True,
-                     depthwise_initializer="he_normal",
-                     pointwise_initializer="he_normal",
-                     bias_initializer="zeros",
-                     depthwise_regularizer=None,
-                     pointwise_regularizer=None,
-                     bias_regularizer=None,
-                     activity_regularizer=None,
-                     depthwise_constraint=None,
-                     pointwise_constraint=None,
-                     bias_constraint=None,
-                     depthwise_quantizer=None,
-                     pointwise_quantizer=None,
-                     bias_quantizer=None,
-                     depthwise_activation=None,
-                     depthwise_range=1.0,
-                     pointwise_range=1.0,
-                     bias_range=1.0,
-                     depthwise_dropout_rate=0.0,
-                     pw_first=False,
-                     name=""):
+def QSeparableConv2D(
+    filters,  # pylint: disable=invalid-name
+    kernel_size,
+    strides=(1, 1),
+    padding="VALID",
+    dilation_rate=(1, 1),
+    depth_multiplier=1,
+    activation=None,
+    use_bias=True,
+    depthwise_initializer="he_normal",
+    pointwise_initializer="he_normal",
+    bias_initializer="zeros",
+    depthwise_regularizer=None,
+    pointwise_regularizer=None,
+    bias_regularizer=None,
+    activity_regularizer=None,
+    depthwise_constraint=None,
+    pointwise_constraint=None,
+    bias_constraint=None,
+    depthwise_quantizer=None,
+    pointwise_quantizer=None,
+    bias_quantizer=None,
+    depthwise_activation=None,
+    depthwise_range=None,
+    pointwise_range=None,
+    bias_range=None,
+    depthwise_dropout_rate=0.0,
+    pw_first=False,
+    name=""):
   """Adds a quantized separableconv2d."""
 
   # we use here a modified version that appeared in mobilenet that adds
@@ -523,7 +556,7 @@ def QSeparableConv2D(filters,  # pylint: disable=invalid-name
   # SeparableConv2D.
   #
 
-  def _call(inputs):
+  def _call(inputs):  # pylint: disable=invalid-name
     """Internally builds qseparableconv2d."""
 
     x = inputs

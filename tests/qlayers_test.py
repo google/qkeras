@@ -14,10 +14,13 @@
 # limitations under the License.
 # ==============================================================================
 """Test layers from qlayers.py."""
-
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 import numpy as np
 from numpy.testing import assert_allclose
 import pytest
+import logging
 from tensorflow.keras import backend as K
 from tensorflow.keras.layers import Activation
 from tensorflow.keras.layers import Flatten
@@ -51,27 +54,34 @@ def qdense_util(layer_cls,
 
 
 @pytest.mark.parametrize(
-    'layer_kwargs, input_data, weight_data, bias_data, expected_output', [
-        ({
-            'units': 2,
-            'use_bias': True,
-            'kernel_initializer': 'glorot_uniform',
-            'bias_initializer': 'zeros'
-        }, np.array([[1, 1, 1, 1]], dtype=K.floatx()),
-         np.array([[10, 20], [10, 20], [10, 20], [10, 20]],
-                  dtype=K.floatx()), np.array([0, 0], dtype=K.floatx()),
-         np.array([[40, 80]], dtype=K.floatx())),
-        ({
-            'units': 2,
-            'use_bias': True,
-            'kernel_initializer': 'glorot_uniform',
-            'bias_initializer': 'zeros',
-            'kernel_quantizer': 'quantized_bits(2,0)',
-            'bias_quantizer': 'quantized_bits(2,0)',
-        }, np.array([[1, 1, 1, 1]], dtype=K.floatx()),
-         np.array([[10, 20], [10, 20], [10, 20], [10, 20]], dtype=K.floatx()),
-         np.array([0, 0], dtype=K.floatx()), np.array([[2, 2]],
-                                                      dtype=K.floatx())),
+    'layer_kwargs, input_data, weight_data, bias_data, expected_output',
+    [
+        (
+            {
+                'units': 2,
+                'use_bias': True,
+                'kernel_initializer': 'glorot_uniform',
+                'bias_initializer': 'zeros'
+            },
+            np.array([[1, 1, 1, 1]], dtype=K.floatx()),
+            np.array([[10, 20], [10, 20], [10, 20], [10, 20]],
+                     dtype=K.floatx()),  # weight_data
+            np.array([0, 0], dtype=K.floatx()),  # bias
+            np.array([[40, 80]], dtype=K.floatx())),  # expected_output
+        (
+            {
+                'units': 2,
+                'use_bias': True,
+                'kernel_initializer': 'glorot_uniform',
+                'bias_initializer': 'zeros',
+                'kernel_quantizer': 'quantized_bits(2,0,alpha=1.0)',
+                'bias_quantizer': 'quantized_bits(2,0)',
+            },
+            np.array([[1, 1, 1, 1]], dtype=K.floatx()),
+            np.array([[10, 20], [10, 20], [10, 20], [10, 20]],
+                     dtype=K.floatx()),  # weight_data
+            np.array([0, 0], dtype=K.floatx()),  # bias
+            np.array([[2, 2]], dtype=K.floatx())),  #expected_output
     ])
 def test_qdense(layer_kwargs, input_data, weight_data, bias_data,
                 expected_output):

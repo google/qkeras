@@ -13,9 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 
 from tensorflow.keras.layers import AveragePooling2D
-
 from .qlayers import QActivation
 
 
@@ -42,3 +44,4 @@ def QAveragePooling2D(  # pylint: disable=invalid-name
     return x
 
   return _call
+

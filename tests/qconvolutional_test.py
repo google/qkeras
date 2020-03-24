@@ -14,12 +14,15 @@
 # limitations under the License.
 # ==============================================================================
 """Test layers from qconvolutional.py."""
-
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 import os
-import tempfile
 import numpy as np
 from numpy.testing import assert_allclose
 import pytest
+import tempfile
+
 from tensorflow.keras import backend as K
 from tensorflow.keras.layers import Activation
 from tensorflow.keras.layers import Flatten
@@ -27,6 +30,8 @@ from tensorflow.keras.layers import Input
 from tensorflow.keras.models import Model
 from tensorflow.keras.backend import clear_session
 
+from qkeras import binary
+from qkeras import ternary
 from qkeras import QActivation
 from qkeras import QDense
 from qkeras import QConv1D
@@ -41,7 +46,7 @@ from qkeras import print_qstats
 from qkeras import extract_model_operations
 
 
-# TODO:
+# TODO(hzhuang):
 #   qoctave_conv test
 #   qbatchnorm test
 
@@ -50,9 +55,9 @@ def test_qnetwork():
   x = QSeparableConv2D(
       32, (2, 2),
       strides=(2, 2),
-      depthwise_quantizer="binary",
-      pointwise_quantizer=quantized_bits(4, 0, 1),
-      depthwise_activation=quantized_bits(6, 2, 1),
+      depthwise_quantizer=binary(alpha=1.0),
+      pointwise_quantizer=quantized_bits(4, 0, 1, alpha=1.0),
+      depthwise_activation=quantized_bits(6, 2, 1, alpha=1.0),
       bias_quantizer=quantized_bits(4, 0, 1),
       name='conv2d_0_m')(
           x)
@@ -60,7 +65,7 @@ def test_qnetwork():
   x = QConv2D(
       64, (3, 3),
       strides=(2, 2),
-      kernel_quantizer="ternary",
+      kernel_quantizer=ternary(alpha=1.0),
       bias_quantizer=quantized_bits(4, 0, 1),
       name='conv2d_1_m',
       activation=quantized_relu(6, 3, 1))(
@@ -68,7 +73,7 @@ def test_qnetwork():
   x = QConv2D(
       64, (2, 2),
       strides=(2, 2),
-      kernel_quantizer=quantized_bits(6, 2, 1),
+      kernel_quantizer=quantized_bits(6, 2, 1, alpha=1.0),
       bias_quantizer=quantized_bits(4, 0, 1),
       name='conv2d_2_m')(
           x)
@@ -76,7 +81,7 @@ def test_qnetwork():
   x = Flatten(name='flatten')(x)
   x = QDense(
       10,
-      kernel_quantizer=quantized_bits(6, 2, 1),
+      kernel_quantizer=quantized_bits(6, 2, 1, alpha=1.0),
       bias_quantizer=quantized_bits(4, 0, 1),
       name='dense')(
           x)
@@ -90,7 +95,6 @@ def test_qnetwork():
   model = quantized_model_from_json(json_string)
 
   # generate same output for weights
-
   np.random.seed(42)
   for layer in model.layers:
     all_weights = []
@@ -126,27 +130,27 @@ def test_qnetwork():
   assert np.all(all_weights == all_weights_signature)
 
   # test_qnetwork_forward:
-  expected_output = np.array([[0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
-                 0.e+00, 1.e+00, 0.e+00, 0.e+00, 0.e+00],
-                [0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
-                 0.e+00, 1.e+00, 0.e+00, 0.e+00, 0.e+00],
-                [0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
-                 0.e+00, 0.e+00, 0.e+00, 6.e-08, 1.e+00],
-                [0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
-                 0.e+00, 1.e+00, 0.e+00, 0.e+00, 0.e+00],
-                [0.e+00 ,0.e+00, 0.e+00, 0.e+00, 0.e+00,
-                 0.e+00, 1.e+00, 0.e+00, 0.e+00, 0.e+00],
-                [0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
-                 0.e+00, 0.e+00, 0.e+00, 5.e-07, 1.e+00],
-                [0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
-                 0.e+00 ,1.e+00, 0.e+00, 0.e+00, 0.e+00],
-                [0.e+00, 1.e+00, 0.e+00, 0.e+00, 0.e+00,
-                 0.e+00 ,0.e+00, 0.e+00, 0.e+00, 0.e+00],
-                [0.e+00, 0.e+00, 0.e+00, 0.e+00, 1.e+00,
-                 0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00],
-                [0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
-                 1.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00]]).astype(np.float16)
-
+  expected_output = np.array(
+      [[0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
+        0.e+00, 1.e+00, 0.e+00, 0.e+00, 0.e+00],
+      [0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
+       0.e+00, 1.e+00, 0.e+00, 0.e+00, 0.e+00],
+      [0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
+       0.e+00, 0.e+00, 0.e+00, 6.e-08, 1.e+00],
+      [0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
+       0.e+00, 1.e+00, 0.e+00, 0.e+00, 0.e+00],
+      [ 0.e+00 ,0.e+00, 0.e+00, 0.e+00, 0.e+00,
+       0.e+00, 1.e+00, 0.e+00, 0.e+00, 0.e+00],
+      [0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
+       0.e+00, 0.e+00, 0.e+00, 5.e-07, 1.e+00],
+      [0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
+       0.e+00 ,1.e+00, 0.e+00, 0.e+00, 0.e+00],
+      [0.e+00, 1.e+00, 0.e+00, 0.e+00, 0.e+00,
+       0.e+00 ,0.e+00, 0.e+00, 0.e+00, 0.e+00],
+      [0.e+00, 0.e+00, 0.e+00, 0.e+00, 1.e+00,
+       0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00],
+      [0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
+       1.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00]]).astype(np.float16)
   inputs = 2 * np.random.rand(10, 28, 28, 1)
   actual_output = model.predict(inputs).astype(np.float16)
   assert_allclose(actual_output, expected_output, rtol=1e-4)
@@ -157,25 +161,25 @@ def test_qconv1d():
   x = Input((4, 4,))
   y = QConv1D(
       2, 1,
-      kernel_quantizer=quantized_bits(6, 2, 1),
+      kernel_quantizer=quantized_bits(6, 2, 1, alpha=1.0),
       bias_quantizer=quantized_bits(4, 0, 1),
       name='qconv1d')(
           x)
   model = Model(inputs=x, outputs=y)
 
-  #Extract model operations
+  # Extract model operations
   model_ops = extract_model_operations(model)
 
   # Assertion about the number of operations for this Conv1D layer
-  assert model_ops['qconv1d']["number_of_operations"] == 32
+  assert model_ops['qconv1d']['number_of_operations'] == 32
 
   # Print qstats to make sure it works with Conv1D layer
-  print_qstats(model) 
+  print_qstats(model)
 
   # reload the model to ensure saving/loading works
-  json_string = model.to_json()
-  clear_session()
-  model = quantized_model_from_json(json_string)
+  # json_string = model.to_json()
+  # clear_session()
+  # model = quantized_model_from_json(json_string)
 
   for layer in model.layers:
     all_weights = []
@@ -189,16 +193,15 @@ def test_qconv1d():
           10.0 * np.random.normal(0.0, np.sqrt(2.0 / input_size), shape))
     if all_weights:
       layer.set_weights(all_weights)
-    
   # Save the model as an h5 file using Keras's model.save()
   fd, fname = tempfile.mkstemp('.h5')
   model.save(fname)
   del model  # Delete the existing model
 
-  # Returns a compiled model identical to the previous one
+  # Return a compiled model identical to the previous one
   model = load_qmodel(fname)
 
-  #Clean the created h5 file after loading the model
+  # Clean the created h5 file after loading the model
   os.close(fd)
   os.remove(fname)
 
@@ -207,12 +210,6 @@ def test_qconv1d():
 
   inputs = np.random.rand(2, 4, 4)
   p = model.predict(inputs).astype(np.float16)
-  '''
-  y = np.array([[[0.1309, -1.229], [-0.4165, -2.639], [-0.08105, -2.299],
-                 [1.981, -2.195]],
-                [[-0.3174, -3.94], [-0.3352, -2.316], [0.105, -0.833],
-                 [0.2115, -2.89]]]).astype(np.float16)
-  '''
   y = np.array([[[-2.441, 3.816], [-3.807, -1.426], [-2.684, -1.317],
                  [-1.659, 0.9834]],
                 [[-4.99, 1.139], [-2.559, -1.216], [-2.285, 1.905],

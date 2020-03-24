@@ -15,10 +15,12 @@
 #
 # ==============================================================================
 """Definition of normalization quantization package."""
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+import numpy as np
+import six
+import warnings
 
 import tensorflow.compat.v2 as tf
 
@@ -31,14 +33,13 @@ from tensorflow.python.keras.utils import tf_utils
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import nn
-from tensorflow_model_optimization.python.core.sparsity.keras.prunable_layer import PrunableLayer
-
-import numpy as np
-import six
-
 from .qlayers import Clip
+from .qlayers import get_auto_range_constraint_initializer
 from .qlayers import get_quantizer
+from .quantizers import quantized_relu_po2
+from .quantizers import quantized_po2
 from .safe_eval import safe_eval
+from tensorflow_model_optimization.python.core.sparsity.keras.prunable_layer import PrunableLayer
 
 
 class QBatchNormalization(BatchNormalization, PrunableLayer):
@@ -68,24 +69,51 @@ class QBatchNormalization(BatchNormalization, PrunableLayer):
       gamma_quantizer=None,
       mean_quantizer=None,
       variance_quantizer=None,
+      gamma_constraint=None,
+      beta_constraint=None,
       # use quantized_po2 and enforce quadratic approximation
       # to get an even exponent for sqrt
       beta_range=None,
       gamma_range=None,
       **kwargs):
 
+    if gamma_range is not None:
+      warnings.warn('gamma_range is deprecated in QBatchNormalization layer.')
+
+    if beta_range is not None:
+      warnings.warn('beta_range is deprecated in QBatchNormalization layer.')
+
+    self.gamma_range = gamma_range
+    self.beta_range = beta_range
+    self.activation = activation
+
+    # We know the optimal settings for gamma and variance for now, so if the
+    # user has not specified them.
+    # If user really did not want quantizers, the user would have used
+    # BatchNormalization instead.
+
+    if gamma_quantizer is None:
+      gamma_quantizer = quantized_relu_po2(6, 2048)
+    if variance_quantizer is None:
+      variance_quantizer = quantized_relu_po2(
+          6, quadratic_approximation=True)
+    if beta_quantizer is None:
+      beta_quantizer = quantized_po2(5)
+
     self.beta_quantizer = beta_quantizer
     self.gamma_quantizer = gamma_quantizer
     self.mean_quantizer = mean_quantizer
     self.variance_quantizer = variance_quantizer
-    self.activation = activation
-    self.beta_range = beta_range
-    self.gamma_range = gamma_range
 
     self.beta_quantizer_internal = get_quantizer(self.beta_quantizer)
     self.gamma_quantizer_internal = get_quantizer(self.gamma_quantizer)
     self.mean_quantizer_internal = get_quantizer(self.mean_quantizer)
     self.variance_quantizer_internal = get_quantizer(self.variance_quantizer)
+
+    if hasattr(self.gamma_quantizer_internal, '_set_trainable_parameter'):
+      self.gamma_quantizer_internal._set_trainable_parameter()
+    if hasattr(self.variance_quantizer_internal, '_set_trainable_parameter'):
+      self.variance_quantizer_internal._set_trainable_parameter()
 
     self.quantizers = [
         self.gamma_quantizer_internal,
@@ -94,36 +122,40 @@ class QBatchNormalization(BatchNormalization, PrunableLayer):
         self.variance_quantizer_internal
     ]
 
-    if center and beta_quantizer and beta_range:
-      beta_constraint = Clip(-beta_range, beta_range)
-    else:
-      beta_constraint = None
-    kwargs.pop('beta_constraint', None)
+    if scale and self.gamma_quantizer:
+      gamma_constraint, gamma_initializer = (
+          get_auto_range_constraint_initializer(
+              self.gamma_quantizer_internal,
+              gamma_constraint,
+              gamma_initializer)
+      )
 
-    if scale and gamma_quantizer and gamma_range:
-      gamma_constraint = Clip(-gamma_range, gamma_range)
-    else:
-      gamma_constraint = None
-    kwargs.pop('gamma_constraint', None)
+    if center and self.beta_quantizer:
+      beta_constraint, beta_initializer = (
+          get_auto_range_constraint_initializer(
+              self.beta_quantizer_internal,
+              beta_constraint,
+              beta_initializer)
+      )
 
     if kwargs.get('fused', None):
-      warning.warn('batch normalization fused is disabled '
-                   'in qkeras qnormalization.py.')
+      warnings.warn('batch normalization fused is disabled '
+                    'in qkeras qnormalization.py.')
       del kwargs['fused']
 
     if kwargs.get('renorm', None):
-      warning.warn('batch normalization renorm is disabled '
-                   'in qkeras qnormalization.py.')
+      warnings.warn('batch normalization renorm is disabled '
+                    'in qkeras qnormalization.py.')
       del kwargs['renorm']
 
     if kwargs.get('virtual_batch_size', None):
-      warning.warn('batch normalization virtual_batch_size is disabled '
-                   'in qkeras qnormalization.py.')
+      warnings.warn('batch normalization virtual_batch_size is disabled '
+                    'in qkeras qnormalization.py.')
       del kwargs['virtual_batch_size']
 
     if kwargs.get('adjustment', None):
-      warning.warn('batch normalization adjustment is disabled '
-                   'in qkeras qnormalization.py.')
+      warnings.warn('batch normalization adjustment is disabled '
+                    'in qkeras qnormalization.py.')
       del kwargs['adjustment']
 
     super(QBatchNormalization, self).__init__(

@@ -137,6 +137,7 @@ that accept an alpha parameter, we need to specify a range of alpha,
 and for po2 type of quantizers, we need to specify the range of
 max_value.
 
+
 ### Example
 
 Suppose you have the following network.
