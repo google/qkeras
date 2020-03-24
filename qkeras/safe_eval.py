@@ -24,6 +24,9 @@ from pyparsing import Optional
 from pyparsing import Regex
 from pyparsing import Suppress
 
+import logging
+from tensorflow import keras
+
 
 def Num(s):
   """Tries to convert string to either int or float."""
@@ -68,7 +71,7 @@ def safe_eval(eval_str, op_dict, *params, **kwparams):  # pylint: disable=invali
   """Replaces eval by a safe eval mechanism."""
 
   function_split = eval_str.split("(")
-  quantizer = op_dict[function_split[0]]
+  quantizer = op_dict.get(function_split[0], None)
 
   if len(function_split) == 2:
     args, kwargs = GetParams("(" + function_split[1])
@@ -79,6 +82,11 @@ def safe_eval(eval_str, op_dict, *params, **kwparams):  # pylint: disable=invali
   args = args + list(params)
   for k in kwparams:
     kwargs[k] = kwparams[k]
+
+  # must be Keras activation object if None
+  if quantizer is None:
+    logging.info("keras dict %s", function_split[0])
+    quantizer = keras.activations.get(function_split[0])
 
   if len(function_split) == 2 or args or kwargs:
     return quantizer(*args, **kwargs)

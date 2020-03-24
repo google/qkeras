@@ -13,20 +13,80 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-
-import tensorflow.compat.v2 as tf
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+import warnings
+import logging
 import numpy as np
 import six
-import warnings
-
+import tensorflow.compat.v2 as tf
 from tensorflow.keras import initializers
+import tensorflow.keras.backend as K
 from tensorflow.keras.utils import deserialize_keras_object
-
 from .safe_eval import safe_eval
 
 #
 # Library of auxiliary functions
 #
+
+
+def get_weight_scale(quantizer, x):
+  """Gets the scales of weights for (stochastic_)binary and ternary quantizers.
+
+  Arguments
+    quantizer: A binary or teneray quantizer class.
+    x: A weight tensor.
+
+  Returns:
+    Weight scale per channel for binary and ternary
+    quantizers with auto or auto_po2 alpha/threshold.
+  """
+  if hasattr(quantizer, "scale") and quantizer.scale is not None:
+    return K.eval(quantizer.scale)
+  return 1.0
+
+
+def _get_scale(alpha, x, q):
+  """Gets scaling factor for scaling the tensor per channel.
+
+  Arguments:
+    alpha: A float or string. When it is string, it should be either "auto" or
+      "auto_po2", and
+       scale = sum(x * q, axis=all but last) / sum(q * q, axis=all but last)
+     x: A tensor object. Its elements are in float.
+     q: A tensor object. Its elements are in quantized format of x.
+
+  Returns:
+    A scaling factor tensor or scala for scaling tensor per channel.
+  """
+
+  if isinstance(alpha, six.string_types) and "auto" in alpha:
+    assert alpha in ["auto", "auto_po2"]
+    x_shape = x.shape.as_list()
+    len_axis = len(x_shape)
+    if len_axis > 1:
+      if K.image_data_format() == "channels_last":
+        axis = range(len_axis - 1)
+      else:
+        axis = range(1, len_axis)
+      qx = K.mean(tf.math.multiply(x, q), axis=axis, keepdims=True)
+      qq = K.mean(tf.math.multiply(q, q), axis=axis, keepdims=True)
+    else:
+      qx = K.mean(x * q, axis=0, keepdims=True)
+      qq = K.mean(q * q, axis=0, keepdims=True)
+    scale = qx / (qq + K.epsilon())
+    if alpha == "auto_po2":
+      scale = K.pow(2.0,
+                    tf.math.round(K.log(scale + K.epsilon()) / np.log(2.0)))
+  elif alpha is None:
+    scale = 1.0
+  elif isinstance(alpha, np.ndarray):
+    scale = alpha
+  else:
+    scale = float(alpha)
+  return scale
+
 
 def smooth_sigmoid(x):
   """Implements a linear approximation of a sigmoid function."""
@@ -69,7 +129,7 @@ def set_internal_sigmoid(mode):
   elif mode == "smooth":
     _sigmoid = smooth_sigmoid
   elif mode == "real":
-    _sigmoid = tf.sigmoid
+    _sigmoid = tf.keras.backend.sigmoid
 
 
 def binary_tanh(x):
@@ -87,15 +147,15 @@ def smooth_tanh(x):
   return 2.0 * smooth_sigmoid(x) - 1.0
 
 
-def stochastic_round(x):
+def stochastic_round(x, precision=0.5):
   """Performs stochastic rounding to the first decimal point."""
-  s = tf.sign(x)
-  s += (1.0 - tf.abs(s)) * (2.0 * tf.round(tf.random.uniform(tf.shape(x))) -
-                            1.0)
-  t = tf.floor(x) - (s - 1.0) / 2.0
-  p = tf.abs(x - t)
-  f = s * (tf.sign(p - tf.random.uniform(tf.shape(p))) + 1.0) / 2.0
-  return t + f
+  scale = 1.0 / precision
+  scale_x = x * scale
+  fraction = scale_x - tf.floor(scale_x)
+
+  result = tf.where(fraction < tf.random.uniform(tf.shape(x)),
+                    tf.math.floor(scale_x), tf.math.ceil(scale_x))
+  return result / scale
 
 
 def stochastic_round_po2(x):
@@ -105,8 +165,8 @@ def stochastic_round_po2(x):
   y = tf.abs(x)
   eps = tf.keras.backend.epsilon()
   log2 = tf.keras.backend.log(2.0)
+
   x_log2 = tf.round(tf.keras.backend.log(y + eps) / log2)
-  sign = tf.sign(x)
   po2 = tf.cast(pow(2.0, tf.cast(x_log2, dtype="float32")), dtype="float32")
   left_val = tf.where(po2 > y, x_log2 - 1, x_log2)
   right_val = tf.where(po2 > y, x_log2, x_log2 + 1)
@@ -117,10 +177,18 @@ def stochastic_round_po2(x):
   # use y as a threshold to keep the probabliy [2**left_val, y, 2**right_val]
   # so that the mean value of the sample should be y
   x_po2 = tf.where(y < val, left_val, right_val)
+  """
+  x_log2 = stochastic_round(tf.keras.backend.log(y + eps) / log2)
+  sign = tf.sign(x)
+  po2 = (
+      tf.sign(x) *
+      tf.cast(pow(2.0, tf.cast(x_log2, dtype="float32")), dtype="float32")
+  )
+  """
   return x_po2
 
 
-def _round_through(x, use_stochastic_rounding=False):
+def _round_through(x, use_stochastic_rounding=False, precision=0.5):
   """Rounds x but using straight through estimator.
 
   We use the trick from [Sergey Ioffe](http://stackoverflow.com/a/36480182).
@@ -139,12 +207,14 @@ def _round_through(x, use_stochastic_rounding=False):
   Arguments:
     x: tensor to perform round operation with straight through gradient.
     use_stochastic_rounding: if true, we perform stochastic rounding.
+    precision: by default we will use 0.5 as precision, but that can overriden
+      by the user.
 
   Returns:
     Rounded tensor.
   """
   if use_stochastic_rounding:
-    return x + tf.stop_gradient(-x + stochastic_round(x))
+    return x + tf.stop_gradient(-x + stochastic_round(x, precision))
   else:
     return x + tf.stop_gradient(-x + tf.round(x))
 
@@ -166,7 +236,6 @@ def _ceil_through(x):
   return x + tf.stop_gradient(-x + tf.ceil(x))
 
 
-
 #
 # Activation functions for quantized networks.
 #
@@ -181,8 +250,8 @@ class quantized_bits(object):  # pylint: disable=invalid-name
 
   In general, we want to use a quantization function like:
 
-  a = (pow(2,bits)-1 - 0) / (max(x) - min(x))
-  b = - min(x) * a
+  a = (pow(2,bits) - 1 - 0) / (max(x) - min(x))
+  b = -min(x) * a
 
   in the equation:
 
@@ -211,6 +280,8 @@ class quantized_bits(object):  # pylint: disable=invalid-name
     integer: number of bits to the left of the decimal point.
     symmetric: if true, we will have the same number of values for positive
       and negative numbers.
+    alpha: a tensor or None, the scaling factor per channel.
+      If None, the scaling factor is 1 for all channels.
     keep_negative: if true, we do not clip negative numbers.
     use_stochastic_rounding: if true, we perform stochastic rounding.
 
@@ -219,33 +290,123 @@ class quantized_bits(object):  # pylint: disable=invalid-name
   """
 
   def __init__(self, bits=8, integer=0, symmetric=0, keep_negative=1,
-               use_stochastic_rounding=False):
+               alpha=None, use_stochastic_rounding=False):
     self.bits = bits
     self.integer = integer
     self.symmetric = symmetric
     self.keep_negative = (keep_negative > 0)
+    self.alpha = alpha
     self.use_stochastic_rounding = use_stochastic_rounding
+    # "auto*" |-> symmetric
+    if isinstance(self.alpha, six.string_types):
+      self.symmetric = True
+    self.scale = None
+
+  def __str__(self):
+    flags = [str(self.bits), str(self.integer), str(int(self.symmetric))]
+    if not self.keep_negative:
+      flags.append("keep_negative=" + str(int(self.keep_negative)))
+    if self.alpha:
+      flags.append("alpha=" + str(self.alpha))
+    if self.use_stochastic_rounding:
+      flags.append("use_stochastic_rounding=" +
+                   str(int(self.use_stochastic_rounding)))
+    return "quantized_bits(" + ",".join(flags) + ")"
 
   def __call__(self, x):
     """Computes fixedpoint quantization of x."""
-
+    # quantized_bits with "1" bit becomes a binary implementation.
     unsigned_bits = self.bits - self.keep_negative
+    m = pow(2, unsigned_bits)
+    m_i = pow(2, self.integer)
+
+    if self.alpha is None:
+      scale = 1.0
+    elif isinstance(self.alpha, six.string_types):
+      # We only deal with the symmetric case right now.
+      assert self.symmetric
+      len_axis = len(x.shape)
+      if len_axis > 1:
+        if K.image_data_format() == "channels_last":
+          axis = range(len_axis - 1)
+        else:
+          axis = range(1, len_axis)
+      else:
+        axis = [0]
+
+      # we will use this implementation for the scale for QKeras 0.7
+      levels = 2**self.bits - 1
+      scale = (K.max(x, axis=axis, keepdims=True) -
+               K.min(x, axis=axis, keepdims=True)) / levels
+      if "po2" in self.alpha:
+        scale = K.pow(2.0,
+                      tf.math.round(K.log(scale + K.epsilon()) / np.log(2.0)))
+      for _ in range(5):
+        v = tf.floor(tf.abs(x) / scale + 0.5)
+        mask = v < (levels - 1) / 2
+        z = tf.sign(x) * tf.where(mask, v, tf.ones_like(v) * (levels - 1) / 2)
+        scale = _get_scale("auto_po2", x, z)
+
+      # z is an integer number, so we must make the scale * m and z / m
+      scale = scale * m
+
+      # we will not use "z" right now because of stochastic_rounding
+      # this is still under test.
+
+      # if "new" in self.alpha:
+      #  z = z / m
+      #  self.scale = scale
+      #  return x + tf.stop_gradient(-x + scale * z)
+      x = x / scale
+    else:
+      scale = self.alpha
 
     # quantized_bits with "1" bit becomes a binary implementation.
-
     if unsigned_bits > 0:
-      m = pow(2, unsigned_bits)
-      m_i = pow(2, self.integer)
       p = x * m / m_i
       xq = m_i * tf.keras.backend.clip(
-          _round_through(p, self.use_stochastic_rounding),
+          _round_through(p, self.use_stochastic_rounding, precision=1.0),
           self.keep_negative * (-m + self.symmetric), m - 1) / m
     else:
       xq = tf.sign(x)
       xq += (1.0 - tf.abs(xq))
       if not self.keep_negative:
         xq = (xq + 1.0) / 2.0
-    return x + tf.stop_gradient(-x + xq)
+
+    self.scale = scale
+    return x + tf.stop_gradient(-x + scale * xq)
+
+  def _set_trainable_parameter(self):
+    if self.alpha is None:
+      self.alpha = "auto_po2"
+      self.symmetric = True
+      self.use_stochastic_rounding = True
+
+  def max(self):
+    """Get maximum value that quantized_bits class can represent."""
+    unsigned_bits = self.bits - self.keep_negative
+
+    if unsigned_bits > 0:
+      return ((1.0 - np.power(2.0, -unsigned_bits)) *
+              np.power(2.0, self.integer))
+    else:
+      return 1.0
+
+  def min(self):
+    """Get minimum value that quantized_bits class can represent."""
+    if not self.keep_negative:
+      return 0.0
+
+    unsigned_bits = self.bits - self.keep_negative
+
+    if unsigned_bits > 0:
+      if self.symmetric:
+        return -(
+            (1.0 - np.power(2.0, -unsigned_bits)) * np.power(2.0, self.integer))
+      else:
+        return -np.power(2.0, self.integer)
+    else:
+      return -1.0
 
   @classmethod
   def from_config(cls, config):
@@ -253,16 +414,12 @@ class quantized_bits(object):  # pylint: disable=invalid-name
 
   def get_config(self):
     config = {
-        "bits":
-            self.bits,
-        "integer":
-            self.integer,
-        "symmetric":
-            self.symmetric,
-        "keep_negative":
-            self.keep_negative,
-        "use_stochastic_rounding":
-            self.use_stochastic_rounding
+        "bits": self.bits,
+        "integer": self.integer,
+        "symmetric": self.symmetric,
+        "alpha": self.alpha,
+        "keep_negative": self.keep_negative,
+        "use_stochastic_rounding": self.use_stochastic_rounding
     }
     return config
 
@@ -286,21 +443,88 @@ class bernoulli(object):  # pylint: disable=invalid-name
   Remember that E[dL/dy] = E[dL/dx] once we add stochastic sampling.
 
   Attributes:
-    alpha: allows one to specify multiplicative factor for number generation.
+    alpha: allows one to specify multiplicative factor for number generation
+      of "auto" or "auto_po2".
+    temperature: amplifier factor for sigmoid function, making stochastic
+      less stochastic as it moves away from 0.
+    use_real_sigmoid: use real sigmoid for probability.
 
   Returns:
     Computation of round with stochastic sampling with straight through
     gradient.
   """
 
-  def __init__(self, alpha=1.0):
+  def __init__(self, alpha=None, temperature=6.0, use_real_sigmoid=True):
     self.alpha = alpha
+    self.bits = 1
+    self.temperature = temperature
+    self.use_real_sigmoid = use_real_sigmoid
+    self.default_alpha = 1.0
+    self.scale = None
+
+  def __str__(self):
+    flags = []
+    if self.alpha is not None:
+      flags.append("alpha=" + str(self.alpha))
+    if self.temperature != 6.0:
+      flags.append("temperature=" + str(self.temperature))
+    if not self.use_real_sigmoid:
+      flags.append("use_real_sigmoid=" + str(int(self.use_real_sigmoid)))
+    return "bernoulli(" + ",".join(flags) + ")"
 
   def __call__(self, x):
-    p = _sigmoid(x / self.alpha)
-    k_sign = tf.sign(p - tf.random.uniform(tf.shape(p)))
-    k_sign += (1.0 - tf.abs(k_sign))
-    return x + tf.stop_gradient(-x + self.alpha * (k_sign + 1.0) / 2.0)
+    if isinstance(self.alpha, six.string_types):
+      assert self.alpha in ["auto", "auto_po2"]
+
+    if isinstance(self.alpha, six.string_types):
+      len_axis = len(x.shape)
+
+      if len_axis > 1:
+        if K.image_data_format() == "channels_last":
+          axis = range(len_axis - 1)
+        else:
+          axis = range(1, len_axis)
+      else:
+        axis = [0]
+
+      std = K.std(x, axis=axis, keepdims=True) + K.epsilon()
+    else:
+      std = 1.0
+
+    if self.use_real_sigmoid:
+      p = tf.keras.backend.sigmoid(self.temperature * x / std)
+    else:
+      p = _sigmoid(self.temperature * x/std)
+    r = tf.random.uniform(tf.shape(x))
+    q = tf.sign(p - r)
+    q += (1.0 - tf.abs(q))
+    q = (q + 1.0) / 2.0
+
+    q_non_stochastic = tf.sign(x)
+    q_non_stochastic += (1.0 - tf.abs(q_non_stochastic))
+    q_non_stochastic = (q_non_stochastic + 1.0) / 2.0
+
+    # if we use non stochastic binary to compute alpha,
+    # this function seems to behave better
+    scale = _get_scale(self.alpha, x, q_non_stochastic)
+    self.scale = scale
+    return x + tf.stop_gradient(-x + scale * q)
+
+  def _set_trainable_parameter(self):
+    if self.alpha is None:
+      self.alpha = "auto_po2"
+
+  def max(self):
+    """Get the maximum value bernoulli class can represent."""
+    if self.alpha is None or (isinstance(self.alpha, six.string_types) and
+                              "auto" in self.alpha):
+      return 1.0
+    else:
+      return self.alpha
+
+  def min(self):
+    """Get the minimum value bernoulli class can represent."""
+    return 0.0
 
   @classmethod
   def from_config(cls, config):
@@ -320,54 +544,114 @@ class stochastic_ternary(object):  # pylint: disable=invalid-name
   Attributes:
     x: tensor to perform sign opertion with stochastic sampling.
     bits: number of bits to perform quantization.
-    alpha: ternary is -alpha or +alpha.`
+    alpha: ternary is -alpha or +alpha, or "auto" or "auto_po2".
     threshold: (1-threshold) specifies the spread of the +1 and -1 values.
+    temperature: amplifier factor for sigmoid function, making stochastic
+      less stochastic as it moves away from 0.
+    use_real_sigmoid: use real sigmoid for probability.
+    number_of_unrolls: number of times we iterate between scale and threshold.
 
   Returns:
     Computation of sign with stochastic sampling with straight through gradient.
   """
 
-  def __init__(self, alpha=1.0, threshold=0.25):
+  def __init__(self, alpha=None, threshold=None, temperature=8.0,
+               use_real_sigmoid=True, number_of_unrolls=5):
     self.bits = 2
     self.alpha = alpha
     self.threshold = threshold
     assert threshold != 1.0
+    self.default_alpha = 1.0
+    self.default_threshold = 0.33
+    self.temperature = temperature
+    self.use_real_sigmoid = use_real_sigmoid
+    self.number_of_unrolls = number_of_unrolls
+    self.scale = None
+
+  def __str__(self):
+    flags = []
+    if self.alpha is not None:
+      flags.append("alpha=" + str(self.alpha))
+    if self.threshold is not None:
+      flags.append("threshold=" + str(self.threshold))
+    if self.temperature != 8.0:
+      flags.append("temperature=" + str(self.temperature))
+    if not self.use_real_sigmoid:
+      flags.append("use_real_sigmoid=0")
+    if self.number_of_unrolls != 5:
+      flags.append("number_of_unrolls=" + str(self.number_of_unrolls))
+    return "stochastic_ternary(" + ",".join(flags) + ")"
 
   def __call__(self, x):
-    # we right now use the following distributions for fm1, f0, fp1
-    #
-    # fm1 = ((1-T)-p)/(1-T)             for p <= (1-T)
-    #  f0 = 2*p/clip(0.5+T,0.5,1.0)     for p <= 0.5
-    #       2*(1-p)/clip(0.5+T,0.5,1.0) for p > 0.5
-    # fp1 = (p-T)/(1-T)                 for p >= T
-    #
-    # threshold (1-T) determines the spread of -1 and +1
-    # for T < 0.5 we need to fix the distribution of f0
-    # to make it bigger when compared to the other
-    # distributions.
+    # right now we only accept stochastic_ternary in parameters
 
-    p = _sigmoid(x / self.alpha)  # pylint: disable=invalid-name
+    assert isinstance(self.alpha, six.string_types)
+    assert self.alpha in ["auto", "auto_po2"]
+    if self.alpha is None:
+      scale = self.default_alpha
+    elif isinstance(self.alpha, six.string_types):
+      scale = 1.0
+    else:
+      scale = float(self.alpha)
 
-    T = self.threshold  # pylint: disable=invalid-name
+    len_axis = len(x.shape)
+    if len_axis > 1:
+      if K.image_data_format() == "channels_last":
+        axis = range(len_axis-1)
+      else:
+        axis = range(1, len_axis)
+    else:
+      axis = [0]
 
-    ones = tf.ones_like(p)
-    zeros = tf.zeros_like(p)
+    x_mean = K.mean(x, axis=axis, keepdims=True)
+    x_std = K.std(x, axis=axis, keepdims=True)
 
-    T0 = np.clip(0.5 + T, 0.5, 1.0)  # pylint: disable=invalid-name
+    m = K.max(tf.abs(x), axis=axis, keepdims=True)
+    scale = 2.*m/3.
+    for _ in range(self.number_of_unrolls):
+      T = scale / 2.0
+      q_ns = K.cast(tf.abs(x) >= T, K.floatx()) * K.sign(x)
+      scale = _get_scale(self.alpha, x, q_ns)
 
-    fm1 = tf.where(p <= (1 - T), ((1 - T) - p) / (1 - T), zeros)
-    f0 = tf.where(p <= 0.5, 2 * p, 2 * (1 - p)) / T0
-    fp1 = tf.where(p <= T, zeros, (p - T) / (1 - T))
+    x_norm = (x - x_mean) / x_std
+    T = scale / (2.0 * x_std)
 
-    f_all = fm1 + f0 + fp1
+    if self.use_real_sigmoid:
+      p0 = tf.keras.backend.sigmoid(self.temperature * (x_norm - T))
+      p1 = tf.keras.backend.sigmoid(self.temperature * (x_norm + T))
+    else:
+      p0 = _sigmoid(self.temperature * (x_norm - T))
+      p1 = _sigmoid(self.temperature * (x_norm + T))
+    r0 = tf.random.uniform(tf.shape(p0))
+    r1 = tf.random.uniform(tf.shape(p1))
+    q0 = tf.sign(p0 - r0)
+    q0 += (1.0 - tf.abs(q0))
+    q1 = tf.sign(p1 - r1)
+    q1 += (1.0 - tf.abs(q1))
 
-    c_fm1 = fm1 / f_all
-    c_f0 = (fm1 + f0) / f_all
+    q = (q0 + q1) / 2.0
+    self.scale = scale
+    return x + tf.stop_gradient(-x + scale * q)
 
-    r = tf.random.uniform(tf.shape(p))
+  def _set_trainable_parameter(self):
+    if self.alpha is None:
+      self.alpha = "auto_po2"
+      if self.threshold is None:
+        self.threshold = self.default_threshold
 
-    return x + tf.stop_gradient(-x + self.alpha * tf.where(
-        r <= c_fm1, -1 * ones, tf.where(r <= c_f0, zeros, ones)))
+  def max(self):
+    """Get the maximum value that stochastic_ternary can respresent."""
+    if self.alpha is None or isinstance(self.alpha, six.string_types):
+      return 1.0
+    else:
+      return self.alpha
+
+  def min(self):
+    """Get the minimum value that stochastic_ternary can respresent."""
+    if self.alpha is None or isinstance(self.alpha, six.string_types):
+      return -1.0
+    else:
+      return -self.alpha
 
   @classmethod
   def from_config(cls, config):
@@ -375,10 +659,11 @@ class stochastic_ternary(object):  # pylint: disable=invalid-name
 
   def get_config(self):
     config = {
-        "alpha":
-            self.alpha,
-        "threshold":
-            self.threshold,
+        "alpha": self.alpha,
+        "threshold": self.threshold,
+        "temperature": self.temperature,
+        "use_real_sigmoid": self.use_real_sigmoid,
+        "number_of_unrolls": self.number_of_unrolls
     }
     return config
 
@@ -386,30 +671,123 @@ class stochastic_ternary(object):  # pylint: disable=invalid-name
 class ternary(object):  # pylint: disable=invalid-name
   """Computes an activation function returning -alpha, 0 or +alpha.
 
+  Right now we assume two type of behavior. For parameters, we should
+  have alpha, threshold and stochastic rounding on. For activations,
+  alpha and threshold should be floating point numbers, and stochastic
+  rounding should be off.
+
   Attributes:
     x: tensor to perform sign opertion with stochastic sampling.
     bits: number of bits to perform quantization.
-    alpha: ternary is -alpha or +alpha. Threshold is also scaled by alpha.
-    threshold: threshold to apply "dropout" or dead band (0 value).
+    alpha: ternary is -alpha or +alpha. Alpha can be "auto" or "auto_po2".
+    threshold: threshold to apply "dropout" or dead band (0 value). If "auto"
+      is specified, we will compute it per output layer.
     use_stochastic_rounding: if true, we perform stochastic rounding.
 
   Returns:
     Computation of sign within the threshold.
   """
 
-  def __init__(self, alpha=1.0, threshold=0.33, use_stochastic_rounding=False):
+  def __init__(self, alpha=None, threshold=None, use_stochastic_rounding=False,
+               number_of_unrolls=5):
     self.alpha = alpha
     self.bits = 2
     self.threshold = threshold
     self.use_stochastic_rounding = use_stochastic_rounding
+    self.default_alpha = 1.0
+    self.default_threshold = 0.33
+    self.number_of_unrolls = number_of_unrolls
+    self.scale = None
+
+  def __str__(self):
+    flags = []
+    if self.alpha is not None:
+      flags.append("alpha=" + str(self.alpha))
+    if self.threshold is not None:
+      flags.append("threshold=" + str(self.threshold))
+    if self.use_stochastic_rounding:
+      flags.append(
+          "use_stochastic_rounding=" + str(int(self.use_stochastic_rounding)))
+    if self.number_of_unrolls != 5:
+      flags.append(
+          "number_of_unrolls=" + str(int(self.number_of_unrolls)))
+    return "ternary(" + ",".join(flags) + ")"
 
   def __call__(self, x):
-    if self.use_stochastic_rounding:
-      x = _round_through(
-          x, use_stochastic_rounding=self.use_stochastic_rounding)
-    return x + tf.stop_gradient(
-        -x + self.alpha * tf.where(tf.abs(x) < self.threshold,
-                                   tf.zeros_like(x), tf.sign(x)))
+    if isinstance(self.alpha, six.string_types):
+      # parameters
+      assert self.alpha in ["auto", "auto_po2"]
+      assert self.threshold is None
+    else:
+      # activations
+      assert not self.use_stochastic_rounding
+      assert not isinstance(self.threshold, six.string_types)
+
+    if self.alpha is None or isinstance(self.alpha, six.string_types):
+      scale = 1.0
+    elif isinstance(self.alpha, np.ndarray):
+      scale = self.alpha
+    else:
+      scale = float(self.alpha)
+
+    # This is an approximiation from https://arxiv.org/abs/1605.04711
+    # We consider channels_last only for now.
+    if isinstance(self.alpha, six.string_types):
+      # It is for parameters
+      # first, compute which asix corresponds to the channels.
+      # TODO(hzhuang): support channels_first
+      len_axis = len(x.shape.as_list())
+      if len_axis == 1:
+        axis = None
+      elif K.image_data_format() == "channels_last":
+        axis = range(len_axis - 1)
+      else:
+        axis = range(1, len_axis)
+
+      # This approximation is exact if x ~ U[-m, m]. For x ~ N(0, m)
+      # we need to iterate a few times before we can coverge
+      m = K.max(tf.abs(x), axis=axis, keepdims=True)
+      scale = 2 * m / 3.0
+      x_orig = x
+      for _ in range(self.number_of_unrolls):
+        thres = scale / 2.0
+        if self.use_stochastic_rounding:
+          # once we scale the number precision == 0.33 works
+          # well for Uniform and Normal distribution of input
+          x = scale * _round_through(
+              x_orig / scale,
+              use_stochastic_rounding=self.use_stochastic_rounding,
+              precision=0.33)
+        q = K.cast(tf.abs(x) >= thres, K.floatx()) * tf.sign(x)
+        scale = _get_scale(self.alpha, x, q)
+    else:
+      if self.threshold is None:
+        thres = self.default_threshold
+      else:
+        thres = self.threshold
+      q = K.cast(tf.abs(x) >= thres, K.floatx()) * tf.sign(x)
+
+    self.scale = scale
+    return x + tf.stop_gradient(-x + scale * q)
+
+  def _set_trainable_parameter(self):
+    if self.alpha is None:
+      self.alpha = "auto_po2"
+      self.use_stochastic_rounding = True
+
+  def max(self):
+    """Get the maximum value that ternary can respresent."""
+    if self.alpha is None or isinstance(self.alpha, six.string_types):
+      return 1.0
+    else:
+      return self.alpha
+
+  def min(self):
+    """Get the minimum value that ternary can respresent."""
+    if self.alpha is None or isinstance(self.alpha, six.string_types):
+      return -1.0
+    else:
+      return -self.alpha
 
   @classmethod
   def from_config(cls, config):
@@ -417,12 +795,10 @@ class ternary(object):  # pylint: disable=invalid-name
 
   def get_config(self):
     config = {
-        "alpha":
-            self.alpha,
-        "threshold":
-            self.threshold,
-        "use_stochastic_rounding":
-            self.use_stochastic_rounding
+        "alpha": self.alpha,
+        "threshold": self.threshold,
+        "use_stochastic_rounding": self.use_stochastic_rounding,
+        "number_of_unrolls": self.number_of_unrolls
     }
     return config
 
@@ -435,32 +811,93 @@ class stochastic_binary(object):  # pylint: disable=invalid-name
 
   Attributes:
     x: tensor to perform sign opertion with stochastic sampling.
-    alpha: binary is -alpha or +alpha.`
+    alpha: binary is -alpha or +alpha, or "auto" or "auto_po2".
     bits: number of bits to perform quantization.
+    temperature: amplifier factor for sigmoid function, making stochastic
+        behavior less stochastic as it moves away from 0.
+    use_real_sigmoid: use real sigmoid from tensorflow for probablity.
 
   Returns:
     Computation of sign with stochastic sampling with straight through gradient.
   """
 
-  def __init__(self, alpha=1.0):
+  def __init__(self, alpha=None, temperature=6.0, use_real_sigmoid=True):
     self.alpha = alpha
     self.bits = 1
+    self.temperature = temperature
+    self.use_real_sigmoid = use_real_sigmoid
+    self.default_alpha = 1.0
+    self.scale = None
+
+  def __str__(self):
+    flags = []
+    if self.alpha is not None:
+      flags.append("alpha=" + str(self.alpha))
+    if self.temperature != 6.0:
+      flags.append("temperature=" + str(self.temperature))
+    if not self.use_real_sigmoid:
+      flags.append("use_real_sigmoid=" + str(int(self.use_real_sigmoid)))
+    return "stochastic_binary(" + ",".join(flags) + ")"
 
   def __call__(self, x):
-    assert self.alpha != 0
-    p = _sigmoid(x / self.alpha)
-    k_sign = tf.sign(p - tf.random.uniform(tf.shape(x)))
-    # we should not need this, but if tf.sign is not safe if input is
-    # exactly 0.0
-    k_sign += (1.0 - tf.abs(k_sign))
-    return x + tf.stop_gradient(-x + self.alpha * k_sign)
+    if isinstance(self.alpha, six.string_types):
+      assert self.alpha in ["auto", "auto_po2"]
+    if isinstance(self.alpha, six.string_types):
+      len_axis = len(x.shape)
+      if len_axis > 1:
+        if K.image_data_format() == "channels_last":
+          axis = range(len_axis-1)
+        else:
+          axis = range(1, len_axis)
+      else:
+        axis = [0]
+      std = K.std(x, axis=axis, keepdims=True) + K.epsilon()
+    else:
+      std = 1.0
+
+    if self.use_real_sigmoid:
+      p = tf.keras.backend.sigmoid(self.temperature * x / std)
+    else:
+      p = _sigmoid(self.temperature * x / std)
+
+    r = tf.random.uniform(tf.shape(x))
+    q = tf.sign(p - r)
+    q += (1.0 - tf.abs(q))
+    q_non_stochastic = tf.sign(x)
+    q_non_stochastic += (1.0 - tf.abs(q_non_stochastic))
+    scale = _get_scale(self.alpha, x, q_non_stochastic)
+    self.scale = scale
+    return x + tf.stop_gradient(-x + scale * q)
+
+  def _set_trainable_parameter(self):
+    if self.alpha is None:
+      self.alpha = "auto_po2"
+      self.use_stochastic_rounding = True
+
+  def max(self):
+    """Get the maximum value that stochastic_binary can respresent."""
+    if self.alpha is None or isinstance(self.alpha, six.string_types):
+      return 1.0
+    else:
+      return self.alpha
+
+  def min(self):
+    """Get the minimum value that stochastic_binary can respresent."""
+    if self.alpha is None or isinstance(self.alpha, six.string_types):
+      return -1.0
+    else:
+      return -self.alpha
 
   @classmethod
   def from_config(cls, config):
     return cls(**config)
 
   def get_config(self):
-    config = {"alpha": self.alpha}
+    config = {
+        "alpha": self.alpha,
+        "temperature": self.temperature,
+        "use_real_sigmoid": self.use_real_sigmoid,
+    }
     return config
 
 
@@ -476,34 +913,100 @@ class binary(object):  # pylint: disable=invalid-name
     x: tensor to perform sign_through.
     bits: number of bits to perform quantization.
     use_01: if True, return {0,1} instead of {-1,+1}.
-    alpha: binary is -alpha or +alpha.
+    alpha: binary is -alpha or +alpha, or "auto", "auto_po2" to compute
+      automatically.
     use_stochastic_rounding: if true, we perform stochastic rounding.
 
   Returns:
     Computation of sign operation with straight through gradient.
   """
 
-  def __init__(self, use_01=False, alpha=1.0, use_stochastic_rounding=False):
+  def __init__(self, use_01=False, alpha=None, use_stochastic_rounding=False):
     self.use_01 = use_01
     self.bits = 1
     self.alpha = alpha
     self.use_stochastic_rounding = use_stochastic_rounding
+    self.default_alpha = 1.0
+    self.scale = None
+
+  def __str__(self):
+    flags = []
+    if self.use_01:
+      flags.append("use_01=" + str(int(self.use_01)))
+    if self.alpha is not None:
+      flags.append("alpha=" + str(self.alpha))
+    if self.use_stochastic_rounding:
+      flags.append(
+          "use_stochastic_rounding=" + str(self.use_stochastic_rounding))
+    return "binary(" + ",".join(flags) + ")"
 
   def __call__(self, x):
-    assert self.alpha != 0
+    if isinstance(self.alpha, six.string_types):
+      assert self.alpha in ["auto", "auto_po2"]
+    if self.alpha is None:
+      scale = self.default_alpha
+    elif isinstance(self.alpha, six.string_types):
+      scale = 1.0
+    elif isinstance(self.alpha, np.ndarray):
+      scale = self.alpha
+    else:
+      scale = float(self.alpha)
+
     if self.use_stochastic_rounding:
-      x = self.alpha * _round_through(
-          x / self.alpha, use_stochastic_rounding=self.use_stochastic_rounding)
+      len_axis = len(x.shape.as_list())
+      if len_axis == 1:
+        axis = None
+      elif K.image_data_format() == "channels_last":
+        axis = range(len_axis - 1)
+      else:
+        axis = range(1, len_axis)
+
+      # if stochastic_round is through, we need to scale
+      # number so that the precision is small enough.
+      # This is especially important if range of x is very
+      # small, which occurs during initialization of weights.
+      m = K.max(tf.abs(x), axis=axis, keepdims=True)
+      m = tf.where(m > 1.0, tf.ones_like(m), m)
+      f = 2 * m
+
+      x = f * _round_through(
+          x / f, use_stochastic_rounding=self.use_stochastic_rounding,
+          precision=0.125
+      )
 
     k_sign = tf.sign(x)
     if self.use_stochastic_rounding:
       k_sign += (1.0 - tf.abs(k_sign)) * (
           2.0 * tf.round(tf.random.uniform(tf.shape(x))) - 1.0)
-    else:
-      k_sign += (1.0 - tf.abs(k_sign))
+      # if something still remains, just make it positive for now.
+    k_sign += (1.0 - tf.abs(k_sign))
     if self.use_01:
       k_sign = (k_sign + 1.0) / 2.0
-    return x + tf.stop_gradient(-x + self.alpha * k_sign)
+
+    scale = _get_scale(self.alpha, x, k_sign)
+    self.scale = scale
+    return x + tf.stop_gradient(-x + scale * k_sign)
+
+  def _set_trainable_parameter(self):
+    if self.alpha is None:
+      self.alpha = "auto_po2"
+      self.use_stochastic_rounding = True
+
+  def max(self):
+    """Get maximum value that binary class can respresent."""
+    if self.alpha is None or isinstance(self.alpha, six.string_types):
+      return 1.0
+    else:
+      return self.alpha
+
+  def min(self):
+    """Get minimum value that binary class can respresent."""
+    if self.use_01:
+      return 0.0
+    elif self.alpha is None or isinstance(self.alpha, six.string_types):
+      return -1.0
+    else:
+      return -self.alpha
 
   @classmethod
   def from_config(cls, config):
@@ -511,12 +1014,9 @@ class binary(object):  # pylint: disable=invalid-name
 
   def get_config(self):
     config = {
-        "use_01":
-            self.use_01,
-        "alpha":
-            self.alpha,
-        "use_stochastic_rounding":
-            self.use_stochastic_rounding
+        "use_01": self.use_01,
+        "alpha": self.alpha,
+        "use_stochastic_rounding": self.use_stochastic_rounding
     }
     return config
 
@@ -557,6 +1057,14 @@ class quantized_relu(object):  # pylint: disable=invalid-name
     self.use_sigmoid = use_sigmoid
     self.use_stochastic_rounding = use_stochastic_rounding
 
+  def __str__(self):
+    flags = [str(self.bits), str(self.integer)]
+    if self.use_sigmoid or self.use_stochastic_rounding:
+      flags.append(str(int(self.use_sigmoid)))
+    if self.use_stochastic_rounding:
+      flags.append(str(int(self.use_stochastic_rounding)))
+    return "quantized_relu(" + ",".join(flags) + ")"
+
   def __call__(self, x):
     m = pow(2, self.bits)
     m_i = pow(2, self.integer)
@@ -573,20 +1081,33 @@ class quantized_relu(object):  # pylint: disable=invalid-name
           0.0, 1.0 - 1.0 / m)
     return xq
 
+  def _set_trainable_parameter(self):
+    pass
+
+  def max(self):
+    """Get the maximum value that quantized_relu can represent."""
+    unsigned_bits = self.bits
+
+    if unsigned_bits > 0:
+      return ((1.0 - np.power(2.0, -unsigned_bits)) *
+              np.power(2.0, self.integer))
+    else:
+      return 1.0
+
+  def min(self):
+    """Get the minimum value that quantized_relu can represent."""
+    return 0.0
+
   @classmethod
   def from_config(cls, config):
     return cls(**config)
 
   def get_config(self):
     config = {
-        "bits":
-            self.bits,
-        "integer":
-            self.integer,
-        "use_sigmoid":
-            self.use_sigmoid,
-        "use_stochastic_rounding":
-            self.use_stochastic_rounding
+        "bits": self.bits,
+        "integer": self.integer,
+        "use_sigmoid": self.use_sigmoid,
+        "use_stochastic_rounding": self.use_stochastic_rounding
     }
     return config
 
@@ -611,6 +1132,14 @@ class quantized_ulaw(object):  # pylint: disable=invalid-name
     self.symmetric = symmetric
     self.u = u
 
+  def __str__(self):
+    flags = [str(self.bits), str(self.integer)]
+    if self.symmetric or self.u != 255.0:
+      flags.append(str(int(self.symmetric)))
+    if self.u != 255.0:
+      flags.append(str(self.u))
+    return "quantized_ulaw(" + ",".join(flags) + ")"
+
   def __call__(self, x):
     non_sign_bits = self.bits - 1
     m = pow(2, non_sign_bits)
@@ -623,20 +1152,42 @@ class quantized_ulaw(object):  # pylint: disable=invalid-name
                                      (1.0 * self.symmetric) / m, 1.0 - 1.0 / m)
     return xq
 
+  def _set_trainable_parameter(self):
+    pass
+
+  def max(self):
+    """Get the maximum value that quantized_ulaw can represent."""
+    unsigned_bits = self.bits - 1
+
+    if unsigned_bits > 0:
+      return ((1.0 - np.power(2.0, -unsigned_bits)) *
+              np.power(2.0, self.integer))
+    else:
+      return 1.0
+
+  def min(self):
+    """Get the minimum value that quantized_ulaw can represent."""
+    unsigned_bits = self.bits - 1
+
+    if unsigned_bits > 0:
+      if self.symmetric:
+        return -(1.0 - np.power(2.0, -unsigned_bits)) * np.power(
+            2.0, self.integer)
+      else:
+        return -np.power(2.0, self.integer)
+    else:
+      return -1.0
+
   @classmethod
   def from_config(cls, config):
     return cls(**config)
 
   def get_config(self):
     config = {
-        "bits":
-            self.bits,
-        "integer":
-            self.integer,
-        "symmetric":
-            self.symmetric,
-        "u":
-            self.u
+        "bits": self.bits,
+        "integer": self.integer,
+        "symmetric": self.symmetric,
+        "u": self.u
     }
     return config
 
@@ -666,6 +1217,14 @@ class quantized_tanh(object):  # pylint: disable=invalid-name
     self.symmetric = symmetric
     self.use_stochastic_rounding = use_stochastic_rounding
 
+  def __str__(self):
+    flags = [str(self.bits), str(self.integer)]
+    if self.symmetric or self.use_stochastic_rounding:
+      flags.append(str(int(self.symmetric)))
+    if self.use_stochastic_rounding:
+      flags.append(str(int(self.use_stochastic_rounding)))
+    return "quantized_tanh(" + ",".join(flags) + ")"
+
   def __call__(self, x):
     non_sign_bits = self.bits - 1
     m = pow(2, non_sign_bits)
@@ -676,6 +1235,33 @@ class quantized_tanh(object):  # pylint: disable=invalid-name
         (_round_through(p, self.use_stochastic_rounding) / m) - 1.0, -1.0 +
         (1.0 * self.symmetric) / m, 1.0 - 1.0 / m)
     return xq
+
+  def _set_trainable_parameter(self):
+    pass
+
+  def max(self):
+    """Get the maximum value that quantized_tanh can represent."""
+    unsigned_bits = self.bits - 1
+    if unsigned_bits > 0:
+      return ((1.0 - np.power(2.0, -unsigned_bits)) *
+              np.power(2.0, self.integer))
+    else:
+      return 1.0
+
+  def min(self):
+    """Get the minimum value that quantized_tanh can represent."""
+    if not self.keep_negative:
+      return 0.0
+
+    unsigned_bits = self.bits - 1
+    if unsigned_bits > 0:
+      if self.symmetric:
+        return -(1.0 - np.power(2.0, -unsigned_bits)) * np.power(
+            2.0, self.integer)
+      else:
+        return -np.power(2.0, self.integer)
+    else:
+      return -1.0
 
   @classmethod
   def from_config(cls, config):
@@ -694,6 +1280,7 @@ class quantized_tanh(object):  # pylint: disable=invalid-name
 def _clip_power_of_two(x_abs,
                        min_exp,
                        max_exp,
+                       max_value,
                        quadratic_approximation=False,
                        use_stochastic_rounding=False):
   """Clips a tensor using power-of-two quantizer.
@@ -703,6 +1290,7 @@ def _clip_power_of_two(x_abs,
     x_abs: A tensor object. Its elements should be non-negative.
     min_exp: An integer representing the smallest exponent.
     max_exp: An integer representing the largest exponent.
+    max_value: A float or None. If it is None, we clip the value to max_value.
     quadratic_approximation: An boolean representing whether the quadratic
       approximation is applied.
     use_stochastic_rounding: An boolean representing whether the stochastic
@@ -712,11 +1300,18 @@ def _clip_power_of_two(x_abs,
     A tensor object, the values are clipped by min_exp and max_exp.
   """
 
-  eps = tf.keras.backend.epsilon()
-  log2 = np.log(2.0)
   # if quadratic_approximation is True, round to the exponent for sqrt(x),
   # so that the return value can be divided by two without remainder.
-  x_eps_pad = tf.where(x_abs < eps, eps, x_abs)
+  log2 = np.log(2.0)
+
+  # When the elements of x_abs are small than the keras epsilon,
+  # we just overwrite x_abs with eps
+  eps = tf.keras.backend.epsilon()
+  x_filter = tf.where(x_abs < eps, eps, x_abs)
+  if max_value is not None:
+    # If the elements of x_filter has value larger than x_value, clip it.
+    x_filter = tf.where(x_filter >= max_value,
+                        tf.ones_like(x_filter) * max_value, x_filter)
 
   def power_of_two_clip(x_abs, min_exp, max_exp, quadratic_approximation,
                         use_stochastic_rounding):
@@ -740,7 +1335,7 @@ def _clip_power_of_two(x_abs,
   x_clipped = tf.where(
       x_abs < eps,
       tf.ones_like(x_abs) * min_exp,
-      power_of_two_clip(x_eps_pad, min_exp, max_exp, quadratic_approximation,
+      power_of_two_clip(x_filter, min_exp, max_exp, quadratic_approximation,
                         use_stochastic_rounding))
 
   return x_clipped
@@ -791,14 +1386,12 @@ def _get_min_max_exponents(non_sign_bits, need_exponent_sign_bit,
   """
 
   effect_bits = non_sign_bits - need_exponent_sign_bit
+  min_exp = -2**(effect_bits)
   if quadratic_approximation:
-    if effect_bits % 2:
-      effect_bits = effect_bits - 1
-    min_exp = -2**(effect_bits)
     max_exp = 2**(effect_bits)
   else:
-    min_exp = -2**(effect_bits)
     max_exp = 2**(effect_bits) - 1
+
   return min_exp, max_exp
 
 
@@ -808,8 +1401,8 @@ class quantized_po2(object):  # pylint: disable=invalid-name
   Attributes:
     bits: An integer, the bits allocated for the exponent, its sign and the sign
       of x.
-    max_value: default is None, or a non-negative value to put a constraint for
-      the max value.
+    max_value: An float or None. If None, no max_value is specified.
+      Otherwise, the maximum value of quantized_po2 <= max_value
     use_stochastic_rounding: A boolean, default is False, if True, it uses
       stochastic rounding and forces the mean of x to be x statstically.
     quadratic_approximation: A boolean, default is False if True, it forces the
@@ -824,44 +1417,68 @@ class quantized_po2(object):  # pylint: disable=invalid-name
     self.bits = bits
     self.max_value = max_value
     self.use_stochastic_rounding = use_stochastic_rounding
+    # if True, round to the exponent for sqrt(x),
+    # so that the return value can be divided by two without remainder.
     self.quadratic_approximation = quadratic_approximation
-
-  def __call__(self, x):
     need_exponent_sign_bit = _need_exponent_sign_bit_check(self.max_value)
     non_sign_bits = self.bits - 1
-    min_exp, max_exp = _get_min_max_exponents(non_sign_bits,
-                                              need_exponent_sign_bit,
-                                              self.quadratic_approximation)
-    eps = tf.keras.backend.epsilon()
-    if min_exp < np.log2(eps):
-      warnings.warn(
-          "QKeras: min_exp in po2 quantizer is smaller than tf.epsilon().")
-    if self.max_value:
-      max_exp = np.minimum(max_exp, np.round(np.log2(self.max_value + eps)))
+    self._min_exp, self._max_exp = _get_min_max_exponents(
+        non_sign_bits, need_exponent_sign_bit, self.quadratic_approximation)
 
+  def __str__(self):
+    flags = [str(self.bits)]
+    if self.max_value is not None or self.use_stochastic_rounding:
+      flags.append(str(int(self.max_value)))
+    if self.use_stochastic_rounding:
+      flags.append(str(int(self.use_stochastic_rounding)))
+    if self.quadratic_approximation:
+      flags.append(
+          "quadratic_approximation=" + str(int(self.quadratic_approximation)))
+    return "quantized_po2(" + ",".join(flags) + ")"
+
+  def __call__(self, x):
     x_sign = tf.sign(x)
     x_sign += (1.0 - tf.abs(x_sign))
     x_abs = tf.abs(x)
-    x_clipped = _clip_power_of_two(x_abs, min_exp, max_exp,
+    x_clipped = _clip_power_of_two(x_abs, self._min_exp, self._max_exp,
+                                   self.max_value,
                                    self.quadratic_approximation,
                                    self.use_stochastic_rounding)
     return x + tf.stop_gradient(-x + x_sign * pow(2.0, x_clipped))
+
+  def _set_trainable_parameter(self):
+    pass
+
+  def max(self):
+    """Get the maximum value that quantized_po2 can represent."""
+    return self._max_exp
+
+  def min(self):
+    """Get the minimum value that quantized_po2 can represent."""
+    return self._min_exp
 
   @classmethod
   def from_config(cls, config):
     return cls(**config)
 
   def get_config(self):
-    """Gets config."""
+    """Gets configugration of the quantizer.
+
+    Returns:
+      A dict mapping quantization configuration, including
+        bits: bitwidth for exponents.
+        max_value: the maximum value of this quantized_po2 can represent.
+        use_stochastic_rounding:
+          if True, stochastic rounding is used.
+        quadratic_approximation:
+          if True, the exponent is enforced to be even number, which is
+          the closest one to x.
+    """
     config = {
-        "bits":
-            self.bits,
-        "max_value":
-            self.max_value,
-        "use_stochastic_rounding":
-            self.use_stochastic_rounding,
-        "quadratic_approximation":
-            self.quadratic_approximation
+        "bits": self.bits,
+        "max_value": self.max_value,
+        "use_stochastic_rounding": self.use_stochastic_rounding,
+        "quadratic_approximation": self.quadratic_approximation
     }
     return config
 
@@ -890,22 +1507,39 @@ class quantized_relu_po2(object):  # pylint: disable=invalid-name
     # if True, round to the exponent for sqrt(x),
     # so that the return value can be divided by two without remainder.
     self.quadratic_approximation = quadratic_approximation
+    need_exponent_sign_bit = _need_exponent_sign_bit_check(self.max_value)
+    self._min_exp = -2**(self.bits - need_exponent_sign_bit)
+    self._max_exp = 2**(self.bits - need_exponent_sign_bit) - 1
+
+  def __str__(self):
+    flags = [str(self.bits)]
+    if self.max_value is not None or self.use_stochastic_rounding:
+      flags.append(str(int(self.max_value)))
+    if self.use_stochastic_rounding:
+      flags.append(str(int(self.use_stochastic_rounding)))
+    if self.quadratic_approximation:
+      flags.append(
+          "quadratic_approximation=" + str(int(self.quadratic_approximation)))
+    return "quantized_relu_po2(" + ",".join(flags) + ")"
 
   def __call__(self, x):
-    need_exponent_sign_bit = _need_exponent_sign_bit_check(self.max_value)
-    min_exp = -2**(self.bits - need_exponent_sign_bit)
-    max_exp = 2**(self.bits - need_exponent_sign_bit) - 1
-    eps = tf.keras.backend.epsilon()
-    if min_exp < np.log2(eps):
-      warnings.warn("QKeras: min_exp in quantized_relu_po2 quantizer "
-                    "is smaller than tf.epsilon().")
-    if self.max_value:
-      max_exp = np.minimum(max_exp, np.round(np.log2(self.max_value + eps)))
     x = tf.maximum(x, 0)
-    x_clipped = _clip_power_of_two(x, min_exp, max_exp,
+    x_clipped = _clip_power_of_two(x, self._min_exp, self._max_exp,
+                                   self.max_value,
                                    self.quadratic_approximation,
                                    self.use_stochastic_rounding)
     return x + tf.stop_gradient(-x + pow(2.0, x_clipped))
+
+  def _set_trainable_parameter(self):
+    pass
+
+  def max(self):
+    """Get the maximum value that quantized_relu_po2 can represent."""
+    return self._max_exp
+
+  def min(self):
+    """Get the minimum value that quantized_relu_po2 can represent."""
+    return self._min_exp
 
   @classmethod
   def from_config(cls, config):

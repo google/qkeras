@@ -31,13 +31,12 @@
 #    https://ieeexplore.ieee.org/abstract/document/6986082
 #    https://ieeexplore.ieee.org/iel4/78/5934/00229903.pdf
 #
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
+import warnings
+import six
 import tensorflow.compat.v2 as tf
-
 from tensorflow.keras import activations
 from tensorflow.keras import constraints
 from tensorflow.keras import initializers
@@ -45,21 +44,40 @@ from tensorflow.keras import regularizers
 from tensorflow.keras.constraints import Constraint
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.layers import Layer
+from .quantizers import get_quantized_initializer
+from .quantizers import get_quantizer
 from tensorflow_model_optimization.python.core.sparsity.keras.prunable_layer import PrunableLayer
 
 
-import numpy as np
-import six
+def get_auto_range_constraint_initializer(quantizer, constraint, initializer):
+  """Get value range automatically for quantizer.
 
-from .quantizers import get_quantized_initializer
-from .quantizers import get_quantizer
+  Arguments:
+   quantizer: A quantizer class in quantizers.py.
+   constraint: A tf.keras constraint.
+   initializer: A tf.keras initializer.
+
+  Returns:
+    a tuple (constraint, initializer), where
+      constraint is clipped by Clip class in this file, based on the
+      value range of quantizer.
+      initializer is initializer contraint by value range of quantizer.
+  """
+  if quantizer is not None:
+    max_value = quantizer.max() if hasattr(quantizer, "max") else 1.0
+    min_value = quantizer.min() if hasattr(quantizer, "min") else -1.0
+    if constraint:
+      constraint = constraints.get(constraint)
+    constraint = Clip(min_value, max_value, constraint, quantizer)
+    initializer = get_quantized_initializer(initializer,
+                                            max(abs(min_value), abs(max_value)))
+  return constraint, initializer
 
 
 #
 # Because it may be hard to get serialization from activation functions,
 # we may be replacing their instantiation by QActivation in the future.
 #
-
 
 class QActivation(Layer, PrunableLayer):
   """Implements quantized activation layers."""
@@ -107,8 +125,6 @@ class QActivation(Layer, PrunableLayer):
 #    1. quantization approximation is symmetric (b = 0).
 #    2. max(x) and min(x) are 1 and -1 respectively.
 #
-
-
 class Clip(Constraint):
   """Clips weight constraint."""
 
@@ -145,7 +161,6 @@ class Clip(Constraint):
     """Returns configuration of constraint class."""
     return {"min_value": self.min_value, "max_value": self.max_value}
 
-
 #
 # Definition of Quantized NN classes. These classes were copied
 # from the equivalent layers in Keras, and we modified to apply quantization.
@@ -156,9 +171,9 @@ class Clip(Constraint):
 class QDense(Dense, PrunableLayer):
   """Implements a quantized Dense layer."""
 
-  # most of these parameters follow the implementation of Dense in
-  # Keras, # with the exception of kernel_range, bias_range,
-  # kernel_quantizer and bias_quantizer, and kernel_initializer.
+  # Most of these parameters follow the implementation of Dense in
+  # Keras, with the exception of kernel_range, bias_range,
+  # kernel_quantizer, bias_quantizer, and kernel_initializer.
   #
   # kernel_quantizer: quantizer function/class for kernel
   # bias_quantizer: quantizer function/class for bias
@@ -169,7 +184,6 @@ class QDense(Dense, PrunableLayer):
   #
   # we refer the reader to the documentation of Dense in Keras for the
   # other parameters.
-  #
 
   def __init__(self,
                units,
@@ -184,26 +198,18 @@ class QDense(Dense, PrunableLayer):
                bias_constraint=None,
                kernel_quantizer=None,
                bias_quantizer=None,
-               kernel_range=1.0,
-               bias_range=1.0,
+               kernel_range=None,
+               bias_range=None,
                **kwargs):
+
+    if kernel_range is not None:
+      warnings.warn("kernel_range is deprecated in QDense layer.")
+
+    if bias_range is not None:
+      warnings.warn("bias_range is deprecated in QDense layer.")
 
     self.kernel_range = kernel_range
     self.bias_range = bias_range
-
-    kernel_initializer = get_quantized_initializer(kernel_initializer,
-                                                   kernel_range)
-    if kernel_quantizer:
-      if kernel_constraint:
-        kernel_constraint = constraints.get(kernel_constraint)
-      kernel_constraint = Clip(-kernel_range, kernel_range, kernel_constraint,
-                               kernel_quantizer)
-
-    if bias_quantizer:
-      if bias_constraint:
-        bias_constraint = constraints.get(bias_constraint)
-      bias_constraint = Clip(-bias_range, bias_range, bias_constraint,
-                             bias_quantizer)
 
     self.kernel_quantizer = kernel_quantizer
     self.bias_quantizer = bias_quantizer
@@ -211,9 +217,26 @@ class QDense(Dense, PrunableLayer):
     self.kernel_quantizer_internal = get_quantizer(self.kernel_quantizer)
     self.bias_quantizer_internal = get_quantizer(self.bias_quantizer)
 
+    # optimize parameter set to "auto" scaling mode if possible
+    if hasattr(self.kernel_quantizer_internal, "_set_trainable_parameter"):
+      self.kernel_quantizer_internal._set_trainable_parameter()
+
     self.quantizers = [
         self.kernel_quantizer_internal, self.bias_quantizer_internal
     ]
+
+    kernel_constraint, kernel_initializer = (
+        get_auto_range_constraint_initializer(self.kernel_quantizer_internal,
+                                              kernel_constraint,
+                                              kernel_initializer))
+
+    if use_bias:
+      bias_constraint, bias_initializer = (
+          get_auto_range_constraint_initializer(self.bias_quantizer_internal,
+                                                bias_constraint,
+                                                bias_initializer))
+    if activation is not None:
+      activation = get_quantizer(activation)
 
     super(QDense, self).__init__(
         units=units,
@@ -254,12 +277,9 @@ class QDense(Dense, PrunableLayer):
 
   def get_config(self):
     config = {
-        "units":
-            self.units,
-        "activation":
-            activations.serialize(self.activation),
-        "use_bias":
-            self.use_bias,
+        "units": self.units,
+        "activation": activations.serialize(self.activation),
+        "use_bias": self.use_bias,
         "kernel_quantizer":
             constraints.serialize(self.kernel_quantizer_internal),
         "bias_quantizer":
@@ -278,10 +298,8 @@ class QDense(Dense, PrunableLayer):
             constraints.serialize(self.kernel_constraint),
         "bias_constraint":
             constraints.serialize(self.bias_constraint),
-        "kernel_range":
-            self.kernel_range,
-        "bias_range":
-            self.bias_range
+        "kernel_range": self.kernel_range,
+        "bias_range": self.bias_range
     }
     base_config = super(QDense, self).get_config()
     return dict(list(base_config.items()) + list(config.items()))
