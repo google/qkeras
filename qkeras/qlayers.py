@@ -34,6 +34,7 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+import numpy as np
 import warnings
 import six
 import tensorflow.compat.v2 as tf
@@ -42,9 +43,9 @@ from tensorflow.keras import constraints
 from tensorflow.keras import initializers
 from tensorflow.keras import regularizers
 from tensorflow.keras.constraints import Constraint
+from tensorflow.keras.initializers import Initializer
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.layers import Layer
-from .quantizers import get_quantized_initializer
 from .quantizers import get_quantizer
 from tensorflow_model_optimization.python.core.sparsity.keras.prunable_layer import PrunableLayer
 
@@ -64,20 +65,78 @@ def get_auto_range_constraint_initializer(quantizer, constraint, initializer):
       initializer is initializer contraint by value range of quantizer.
   """
   if quantizer is not None:
-    max_value = quantizer.max() if hasattr(quantizer, "max") else 1.0
+    # let's use now symmetric clipping function
+    max_value = max(1, quantizer.max()) if hasattr(quantizer, "max") else 1.0
     min_value = quantizer.min() if hasattr(quantizer, "min") else -1.0
+
     if constraint:
       constraint = constraints.get(constraint)
-    constraint = Clip(min_value, max_value, constraint, quantizer)
-    initializer = get_quantized_initializer(initializer,
-                                            max(abs(min_value), abs(max_value)))
+
+    constraint = Clip(-max_value, max_value, constraint, quantizer)
+    initializer = initializers.get(initializer)
+    if initializer and initializer.__class__.__name__ not in ["Ones", "Zeros"]:
+      # we want to get the max value of the quantizer that depends
+      # on the distribution and scale
+      if not (hasattr(quantizer, "alpha") and
+              isinstance(quantizer.alpha, six.string_types)):
+        initializer = QInitializer(
+            initializer, use_scale=True, quantizer=quantizer)
   return constraint, initializer
+
+
+class QInitializer(Initializer):
+  """Wraps around Keras initializer to provide a fanin scaling factor."""
+
+  def __init__(self, initializer, use_scale, quantizer):
+    self.initializer = initializer
+    self.use_scale = use_scale
+    self.quantizer = quantizer
+
+    try:
+      self.is_po2 = "po2" in quantizer.__class__.__name__
+    except:
+      self.is_po2 = False
+
+  def __call__(self, shape, dtype=None):
+    x = self.initializer(shape, dtype)
+
+    max_x = np.max(abs(x))
+    std_x = np.std(x)
+    delta = self.quantizer.max() * 2**-self.quantizer.bits
+
+    # delta is the minimum resolution of the number system.
+    # we want to make sure we have enough values.
+    if delta > std_x and hasattr(self.initializer, "scale"):
+      q = self.quantizer(x)
+      max_q = np.max(abs(q))
+      scale = 1.0
+      if max_q == 0.0:
+        xx = np.mean(x * x)
+        scale = self.quantizer.max() / np.sqrt(xx)
+      else:
+        qx = np.sum(q * x)
+        qq = np.sum(q * q)
+
+        scale = qq / qx
+
+      self.initializer.scale *= max(scale, 1)
+      x = self.initializer(shape, dtype)
+
+    return np.clip(x, -self.quantizer.max(), self.quantizer.max())
+
+  def get_config(self):
+    return {
+        "initializer": self.initializer,
+        "use_scale": self.use_scale,
+        "quantizer": self.quantizer,
+    }
 
 
 #
 # Because it may be hard to get serialization from activation functions,
 # we may be replacing their instantiation by QActivation in the future.
 #
+
 
 class QActivation(Layer, PrunableLayer):
   """Implements quantized activation layers."""
@@ -309,4 +368,3 @@ class QDense(Dense, PrunableLayer):
 
   def get_prunable_weights(self):
     return [self.kernel]
-
