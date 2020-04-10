@@ -307,7 +307,10 @@ class quantized_bits(object):  # pylint: disable=invalid-name
     if not self.keep_negative:
       flags.append("keep_negative=" + str(int(self.keep_negative)))
     if self.alpha:
-      flags.append("alpha=" + str(self.alpha))
+      alpha = str(self.alpha)
+      if isinstance(self.alpha, six.string_types):
+        alpha = "'" + alpha + "'"
+      flags.append("alpha=" + alpha)
     if self.use_stochastic_rounding:
       flags.append("use_stochastic_rounding=" +
                    str(int(self.use_stochastic_rounding)))
@@ -334,6 +337,8 @@ class quantized_bits(object):  # pylint: disable=invalid-name
       else:
         axis = [0]
 
+      x = x / m_i
+
       # we will use this implementation for the scale for QKeras 0.7
       levels = 2**self.bits - 1
       scale = (K.max(x, axis=axis, keepdims=True) -
@@ -357,7 +362,10 @@ class quantized_bits(object):  # pylint: disable=invalid-name
       #  z = z / m
       #  self.scale = scale
       #  return x + tf.stop_gradient(-x + scale * z)
-      x = x / scale
+      x = m_i * x
+      xq = m_i * z / m
+      self.scale = scale
+      return x + tf.stop_gradient(-x + scale * xq)
     else:
       scale = self.alpha
 
@@ -380,15 +388,13 @@ class quantized_bits(object):  # pylint: disable=invalid-name
     if self.alpha is None:
       self.alpha = "auto_po2"
       self.symmetric = True
-      self.use_stochastic_rounding = True
 
   def max(self):
     """Get maximum value that quantized_bits class can represent."""
     unsigned_bits = self.bits - self.keep_negative
 
     if unsigned_bits > 0:
-      return ((1.0 - np.power(2.0, -unsigned_bits)) *
-              np.power(2.0, self.integer))
+      return max(1.0, np.power(2.0, self.integer))
     else:
       return 1.0
 
@@ -396,15 +402,9 @@ class quantized_bits(object):  # pylint: disable=invalid-name
     """Get minimum value that quantized_bits class can represent."""
     if not self.keep_negative:
       return 0.0
-
     unsigned_bits = self.bits - self.keep_negative
-
     if unsigned_bits > 0:
-      if self.symmetric:
-        return -(
-            (1.0 - np.power(2.0, -unsigned_bits)) * np.power(2.0, self.integer))
-      else:
-        return -np.power(2.0, self.integer)
+      return -max(1.0, np.power(2.0, self.integer))
     else:
       return -1.0
 
@@ -465,7 +465,10 @@ class bernoulli(object):  # pylint: disable=invalid-name
   def __str__(self):
     flags = []
     if self.alpha is not None:
-      flags.append("alpha=" + str(self.alpha))
+      alpha = str(self.alpha)
+      if isinstance(self.alpha, six.string_types):
+        alpha = "'" + alpha + "'"
+      flags.append("alpha=" + alpha)
     if self.temperature != 6.0:
       flags.append("temperature=" + str(self.temperature))
     if not self.use_real_sigmoid:
@@ -516,11 +519,10 @@ class bernoulli(object):  # pylint: disable=invalid-name
 
   def max(self):
     """Get the maximum value bernoulli class can represent."""
-    if self.alpha is None or (isinstance(self.alpha, six.string_types) and
-                              "auto" in self.alpha):
+    if self.alpha is None or isinstance(self.alpha, six.string_types):
       return 1.0
     else:
-      return self.alpha
+      return max(1.0, self.alpha)
 
   def min(self):
     """Get the minimum value bernoulli class can represent."""
@@ -571,7 +573,10 @@ class stochastic_ternary(object):  # pylint: disable=invalid-name
   def __str__(self):
     flags = []
     if self.alpha is not None:
-      flags.append("alpha=" + str(self.alpha))
+      alpha = str(self.alpha)
+      if isinstance(self.alpha, six.string_types):
+        alpha = "'" + alpha + "'"
+      flags.append("alpha=" + alpha)
     if self.threshold is not None:
       flags.append("threshold=" + str(self.threshold))
     if self.temperature != 8.0:
@@ -583,14 +588,12 @@ class stochastic_ternary(object):  # pylint: disable=invalid-name
     return "stochastic_ternary(" + ",".join(flags) + ")"
 
   def __call__(self, x):
-    # right now we only accept stochastic_ternary in parameters
 
-    assert isinstance(self.alpha, six.string_types)
-    assert self.alpha in ["auto", "auto_po2"]
     if self.alpha is None:
       scale = self.default_alpha
     elif isinstance(self.alpha, six.string_types):
       scale = 1.0
+      assert self.alpha in ["auto", "auto_po2"]
     else:
       scale = float(self.alpha)
 
@@ -608,6 +611,9 @@ class stochastic_ternary(object):  # pylint: disable=invalid-name
 
     m = K.max(tf.abs(x), axis=axis, keepdims=True)
     scale = 2.*m/3.
+    if "po2" in self.alpha:
+      scale = K.pow(2.0,
+                    tf.math.round(K.log(scale + K.epsilon()) / np.log(2.0)))
     for _ in range(self.number_of_unrolls):
       T = scale / 2.0
       q_ns = K.cast(tf.abs(x) >= T, K.floatx()) * K.sign(x)
@@ -644,14 +650,14 @@ class stochastic_ternary(object):  # pylint: disable=invalid-name
     if self.alpha is None or isinstance(self.alpha, six.string_types):
       return 1.0
     else:
-      return self.alpha
+      return max(1.0, self.alpha)
 
   def min(self):
     """Get the minimum value that stochastic_ternary can respresent."""
     if self.alpha is None or isinstance(self.alpha, six.string_types):
       return -1.0
     else:
-      return -self.alpha
+      return -max(1.0, self.alpha)
 
   @classmethod
   def from_config(cls, config):
@@ -702,7 +708,10 @@ class ternary(object):  # pylint: disable=invalid-name
   def __str__(self):
     flags = []
     if self.alpha is not None:
-      flags.append("alpha=" + str(self.alpha))
+      alpha = str(self.alpha)
+      if isinstance(self.alpha, six.string_types):
+        alpha = "'" + alpha + "'"
+      flags.append("alpha=" + alpha)
     if self.threshold is not None:
       flags.append("threshold=" + str(self.threshold))
     if self.use_stochastic_rounding:
@@ -748,17 +757,19 @@ class ternary(object):  # pylint: disable=invalid-name
       # we need to iterate a few times before we can coverge
       m = K.max(tf.abs(x), axis=axis, keepdims=True)
       scale = 2 * m / 3.0
-      x_orig = x
+      if "po2" in self.alpha:
+        scale = K.pow(2.0,
+                      tf.math.round(K.log(scale + K.epsilon()) / np.log(2.0)))
+
       for _ in range(self.number_of_unrolls):
         thres = scale / 2.0
-        if self.use_stochastic_rounding:
-          # once we scale the number precision == 0.33 works
-          # well for Uniform and Normal distribution of input
-          x = scale * _round_through(
-              x_orig / scale,
-              use_stochastic_rounding=self.use_stochastic_rounding,
-              precision=0.33)
-        q = K.cast(tf.abs(x) >= thres, K.floatx()) * tf.sign(x)
+        # once we scale the number precision == 0.33 works
+        # well for Uniform and Normal distribution of input
+        v = scale * _round_through(
+            x / scale,
+            use_stochastic_rounding=self.use_stochastic_rounding,
+            precision=1. / 3.)
+        q = K.cast(tf.abs(v) >= thres, K.floatx()) * tf.sign(x)
         scale = _get_scale(self.alpha, x, q)
     else:
       if self.threshold is None:
@@ -773,21 +784,20 @@ class ternary(object):  # pylint: disable=invalid-name
   def _set_trainable_parameter(self):
     if self.alpha is None:
       self.alpha = "auto_po2"
-      self.use_stochastic_rounding = True
 
   def max(self):
     """Get the maximum value that ternary can respresent."""
     if self.alpha is None or isinstance(self.alpha, six.string_types):
       return 1.0
     else:
-      return self.alpha
+      return max(1.0, self.alpha)
 
   def min(self):
     """Get the minimum value that ternary can respresent."""
     if self.alpha is None or isinstance(self.alpha, six.string_types):
       return -1.0
     else:
-      return -self.alpha
+      return -max(1.0, self.alpha)
 
   @classmethod
   def from_config(cls, config):
@@ -832,7 +842,10 @@ class stochastic_binary(object):  # pylint: disable=invalid-name
   def __str__(self):
     flags = []
     if self.alpha is not None:
-      flags.append("alpha=" + str(self.alpha))
+      alpha = str(self.alpha)
+      if isinstance(self.alpha, six.string_types):
+        alpha = "'" + alpha + "'"
+      flags.append("alpha=" + alpha)
     if self.temperature != 6.0:
       flags.append("temperature=" + str(self.temperature))
     if not self.use_real_sigmoid:
@@ -842,7 +855,6 @@ class stochastic_binary(object):  # pylint: disable=invalid-name
   def __call__(self, x):
     if isinstance(self.alpha, six.string_types):
       assert self.alpha in ["auto", "auto_po2"]
-    if isinstance(self.alpha, six.string_types):
       len_axis = len(x.shape)
       if len_axis > 1:
         if K.image_data_format() == "channels_last":
@@ -872,21 +884,20 @@ class stochastic_binary(object):  # pylint: disable=invalid-name
   def _set_trainable_parameter(self):
     if self.alpha is None:
       self.alpha = "auto_po2"
-      self.use_stochastic_rounding = True
 
   def max(self):
     """Get the maximum value that stochastic_binary can respresent."""
     if self.alpha is None or isinstance(self.alpha, six.string_types):
       return 1.0
     else:
-      return self.alpha
+      return max(1.0, self.alpha)
 
   def min(self):
     """Get the minimum value that stochastic_binary can respresent."""
     if self.alpha is None or isinstance(self.alpha, six.string_types):
       return -1.0
     else:
-      return -self.alpha
+      return -max(1.0, self.alpha)
 
   @classmethod
   def from_config(cls, config):
@@ -934,7 +945,10 @@ class binary(object):  # pylint: disable=invalid-name
     if self.use_01:
       flags.append("use_01=" + str(int(self.use_01)))
     if self.alpha is not None:
-      flags.append("alpha=" + str(self.alpha))
+      alpha = str(self.alpha)
+      if isinstance(self.alpha, six.string_types):
+        alpha = "'" + alpha + "'"
+      flags.append("alpha=" + alpha)
     if self.use_stochastic_rounding:
       flags.append(
           "use_stochastic_rounding=" + str(self.use_stochastic_rounding))
@@ -990,14 +1004,13 @@ class binary(object):  # pylint: disable=invalid-name
   def _set_trainable_parameter(self):
     if self.alpha is None:
       self.alpha = "auto_po2"
-      self.use_stochastic_rounding = True
 
   def max(self):
     """Get maximum value that binary class can respresent."""
     if self.alpha is None or isinstance(self.alpha, six.string_types):
       return 1.0
     else:
-      return self.alpha
+      return max(1.0, self.alpha)
 
   def min(self):
     """Get minimum value that binary class can respresent."""
@@ -1006,7 +1019,7 @@ class binary(object):  # pylint: disable=invalid-name
     elif self.alpha is None or isinstance(self.alpha, six.string_types):
       return -1.0
     else:
-      return -self.alpha
+      return -max(1.0, self.alpha)
 
   @classmethod
   def from_config(cls, config):
@@ -1066,6 +1079,7 @@ class quantized_relu(object):  # pylint: disable=invalid-name
     return "quantized_relu(" + ",".join(flags) + ")"
 
   def __call__(self, x):
+    x_uq = K.relu(x, max_value=2**self.integer)
     m = pow(2, self.bits)
     m_i = pow(2, self.integer)
 
@@ -1077,9 +1091,9 @@ class quantized_relu(object):  # pylint: disable=invalid-name
     else:
       p = x * m / m_i
       xq = m_i * tf.keras.backend.clip(
-          _round_through(p, self.use_stochastic_rounding) / m,
-          0.0, 1.0 - 1.0 / m)
-    return xq
+          _round_through(p, self.use_stochastic_rounding) / m, 0.0,
+          1.0 - 1.0 / m)
+    return x_uq + tf.stop_gradient(-x_uq + xq)
 
   def _set_trainable_parameter(self):
     pass
@@ -1089,8 +1103,7 @@ class quantized_relu(object):  # pylint: disable=invalid-name
     unsigned_bits = self.bits
 
     if unsigned_bits > 0:
-      return ((1.0 - np.power(2.0, -unsigned_bits)) *
-              np.power(2.0, self.integer))
+      return max(1.0, np.power(2.0, self.integer))
     else:
       return 1.0
 
@@ -1160,8 +1173,7 @@ class quantized_ulaw(object):  # pylint: disable=invalid-name
     unsigned_bits = self.bits - 1
 
     if unsigned_bits > 0:
-      return ((1.0 - np.power(2.0, -unsigned_bits)) *
-              np.power(2.0, self.integer))
+      return max(1.0, np.power(2.0, self.integer))
     else:
       return 1.0
 
@@ -1170,11 +1182,7 @@ class quantized_ulaw(object):  # pylint: disable=invalid-name
     unsigned_bits = self.bits - 1
 
     if unsigned_bits > 0:
-      if self.symmetric:
-        return -(1.0 - np.power(2.0, -unsigned_bits)) * np.power(
-            2.0, self.integer)
-      else:
-        return -np.power(2.0, self.integer)
+      return -max(1.0, np.power(2.0, self.integer))
     else:
       return -1.0
 
@@ -1243,23 +1251,15 @@ class quantized_tanh(object):  # pylint: disable=invalid-name
     """Get the maximum value that quantized_tanh can represent."""
     unsigned_bits = self.bits - 1
     if unsigned_bits > 0:
-      return ((1.0 - np.power(2.0, -unsigned_bits)) *
-              np.power(2.0, self.integer))
+      return max(1.0, np.power(2.0, self.integer))
     else:
       return 1.0
 
   def min(self):
     """Get the minimum value that quantized_tanh can represent."""
-    if not self.keep_negative:
-      return 0.0
-
     unsigned_bits = self.bits - 1
     if unsigned_bits > 0:
-      if self.symmetric:
-        return -(1.0 - np.power(2.0, -unsigned_bits)) * np.power(
-            2.0, self.integer)
-      else:
-        return -np.power(2.0, self.integer)
+      return -max(1.0, np.power(2.0, self.integer))
     else:
       return -1.0
 
@@ -1384,14 +1384,11 @@ def _get_min_max_exponents(non_sign_bits, need_exponent_sign_bit,
   Returns:
     A tuple of integers: min_exp, max_exp
   """
-
   effect_bits = non_sign_bits - need_exponent_sign_bit
   min_exp = -2**(effect_bits)
+  max_exp = 2**(effect_bits) - 1
   if quadratic_approximation:
-    max_exp = 2**(effect_bits)
-  else:
-    max_exp = 2**(effect_bits) - 1
-
+    max_exp = 2 * (max_exp // 2)
   return min_exp, max_exp
 
 
@@ -1451,11 +1448,17 @@ class quantized_po2(object):  # pylint: disable=invalid-name
 
   def max(self):
     """Get the maximum value that quantized_po2 can represent."""
-    return self._max_exp
+    if self.max_value:
+      return max(1.0, self.max_value)
+    else:
+      return max(1.0, 2**self._max_exp)
 
   def min(self):
     """Get the minimum value that quantized_po2 can represent."""
-    return self._min_exp
+    if self.max_value:
+      return -max(1.0, self.max_value)
+    else:
+      return -max(1.0, 2**self._max_exp)
 
   @classmethod
   def from_config(cls, config):
@@ -1510,6 +1513,8 @@ class quantized_relu_po2(object):  # pylint: disable=invalid-name
     need_exponent_sign_bit = _need_exponent_sign_bit_check(self.max_value)
     self._min_exp = -2**(self.bits - need_exponent_sign_bit)
     self._max_exp = 2**(self.bits - need_exponent_sign_bit) - 1
+    if self.quadratic_approximation:
+      self._max_exp = 2 * (self._max_exp // 2)
 
   def __str__(self):
     flags = [str(self.bits)]
@@ -1523,7 +1528,7 @@ class quantized_relu_po2(object):  # pylint: disable=invalid-name
     return "quantized_relu_po2(" + ",".join(flags) + ")"
 
   def __call__(self, x):
-    x = tf.maximum(x, 0)
+    x = K.relu(x, max_value=self.max_value)
     x_clipped = _clip_power_of_two(x, self._min_exp, self._max_exp,
                                    self.max_value,
                                    self.quadratic_approximation,
@@ -1535,11 +1540,14 @@ class quantized_relu_po2(object):  # pylint: disable=invalid-name
 
   def max(self):
     """Get the maximum value that quantized_relu_po2 can represent."""
-    return self._max_exp
+    if self.max_value:
+      return max(1.0, self.max_value)
+    else:
+      return max(1.0, 2**self._max_exp)
 
   def min(self):
     """Get the minimum value that quantized_relu_po2 can represent."""
-    return self._min_exp
+    return 2**self._min_exp
 
   @classmethod
   def from_config(cls, config):

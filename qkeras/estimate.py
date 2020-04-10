@@ -456,7 +456,7 @@ def extract_model_operations(model):
 
       number_of_operations = (size_i * size_o)
 
-      number_of_weights =  size_i * size_o
+      number_of_weights = size_i * size_o
       number_of_bias = 0
       if len(layer.get_weights()) > 1:
         number_of_bias = layer.get_weights()[1].shape[0]

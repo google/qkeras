@@ -27,8 +27,8 @@ import tensorflow.keras.backend as K
 from tensorflow.keras import initializers
 
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Conv1D
 from tensorflow.keras.models import model_from_json
+from tensorflow.keras.layers import Conv1D
 
 from tensorflow_model_optimization.python.core.sparsity.keras import pruning_wrapper
 from tensorflow_model_optimization.python.core.sparsity.keras import prune_registry
@@ -37,15 +37,15 @@ from tensorflow_model_optimization.python.core.sparsity.keras import prunable_la
 import numpy as np
 import matplotlib.pyplot as plt
 
-
-from .qlayers import QActivation
-from .qlayers import QDense
 from .qlayers import Clip
+from .qlayers import QActivation
+from .qpooling import QAveragePooling2D
+from .qlayers import QDense
+from .qlayers import QInitializer
 from .qconvolutional import QConv1D
 from .qconvolutional import QConv2D
 from .qconvolutional import QDepthwiseConv2D
 from .qnormalization import QBatchNormalization
-from .qpooling import QAveragePooling2D
 from .quantizers import binary
 from .quantizers import bernoulli
 from .quantizers import get_weight_scale
@@ -221,6 +221,8 @@ def model_quantize(model,
         "kernel_quantizer": "quantizer string",
         "bias_quantizer": "quantizer_string"
     }
+
+    "QBatchNormalization": {}
   }
 
   In the case of "QActivation", we can modify only certain types of
@@ -271,12 +273,18 @@ def model_quantize(model,
     # Activation converts activation functions
 
     if layer["class_name"] == "Dense":
-      layer["class_name"] = "QDense"
       # needs to add kernel/bias quantizers
       kernel_quantizer = get_config(
           quantizer_config, layer, "QDense", "kernel_quantizer")
       bias_quantizer = get_config(
           quantizer_config, layer, "QDense", "bias_quantizer")
+
+      # this is to avoid unwanted transformations
+      if kernel_quantizer is None:
+        continue
+
+      layer["class_name"] = "QDense"
+
       layer_config["kernel_quantizer"] = kernel_quantizer
       layer_config["bias_quantizer"] = bias_quantizer
 
@@ -292,13 +300,19 @@ def model_quantize(model,
 
     elif layer["class_name"] in ["Conv1D", "Conv2D"]:
       q_name = "Q" + layer["class_name"]
-      layer["class_name"] = q_name
       # needs to add kernel/bias quantizers
       kernel_quantizer = get_config(
           quantizer_config, layer, q_name, "kernel_quantizer")
 
       bias_quantizer = get_config(
           quantizer_config, layer, q_name, "bias_quantizer")
+
+      # this is to avoid unwanted transformations
+      if kernel_quantizer is None:
+        continue
+
+      layer["class_name"] = q_name
+
       layer_config["kernel_quantizer"] = kernel_quantizer
       layer_config["bias_quantizer"] = bias_quantizer
 
@@ -312,12 +326,17 @@ def model_quantize(model,
         quantize_activation(layer_config, activation_bits)
 
     elif layer["class_name"] == "DepthwiseConv2D":
-      layer["class_name"] = "QDepthwiseConv2D"
       # needs to add kernel/bias quantizers
       depthwise_quantizer = get_config(quantizer_config, layer,
           "QDepthwiseConv2D", "depthwise_quantizer")
       bias_quantizer = get_config(quantizer_config, layer,
           "QDepthwiseConv2D", "bias_quantizer")
+
+      # this is to avoid unwanted transformations
+      if depthwise_quantizer is None:
+        continue
+
+      layer["class_name"] = "QDepthwiseConv2D"
 
       layer_config["depthwise_quantizer"] = depthwise_quantizer
       layer_config["bias_quantizer"] = bias_quantizer
@@ -352,6 +371,15 @@ def model_quantize(model,
           quantize_activation(layer_config, activation_bits)
 
     elif layer["class_name"] == "BatchNormalization":
+      # we will assume at least QBatchNormalization or
+      # layer name is in dictionary to enable conversion
+      # otherwise we will just skip it.
+      if (
+          layer["name"] not in quantizer_config and
+          "QBatchNormalization" not in quantizer_config
+      ):
+        continue
+
       layer["class_name"] = "QBatchNormalization"
       # needs to add kernel/bias quantizers
       gamma_quantizer = get_config(
@@ -390,6 +418,7 @@ def model_quantize(model,
 def _add_supported_quantized_objects(custom_objects):
 
   # Map all the quantized objects
+  custom_objects["QInitializer"] = QInitializer
   custom_objects["QDense"] = QDense
   custom_objects["QConv1D"] = QConv1D
   custom_objects["QConv2D"] = QConv2D
@@ -408,6 +437,32 @@ def _add_supported_quantized_objects(custom_objects):
   custom_objects["quantized_tanh"] = quantized_tanh
   custom_objects["quantized_po2"] = quantized_po2
   custom_objects["quantized_relu_po2"] = quantized_relu_po2
+
+
+def clone_model(model, custom_objects=None):
+  """Clones model with custom_objects."""
+  if not custom_objects:
+    custom_objects = {}
+
+  # let's make a deep copy to make sure our objects are not shared elsewhere
+  custom_objects = copy.deepcopy(custom_objects)
+
+  _add_supported_quantized_objects(custom_objects)
+
+  json_string = model.to_json()
+  qmodel = quantized_model_from_json(json_string, custom_objects=custom_objects)
+  qmodel.set_weights(model.get_weights())
+
+  return qmodel
+
+  config = {
+      "class_name": model.__class__.__name__,
+      "config": model.get_config(),
+  }
+  clone = tf.keras.models.model_from_config(
+      config, custom_objects=custom_objects)
+  clone.set_weights(model.get_weights())
+  return clone
 
 
 def quantized_model_from_json(json_string, custom_objects=None):
@@ -512,7 +567,13 @@ def quantized_model_debug(model, X_test, plot=False):
 
   for n, p in zip(output_names, y_pred):
     layer = model.get_layer(n)
-    print("{:30} {: 8.4f} {: 8.4f}".format(n, np.min(p), np.max(p)), end="")
+    if layer.__class__.__name__ == "QActivation":
+      alpha = get_weight_scale(layer.activation, p)
+    else:
+      alpha = 1.0
+    print("{:30} {: 8.4f} {: 8.4f}".format(n, np.min(p / alpha), np.max(p / alpha)), end="")
+    if alpha != 1.0:
+      print(" a[{: 8.4f} {:8.4f}]".format(np.min(alpha), np.max(alpha)))
     if plot and layer.__class__.__name__ in ["QConv2D", "QDense", "QActivation"]:
       plt.hist(p.flatten(), bins=25)
       plt.title(layer.name + "(output)")
