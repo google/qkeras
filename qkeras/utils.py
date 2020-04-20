@@ -178,7 +178,7 @@ def quantize_activation(layer_config, activation_bits):
 
 def get_config(quantizer_config, layer, layer_class, parameter=None):
   """Returns search of quantizer on quantizer_config."""
-  quantizer = quantizer_config.get(layer["name"],
+  quantizer = quantizer_config.get(layer["config"]["name"],
                                    quantizer_config.get(layer_class, None))
 
   if quantizer is not None and parameter is not None:
@@ -375,7 +375,7 @@ def model_quantize(model,
       # layer name is in dictionary to enable conversion
       # otherwise we will just skip it.
       if (
-          layer["name"] not in quantizer_config and
+          layer_config["name"] not in quantizer_config and
           "QBatchNormalization" not in quantizer_config
       ):
         continue
