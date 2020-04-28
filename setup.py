@@ -27,7 +27,7 @@ with io.open("README.md", "r", encoding="utf8") as fh:
 
 setuptools.setup(
     name="QKeras",
-    version="0.7.0",
+    version="0.8.0",
     author="Claudionor N. Coelho",
     author_email="nunescoelho@google.com",
     maintainer="Hao Zhuang",
@@ -44,6 +44,7 @@ setuptools.setup(
         "pyparser",
         "setuptools>=41.0.0",
         "tensorflow-model-optimization>=0.2.1",
+        "networkx>=2.1",
     ],
     setup_requires=[
         "pytest-runner",
