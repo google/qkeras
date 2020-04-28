@@ -25,6 +25,7 @@ from tensorflow.keras.layers import *
 from tensorflow.keras.models import Model
 
 from qkeras import *
+from qkeras import utils
 
 x = x_in = Input((32, 32, 3), name="input")
 x = Conv2D(128, (3, 3), strides=1, name="conv2d_0_m")(x)
@@ -66,7 +67,7 @@ q_dict = {
     }
 }
 
-qmodel, _ = model_quantize(model, q_dict, 4)
+qmodel = utils.model_quantize(model, q_dict, 8, custom_objects=None,transfer_weights=True)
 
 qmodel.summary()
 
