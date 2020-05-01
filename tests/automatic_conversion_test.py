@@ -33,6 +33,15 @@ def create_network():
   x = QConv2D(32, (3, 3), activation="quantized_relu(4)")(x)
   return Model(inputs=xi, outputs=x)
 
+def create_network_sequential():
+  model = Sequential([
+    Conv2D(32, (3, 3), input_shape=(28,28,1)),
+    Activation('relu'),
+    Conv2D(32, (3, 3), activation="relu"),
+    Activation('softmax'),
+    QConv2D(32, (3, 3), activation="quantized_relu(4)")
+  ])
+  return model
 
 def test_linear_activation():
   m = create_network()
@@ -90,6 +99,16 @@ def test_conversion_from_relu_activation_to_qr_qactivation():
   assert str(qq.layers[2].quantizer) == "ternary()"
   assert qq.layers[4].__class__.__name__ == "Activation"
 
+
+def test_sequential_model_conversion():
+  m = create_network_sequential()
+  d = {
+      "QConv2D": {
+          "kernel_quantizer": "binary",
+          "bias_quantizer": "binary"
+      }}
+  qq = model_quantize(m, d, 4)
+  assert str(qq.layers[2].activation) == "quantized_relu(4,0)"
 
 if __name__ == "__main__":
   pytest.main([__file__])
