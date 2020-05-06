@@ -1079,9 +1079,9 @@ class quantized_relu(object):  # pylint: disable=invalid-name
     return "quantized_relu(" + ",".join(flags) + ")"
 
   def __call__(self, x):
-    x_uq = K.relu(x, max_value=2**self.integer)
     m = pow(2, self.bits)
     m_i = pow(2, self.integer)
+    x_uq = tf.where(x <= m_i, K.relu(x), tf.ones_like(x) * m_i)
 
     if self.use_sigmoid:
       p = _sigmoid(x / m_i) * m
@@ -1528,7 +1528,12 @@ class quantized_relu_po2(object):  # pylint: disable=invalid-name
     return "quantized_relu_po2(" + ",".join(flags) + ")"
 
   def __call__(self, x):
-    x = K.relu(x, max_value=self.max_value)
+    if self.max_value is None:
+      x = K.relu(x)
+    else:
+      x = tf.where(
+          x <= self.max_value, K.relu(x), tf.ones_like(x) * self.max_value)
+
     x_clipped = _clip_power_of_two(x, self._min_exp, self._max_exp,
                                    self.max_value,
                                    self.quadratic_approximation,
