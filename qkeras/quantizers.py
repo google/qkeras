@@ -16,14 +16,18 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-import warnings
+
 import logging
+import warnings
+
 import numpy as np
 import six
+from six.moves import range
 import tensorflow.compat.v2 as tf
 from tensorflow.keras import initializers
 import tensorflow.keras.backend as K
 from tensorflow.keras.utils import deserialize_keras_object
+
 from .safe_eval import safe_eval
 
 #
@@ -67,9 +71,9 @@ def _get_scale(alpha, x, q):
     len_axis = len(x_shape)
     if len_axis > 1:
       if K.image_data_format() == "channels_last":
-        axis = range(len_axis - 1)
+        axis = list(range(len_axis - 1))
       else:
-        axis = range(1, len_axis)
+        axis = list(range(1, len_axis))
       qx = K.mean(tf.math.multiply(x, q), axis=axis, keepdims=True)
       qq = K.mean(tf.math.multiply(q, q), axis=axis, keepdims=True)
     else:
@@ -331,9 +335,9 @@ class quantized_bits(object):  # pylint: disable=invalid-name
       len_axis = len(x.shape)
       if len_axis > 1:
         if K.image_data_format() == "channels_last":
-          axis = range(len_axis - 1)
+          axis = list(range(len_axis - 1))
         else:
-          axis = range(1, len_axis)
+          axis = list(range(1, len_axis))
       else:
         axis = [0]
 
@@ -484,9 +488,9 @@ class bernoulli(object):  # pylint: disable=invalid-name
 
       if len_axis > 1:
         if K.image_data_format() == "channels_last":
-          axis = range(len_axis - 1)
+          axis = list(range(len_axis - 1))
         else:
-          axis = range(1, len_axis)
+          axis = list(range(1, len_axis))
       else:
         axis = [0]
 
@@ -600,9 +604,9 @@ class stochastic_ternary(object):  # pylint: disable=invalid-name
     len_axis = len(x.shape)
     if len_axis > 1:
       if K.image_data_format() == "channels_last":
-        axis = range(len_axis-1)
+        axis = list(range(len_axis - 1))
       else:
-        axis = range(1, len_axis)
+        axis = list(range(1, len_axis))
     else:
       axis = [0]
 
@@ -749,9 +753,9 @@ class ternary(object):  # pylint: disable=invalid-name
       if len_axis == 1:
         axis = None
       elif K.image_data_format() == "channels_last":
-        axis = range(len_axis - 1)
+        axis = list(range(len_axis - 1))
       else:
-        axis = range(1, len_axis)
+        axis = list(range(1, len_axis))
 
       # This approximation is exact if x ~ U[-m, m]. For x ~ N(0, m)
       # we need to iterate a few times before we can coverge
@@ -858,9 +862,9 @@ class stochastic_binary(object):  # pylint: disable=invalid-name
       len_axis = len(x.shape)
       if len_axis > 1:
         if K.image_data_format() == "channels_last":
-          axis = range(len_axis-1)
+          axis = list(range(len_axis - 1))
         else:
-          axis = range(1, len_axis)
+          axis = list(range(1, len_axis))
       else:
         axis = [0]
       std = K.std(x, axis=axis, keepdims=True) + K.epsilon()
@@ -971,9 +975,9 @@ class binary(object):  # pylint: disable=invalid-name
       if len_axis == 1:
         axis = None
       elif K.image_data_format() == "channels_last":
-        axis = range(len_axis - 1)
+        axis = list(range(len_axis - 1))
       else:
-        axis = range(1, len_axis)
+        axis = list(range(1, len_axis))
 
       # if stochastic_round is through, we need to scale
       # number so that the precision is small enough.
