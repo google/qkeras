@@ -417,13 +417,29 @@ def test_stochastic_binary():
   assert_allclose(scale, expected_scale, rtol=0.1)
 
 
-def test_stochastic_ternary():
+@pytest.mark.parametrize(
+    'alpha, temperature, expected_values, expected_scale', [
+    (
+        None, 
+        8,
+        np.array([0., 0., 0., 0., 0., 0., 0., 0., 0., 0.]).astype(np.float32),
+        np.array([1.0])
+    ),
+    (
+        "auto_po2",
+        8, 
+        np.array([-0.998, -0.992, -0.992, -0.208,  0.048,  0.04 , 
+            0.448,  0.606, 0.987,  0.998]).astype(np.float32),
+        np.array([0.007812])
+    )
+])
+def test_stochastic_ternary(alpha, temperature, expected_values, expected_scale):
   np.random.seed(42)
 
   x = np.random.uniform(-0.01, 0.01, size=10)
   x = np.sort(x)
 
-  s = stochastic_ternary(alpha="auto_po2", temperature=8)
+  s = stochastic_ternary(alpha=alpha, temperature=temperature)
   ty = np.zeros_like(s)
   ts = 0.0
 
@@ -431,20 +447,14 @@ def test_stochastic_ternary():
 
   for _ in range(n):
     y = K.eval(s(K.constant(x)))
-    scale = K.eval(s.scale)[0]
+    scale = float(K.eval(s.scale))
     ts = ts + scale
     ty = ty + (y / scale)
 
   result = (ty/n).astype(np.float32)
   scale = np.array([ts/n])
 
-  expected = np.array(
-      [-0.998, -0.992, -0.992, -0.208,  0.048,  0.04 ,  0.448,  0.606,
-        0.987,  0.998]
-  ).astype(np.float32)
-  expected_scale =  np.array([0.007812])
-
-  assert_allclose(result, expected, atol=0.1)
+  assert_allclose(result, expected_values, atol=0.1)
   assert_allclose(scale, expected_scale, rtol=0.1)
 
 
