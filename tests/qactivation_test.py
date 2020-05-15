@@ -418,14 +418,17 @@ def test_stochastic_binary():
 
 
 @pytest.mark.parametrize(
-    'alpha, temperature, expected_values, expected_scale', [
+    'bound, alpha, temperature, expected_values, expected_scale', [
     (
+        0.5,
         None, 
         8,
-        np.array([0., 0., 0., 0., 0., 0., 0., 0., 0., 0.]).astype(np.float32),
+        np.array([-0.254, -0.028, -0.025,  0.,     0.,     0.,     
+            0.001,  0.,     0.02,   0.141]).astype(np.float32),
         np.array([1.0])
     ),
     (
+        0.01,
         0.0033,
         8,
         np.array([-1., -1., -0.999, -0.835,  0.474,  0.441,
@@ -433,13 +436,15 @@ def test_stochastic_binary():
         np.array([0.0033])
     ),
     (
-        -0.0033,
+        3,
+        5.0,
         8,
-        np.array([-1., -1.,  -1.,  -0.845,  0.45100006,
-          0.49599996, 0.936,  0.961,  1.,  1. ]).astype(np.float32),
-        np.array([-0.0033])
+        np.array([-0.795, -0.21,  -0.18,   0.,     0.,     0., 
+            0.001,  0.004,  0.137,  0.593]).astype(np.float32),
+        np.array([5.0])
     ),
     (
+        0.01,
         "auto",
         8,
         np.array([-0.999, -0.995, -0.996, -0.354,  0.088,  
@@ -447,6 +452,7 @@ def test_stochastic_binary():
         np.array([0.0068196])
     ),
     (
+        0.01,
         "auto_po2",
         8, 
         np.array([-0.998, -0.992, -0.992, -0.208,  0.048,  0.04 , 
@@ -454,10 +460,10 @@ def test_stochastic_binary():
         np.array([0.007812])
     )
 ])
-def test_stochastic_ternary(alpha, temperature, expected_values, expected_scale):
+def test_stochastic_ternary(bound, alpha, temperature, expected_values, expected_scale):
   np.random.seed(42)
 
-  x = np.random.uniform(-0.01, 0.01, size=10)
+  x = np.random.uniform(-bound, bound, size=10)
   x = np.sort(x)
 
   s = stochastic_ternary(alpha=alpha, temperature=temperature)
