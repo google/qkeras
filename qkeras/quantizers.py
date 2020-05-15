@@ -599,6 +599,7 @@ class stochastic_ternary(object):  # pylint: disable=invalid-name
       scale = 1.0
       assert self.alpha in ["auto", "auto_po2"]
     else:
+      assert self.alpha >= 0.0
       scale = float(self.alpha)
 
     len_axis = len(x.shape)
@@ -615,7 +616,7 @@ class stochastic_ternary(object):  # pylint: disable=invalid-name
 
     m = K.max(tf.abs(x), axis=axis, keepdims=True)
     scale = 2.*m/3.
-    if self.alpha is not None and "po2" in self.alpha:
+    if self.alpha == "auto_po2":
       scale = K.pow(2.0,
                     tf.math.round(K.log(scale + K.epsilon()) / np.log(2.0)))
     for _ in range(self.number_of_unrolls):
