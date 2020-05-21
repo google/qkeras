@@ -249,11 +249,14 @@ def _ceil_through(x):
 # layers.
 #
 
-class base_quantizer(object):
+class BaseQuantizer(object):
   """Base quantizer
   
   Defines behavior all quantizers should follow.
-    self._is_training: if true, stochastic behavior is enabled
+    
+  Attributes:  
+    self._is_training: a boolean indicating whether stochastic behavior
+       is enabled
 
   """
 
@@ -264,7 +267,7 @@ class base_quantizer(object):
     self._is_training = is_training
 
 
-class quantized_bits(base_quantizer):  # pylint: disable=invalid-name
+class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
   """Quantizes the number to a number of bits.
 
   In general, we want to use a quantization function like:
@@ -556,7 +559,7 @@ class bernoulli(object):  # pylint: disable=invalid-name
     return config
 
 
-class ternary(base_quantizer):  # pylint: disable=invalid-name
+class ternary(BaseQuantizer):  # pylint: disable=invalid-name
   """Computes an activation function returning -alpha, 0 or +alpha.
 
   Right now we assume two type of behavior. For parameters, we should
@@ -578,7 +581,7 @@ class ternary(base_quantizer):  # pylint: disable=invalid-name
 
   def __init__(self, alpha=None, threshold=None, use_stochastic_rounding=False,
                number_of_unrolls=5):
-    base_quantizer.__init__(self)
+    BaseQuantizer.__init__(self)
     self.bits = 2
     self.alpha = alpha
     self.threshold = threshold
@@ -841,7 +844,7 @@ class stochastic_ternary(ternary):  # pylint: disable=invalid-name
     return config
 
 
-class binary(base_quantizer):  # pylint: disable=invalid-name
+class binary(BaseQuantizer):  # pylint: disable=invalid-name
   """Computes the sign(x) returning a value between -alpha and alpha.
 
   Although we cannot guarantee E[dL/dy] = E[dL/dx] if we do not use the
@@ -862,7 +865,7 @@ class binary(base_quantizer):  # pylint: disable=invalid-name
   """
 
   def __init__(self, use_01=False, alpha=None, use_stochastic_rounding=False):
-    base_quantizer.__init__(self)
+    BaseQuantizer.__init__(self)
     self.use_01 = use_01
     self.bits = 1
     self.alpha = alpha
@@ -1070,7 +1073,7 @@ class stochastic_binary(binary):  # pylint: disable=invalid-name
     return config
 
 
-class quantized_relu(base_quantizer):  # pylint: disable=invalid-name
+class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
   """Computes a quantized relu to a number of bits.
 
   Modified from:
@@ -1161,7 +1164,7 @@ class quantized_relu(base_quantizer):  # pylint: disable=invalid-name
     return config
 
 
-class quantized_ulaw(base_quantizer):  # pylint: disable=invalid-name
+class quantized_ulaw(BaseQuantizer):  # pylint: disable=invalid-name
   """Computes a u-law quantization.
 
   Attributes:
@@ -1236,7 +1239,7 @@ class quantized_ulaw(base_quantizer):  # pylint: disable=invalid-name
     return config
 
 
-class quantized_tanh(base_quantizer):  # pylint: disable=invalid-name
+class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
   """Computes a quantized tanh to a number of bits.
 
   Modified from:
@@ -1428,7 +1431,7 @@ def _get_min_max_exponents(non_sign_bits, need_exponent_sign_bit,
   return min_exp, max_exp
 
 
-class quantized_po2(base_quantizer):  # pylint: disable=invalid-name
+class quantized_po2(BaseQuantizer):  # pylint: disable=invalid-name
   """Quantizes to the closest power of 2.
 
   Attributes:
@@ -1522,7 +1525,7 @@ class quantized_po2(base_quantizer):  # pylint: disable=invalid-name
     return config
 
 
-class quantized_relu_po2(base_quantizer):  # pylint: disable=invalid-name
+class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
   """Quantizes x to the closest power of 2 when x > 0 else 2**min_exp.
 
   Attributes:
