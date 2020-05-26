@@ -313,6 +313,7 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
 
   def __init__(self, bits=8, integer=0, symmetric=0, keep_negative=1,
                alpha=None, use_stochastic_rounding=False):
+    super(quantized_bits, self).__init__()
     self.bits = bits
     self.integer = integer
     self.symmetric = symmetric
@@ -581,7 +582,7 @@ class ternary(BaseQuantizer):  # pylint: disable=invalid-name
 
   def __init__(self, alpha=None, threshold=None, use_stochastic_rounding=False,
                number_of_unrolls=5):
-    BaseQuantizer.__init__(self)
+    super(ternary, self).__init__()
     self.bits = 2
     self.alpha = alpha
     self.threshold = threshold
@@ -721,8 +722,11 @@ class stochastic_ternary(ternary):  # pylint: disable=invalid-name
 
   def __init__(self, alpha=None, threshold=None, temperature=8.0,
                use_real_sigmoid=True, number_of_unrolls=5):
-    ternary.__init__(self, alpha=alpha, threshold=threshold, 
-                      number_of_unrolls=number_of_unrolls)
+    super(stochastic_ternary, self).__init__(
+      alpha=alpha, 
+      threshold=threshold, 
+      number_of_unrolls=number_of_unrolls)
+
     self.bits = 2
     self.alpha = alpha
     self.threshold = threshold
@@ -865,7 +869,7 @@ class binary(BaseQuantizer):  # pylint: disable=invalid-name
   """
 
   def __init__(self, use_01=False, alpha=None, use_stochastic_rounding=False):
-    BaseQuantizer.__init__(self)
+    super(binary, self).__init__()
     self.use_01 = use_01
     self.bits = 1
     self.alpha = alpha
@@ -986,7 +990,7 @@ class stochastic_binary(binary):  # pylint: disable=invalid-name
   """
 
   def __init__(self, alpha=None, temperature=6.0, use_real_sigmoid=True):
-    binary.__init__(self, alpha=alpha)
+    super(stochastic_binary, self).__init__(alpha=alpha)
     self.alpha = alpha
     self.bits = 1
     self.temperature = temperature
@@ -1104,6 +1108,7 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
 
   def __init__(self, bits=8, integer=0, use_sigmoid=0,
                use_stochastic_rounding=False):
+    super(quantized_relu, self).__init__()
     self.bits = bits
     self.integer = integer
     self.use_sigmoid = use_sigmoid
@@ -1179,6 +1184,7 @@ class quantized_ulaw(BaseQuantizer):  # pylint: disable=invalid-name
   """
 
   def __init__(self, bits=8, integer=0, symmetric=0, u=255.0):
+    super(quantized_ulaw, self).__init__()
     self.bits = bits
     self.integer = integer
     self.symmetric = symmetric
