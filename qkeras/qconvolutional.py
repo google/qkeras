@@ -156,7 +156,7 @@ class QConv1D(Conv1D, PrunableLayer):
           outputs, quantized_bias, data_format=self.data_format)
 
     if self.activation is not None:
-      return self.activation(outputs)
+      return self.activation(outputs, training)
     return outputs
 
   def get_config(self):
@@ -301,7 +301,7 @@ class QConv2D(Conv2D, PrunableLayer):
           outputs, quantized_bias, data_format=self.data_format)
 
     if self.activation is not None:
-      return self.activation(outputs)
+      return self.activation(outputs, training)
     return outputs
 
   def get_config(self):
@@ -481,7 +481,7 @@ class QDepthwiseConv2D(DepthwiseConv2D, PrunableLayer):
           outputs, quantized_bias, data_format=self.data_format)
 
     if self.activation is not None:
-      return self.activation(outputs)
+      return self.activation(outputs, training)
 
     return outputs
 
