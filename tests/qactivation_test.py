@@ -363,9 +363,12 @@ def test_binary(use_01, alpha, test_values, expected_values):
     (np.array([[0.0] * 100000], dtype=K.floatx()), 0.0),
 ])
 def test_stochastic_round_quantized_po2(test_values, expected_values):
+  K.set_learning_phase(1)
   np.random.seed(666)
-  x = K.placeholder(ndim=2)
-  f = K.function([x], [quantized_po2(use_stochastic_rounding=True)(x)])
+  x = K.placeholder(ndim=2) 
+  q = quantized_po2(use_stochastic_rounding=True)
+  q.set_istraining_var(1)
+  f = K.function([x], [q(x)])
   res = f([test_values])[0]
   res = np.average(res)
   assert_allclose(res, expected_values, rtol=1e-01, atol=1e-6)
@@ -379,9 +382,12 @@ def test_stochastic_round_quantized_po2(test_values, expected_values):
     (np.array([[48.0] * 100000], dtype=K.floatx()), 48.0),
 ])
 def test_stochastic_round_quantized_relu_po2(test_values, expected_values):
+  K.set_learning_phase(1)
   np.random.seed(666)
   x = K.placeholder(ndim=2)
-  f = K.function([x], [quantized_relu_po2(use_stochastic_rounding=True)(x)])
+  q = quantized_relu_po2(use_stochastic_rounding=True)
+  q.set_istraining_var(1)
+  f = K.function([x], [q(x)])
   res = f([test_values])[0]
   res = np.average(res)
   assert_allclose(res, expected_values, rtol=1e-01, atol=1e-6)

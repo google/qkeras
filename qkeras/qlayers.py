@@ -332,7 +332,7 @@ class QDense(Dense, PrunableLayer):
       output = tf.keras.backend.bias_add(output, quantized_bias,
                                          data_format="channels_last")
     if self.activation is not None:
-      output = self.activation(output, training)
+      output = self.activation(output)
     return output
 
   def compute_output_shape(self, input_shape):
