@@ -25,10 +25,11 @@ from tensorflow.keras import initializers
 from tensorflow.keras import regularizers
 from tensorflow.keras.layers import Activation
 from tensorflow.keras.layers import SimpleRNNCell
-from tensorflow.keras.layers import SimpleRNN
-from tensorflow.keras.layers import LSTM
-from tensorflow.keras.layers import GRU
+from tensorflow.keras.layers import LSTMCell
+from tensorflow.keras.layers import GRUCell
+from tensorflow.keras.layers import RNN
 from tensorflow.python.util import nest
+from tensorflow.python.keras.engine.input_spec import InputSpec
 
 import tensorflow.keras.backend as K
 from .qlayers import get_auto_range_constraint_initializer
@@ -43,7 +44,7 @@ class QSimpleRNNCell(SimpleRNNCell):
   """
   def __init__(self,
                units,
-               activation='tanh',
+               activation='quantized_tanh',
                use_bias=True,
                kernel_initializer='glorot_uniform',
                recurrent_initializer='orthogonal',
@@ -61,6 +62,23 @@ class QSimpleRNNCell(SimpleRNNCell):
                recurrent_dropout=0.,
                **kwargs):
 
+    self.kernel_quantizer = kernel_quantizer
+    self.recurrent_quantizer = recurrent_quantizer # not needed
+    self.bias_quantizer = bias_quantizer
+
+    self.kernel_quantizer_internal = get_quantizer(self.kernel_quantizer)
+    self.recurrent_quantizer_internal = get_quantizer(self.recurrent_quantizer)
+    self.bias_quantizer_internal = get_quantizer(self.bias_quantizer)
+
+    self.quantizers = [
+      self.kernel_quantizer_internal,
+      self.recurrent_quantizer_internal, 
+      self.bias_quantizer_internal
+    ]
+
+    if activation is not None:
+      activation = get_quantizer(activation)
+
     super(QSimpleRNNCell, self).__init__(
       units=units,
       activation=activation,
@@ -74,31 +92,13 @@ class QSimpleRNNCell(SimpleRNNCell):
       kernel_constraint=kernel_constraint,
       recurrent_constraint=recurrent_constraint,
       bias_constraint=bias_constraint,
-      kernel_quantizer=kernel_quantizer,
-      bias_quantizer=bias_quantizer,
       dropout=dropout,
       recurrent_dropout=recurrent_dropout,
       **kwargs
     )
-    self.kernel_quantizer = kernel_quantizer
-    self.recurrent_quantizer = recurrent_quantizer
-    self.bias_quantizer = bias_quantizer
-
-    self.kernel_quantizer_internal = get_quantizer(self.kernel_quantizer)
-    self.recurrent_quantizer_internal = get_quantizer(self.recurrent_quantizer)
-    self.bias_quantizer_internal = get_quantizer(self.bias_quantizer)
-
-    self.quantizers = [
-      self.kernel_quantizer_internal,
-      self.recurrent_quantizer_internal, 
-      self.bias_quantizer_internal
-    ]
 
 
   def call(self, inputs, states, training=None):
-    if training is None:
-      training = K.learning_phase()
-
     prev_output = states[0] if nest.is_sequence(states) else states
     dp_mask = self.get_dropout_mask_for_cell(inputs, training)
     rec_dp_mask = self.get_recurrent_dropout_mask_for_cell(
@@ -141,14 +141,14 @@ class QSimpleRNNCell(SimpleRNNCell):
 
 
 
-class QSimpleRNN(SimpleRNN):
+class QSimpleRNN(RNN):
   """
   Quantized simple recurrent layer  
   """
 
   def __init__(self,
                units,
-               activation='tanh',
+               activation='quantized_tanh',
                use_bias=True,
                kernel_initializer='glorot_uniform',
                recurrent_initializer='orthogonal',
@@ -174,9 +174,10 @@ class QSimpleRNN(SimpleRNN):
 
     if 'implementation' in kwargs:
       kwargs.pop('implementation')
-      logging.warning('The `implementation` argument '
-                      'has been deprecated. '
-                      'Please remove it from your layer call.')
+      raise Exception
+      # logging.warning('The `implementation` argument '
+      #                 'has been deprecated. '
+      #                 'Please remove it from your layer call.')
     if 'enable_caching_device' in kwargs:
       cell_kwargs = {'enable_caching_device':
                      kwargs.pop('enable_caching_device')}
@@ -220,10 +221,50 @@ class QSimpleRNN(SimpleRNN):
 
   def call(self, inputs, mask=None, training=None, initial_state=None):
     self._maybe_reset_cell_dropout_mask(self.cell)
-    return super(SimpleRNN, self).call(
+    return super(QSimpleRNN, self).call(
         inputs, mask=mask, training=training, initial_state=initial_state)
 
 
   def get_quantizers(self):
-    return self.quantizers
+    return self.cell.quantizers
+
+
+  def get_config(self):
+    # TODO
+    config = {
+        'units':
+            self.units,
+        'activation':
+            activations.serialize(self.activation),
+        'use_bias':
+            self.use_bias,
+        'kernel_initializer':
+            initializers.serialize(self.kernel_initializer),
+        'recurrent_initializer':
+            initializers.serialize(self.recurrent_initializer),
+        'bias_initializer':
+            initializers.serialize(self.bias_initializer),
+        'kernel_regularizer':
+            regularizers.serialize(self.kernel_regularizer),
+        'recurrent_regularizer':
+            regularizers.serialize(self.recurrent_regularizer),
+        'bias_regularizer':
+            regularizers.serialize(self.bias_regularizer),
+        'activity_regularizer':
+            regularizers.serialize(self.activity_regularizer),
+        'kernel_constraint':
+            constraints.serialize(self.kernel_constraint),
+        'recurrent_constraint':
+            constraints.serialize(self.recurrent_constraint),
+        'bias_constraint':
+            constraints.serialize(self.bias_constraint),
+        'dropout':
+            self.dropout,
+        'recurrent_dropout':
+            self.recurrent_dropout
+    }
+    base_config = super(QSimpleRNN, self).get_config()
+    config.update(_config_for_enable_caching_device(self.cell))
+    del base_config['cell']
+    return dict(list(base_config.items()) + list(config.items()))
 
