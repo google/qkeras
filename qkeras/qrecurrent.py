@@ -24,9 +24,11 @@ from tensorflow.keras import constraints
 from tensorflow.keras import initializers
 from tensorflow.keras import regularizers
 from tensorflow.keras.layers import Activation
-from tensorflow.keras.layers import RNN
+from tensorflow.keras.layers import SimpleRNNCell
+from tensorflow.keras.layers import SimpleRNN
 from tensorflow.keras.layers import LSTM
 from tensorflow.keras.layers import GRU
+from tensorflow.python.util import nest
 
 import tensorflow.keras.backend as K
 from .qlayers import get_auto_range_constraint_initializer
@@ -35,68 +37,193 @@ from .quantizers import get_quantized_initializer
 from .quantizers import get_quantizer
 
 
-class QRNN(RNN):
-    """
-    Quantized recurrent layer
+class QSimpleRNNCell(SimpleRNNCell):
+  """
+  
+  """
+  def __init__(self,
+               units,
+               activation='tanh',
+               use_bias=True,
+               kernel_initializer='glorot_uniform',
+               recurrent_initializer='orthogonal',
+               bias_initializer='zeros',
+               kernel_regularizer=None,
+               recurrent_regularizer=None,
+               bias_regularizer=None,
+               kernel_constraint=None,
+               recurrent_constraint=None,
+               bias_constraint=None,
+               kernel_quantizer=None,
+               recurrent_quantizer=None,
+               bias_quantizer=None,
+               dropout=0.,
+               recurrent_dropout=0.,
+               **kwargs):
 
-    Most of these parameters follow the implementation of RNN in Keras,
-    with the exception of kernel_quantizer and bias_quantizer, and
-    kernel_initializer.
+    super(QSimpleRNNCell, self).__init__(
+      units=units,
+      activation=activation,
+      use_bias=use_bias,
+      kernel_initializer=kernel_initializer,
+      recurrent_initializer=recurrent_initializer,
+      bias_initializer=bias_initializer,
+      kernel_regularizer=kernel_regularizer,
+      recurrent_regularizer=recurrent_regularizer,
+      bias_regularizer=bias_regularizer,
+      kernel_constraint=kernel_constraint,
+      recurrent_constraint=recurrent_constraint,
+      bias_constraint=bias_constraint,
+      kernel_quantizer=kernel_quantizer,
+      bias_quantizer=bias_quantizer,
+      dropout=dropout,
+      recurrent_dropout=recurrent_dropout,
+      **kwargs
+    )
+    self.kernel_quantizer = kernel_quantizer
+    self.recurrent_quantizer = recurrent_quantizer
+    self.bias_quantizer = bias_quantizer
+
+    self.kernel_quantizer_internal = get_quantizer(self.kernel_quantizer)
+    self.recurrent_quantizer_internal = get_quantizer(self.recurrent_quantizer)
+    self.bias_quantizer_internal = get_quantizer(self.bias_quantizer)
+
+    self.quantizers = [
+      self.kernel_quantizer_internal,
+      self.recurrent_quantizer_internal, 
+      self.bias_quantizer_internal
+    ]
+
+
+  def call(self, inputs, states, training=None):
+    if training is None:
+      training = K.learning_phase()
+
+    prev_output = states[0] if nest.is_sequence(states) else states
+    dp_mask = self.get_dropout_mask_for_cell(inputs, training)
+    rec_dp_mask = self.get_recurrent_dropout_mask_for_cell(
+        prev_output, training)
+
+    if self.kernel_quantizer:
+      self.kernel_quantizer_internal.set_istraining_var(training)
+      quantized_kernel = self.kernel_quantizer_internal(self.kernel)
+    else:
+      quantized_kernel = self.kernel
+
+    if dp_mask is not None:
+      h = K.dot(inputs * dp_mask, quantized_kernel)
+    else:
+      h = K.dot(inputs, quantized_kernel)
     
-    kernel_quantizer: quantizer function/class for kernel
-    bias_quantizer: quantizer function/class for bias
-    kernel_range/bias_ranger: for quantizer functions whose values
-        can go over [-1,+1], these values are used to set the clipping
-        value of kernels and biases, respectively, instead of using the
-        constraints specified by the user.
-    
-    we refer the reader to the documentation of Conv2D in Keras for the
-    other parameters.
+    if self.bias is not None:
+      if self.bias_quantizer:
+        self.bias_quantizer_internal.set_istraining_var(training)
+        quantized_bias = self.bias_quantizer_internal(self.bias)
+      else:
+        quantized_bias = self.bias
 
-    See [the Keras RNN API guide](https://www.tensorflow.org/guide/keras/rnn)
-    for details about the usage of RNN API.
-    
-    """
+      h = K.bias_add(h, quantized_bias)
 
-    def __init__(self,
-                 cell,
-                 return_sequences=False,
-                 return_state=False,
-                 kernel_quantizer=None,
-                 bias_quantizer=None,
-                 go_backwards=False,
-                 stateful=False,
-                 unroll=False,
-                 time_major=False,
-                 **kwargs):
-    if isinstance(cell, (list, tuple)):
-      cell = StackedRNNCells(cell)
-    if not 'call' in dir(cell):
-      raise ValueError('`cell` should have a `call` method. '
-                       'The RNN was passed:', cell)
-    if not 'state_size' in dir(cell):
-      raise ValueError('The RNN cell should have '
-                       'an attribute `state_size` '
-                       '(tuple of integers, '
-                       'one integer per RNN state).')
-    # If True, the output for masked timestep will be zeros, whereas in the
-    # False case, output from previous timestep is returned for masked timestep.
-    self.zero_output_for_mask = kwargs.pop('zero_output_for_mask', False)
+    if rec_dp_mask is not None:
+      prev_output = prev_output * rec_dp_mask
 
-    if 'input_shape' not in kwargs and (
-        'input_dim' in kwargs or 'input_length' in kwargs):
-      input_shape = (kwargs.pop('input_length', None),
-                     kwargs.pop('input_dim', None))
-      kwargs['input_shape'] = input_shape
-    
-    super(RNN, self).__init__(**kwargs)
+    if self.recurrent_quantizer:
+      self.recurrent_quantizer_internal.set_istraining_var(training)
+      quantized_recurrent = self.recurrent_quantizer_internal(self.recurrent_kernel)
+    else:
+      quantized_recurrent = self.recurrent_kernel
+
+    output = h + K.dot(prev_output, quantized_recurrent)
+
+    if self.activation is not None:
+      output = self.activation(output)
+    return output, [output]
 
 
 
-    def call(self,
-            inputs,
-            mask=None,
-            training=None,
-            initial_state=None,
-            constants=None):
-        pass
+class QSimpleRNN(SimpleRNN):
+  """
+  Quantized simple recurrent layer  
+  """
+
+  def __init__(self,
+               units,
+               activation='tanh',
+               use_bias=True,
+               kernel_initializer='glorot_uniform',
+               recurrent_initializer='orthogonal',
+               bias_initializer='zeros',
+               kernel_regularizer=None,
+               recurrent_regularizer=None,
+               bias_regularizer=None,
+               activity_regularizer=None,
+               kernel_constraint=None,
+               recurrent_constraint=None,
+               bias_constraint=None,
+               kernel_quantizer=None,
+               recurrent_quantizer=None,
+               bias_quantizer=None,
+               dropout=0.,
+               recurrent_dropout=0.,
+               return_sequences=False,
+               return_state=False,
+               go_backwards=False,
+               stateful=False,
+               unroll=False,
+               **kwargs):
+
+    if 'implementation' in kwargs:
+      kwargs.pop('implementation')
+      logging.warning('The `implementation` argument '
+                      'has been deprecated. '
+                      'Please remove it from your layer call.')
+    if 'enable_caching_device' in kwargs:
+      cell_kwargs = {'enable_caching_device':
+                     kwargs.pop('enable_caching_device')}
+    else:
+      cell_kwargs = {}
+
+    cell = QSimpleRNNCell(
+        units,
+        activation=activation,
+        use_bias=use_bias,
+        kernel_initializer=kernel_initializer,
+        recurrent_initializer=recurrent_initializer,
+        bias_initializer=bias_initializer,
+        kernel_regularizer=kernel_regularizer,
+        recurrent_regularizer=recurrent_regularizer,
+        bias_regularizer=bias_regularizer,
+        kernel_constraint=kernel_constraint,
+        recurrent_constraint=recurrent_constraint,
+        bias_constraint=bias_constraint,
+        kernel_quantizer=kernel_quantizer,
+        recurrent_quantizer=recurrent_quantizer,
+        bias_quantizer=bias_quantizer,
+        dropout=dropout,
+        recurrent_dropout=recurrent_dropout,
+        dtype=kwargs.get('dtype'),
+        trainable=kwargs.get('trainable', True),
+        **cell_kwargs)
+
+
+    super(QSimpleRNN, self).__init__(
+        cell,
+        return_sequences=return_sequences,
+        return_state=return_state,
+        go_backwards=go_backwards,
+        stateful=stateful,
+        unroll=unroll,
+        **kwargs)
+    self.activity_regularizer = regularizers.get(activity_regularizer)
+    self.input_spec = [InputSpec(ndim=3)]
+
+
+  def call(self, inputs, mask=None, training=None, initial_state=None):
+    self._maybe_reset_cell_dropout_mask(self.cell)
+    return super(SimpleRNN, self).call(
+        inputs, mask=mask, training=training, initial_state=initial_state)
+
+
+  def get_quantizers(self):
+    return self.quantizers
+
