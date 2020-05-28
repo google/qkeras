@@ -165,10 +165,7 @@ class QActivation(Layer, PrunableLayer):
     except KeyError:
       raise ValueError("invalid activation '{}'".format(activation))
 
-  def call(self, inputs, training=None):
-    if training is None:
-      training = K.learning_phase()
-    self.quantizer.set_istraining_var(training)
+  def call(self, inputs):
     return self.quantizer(inputs)
 
   def get_config(self):
@@ -314,18 +311,14 @@ class QDense(Dense, PrunableLayer):
         bias_constraint=bias_constraint,
         **kwargs)
 
-  def call(self, inputs, training=None):
-    if training is None:
-      training = K.learning_phase()
+  def call(self, inputs):
     if self.kernel_quantizer:
-      self.kernel_quantizer_internal.set_istraining_var(training)
       quantized_kernel = self.kernel_quantizer_internal(self.kernel)
     else:
       quantized_kernel = self.kernel
     output = tf.keras.backend.dot(inputs, quantized_kernel)
     if self.use_bias:
       if self.bias_quantizer:
-        self.bias_quantizer_internal.set_istraining_var(training)
         quantized_bias = self.bias_quantizer_internal(self.bias)
       else:
         quantized_bias = self.bias

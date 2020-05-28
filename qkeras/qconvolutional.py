@@ -128,11 +128,8 @@ class QConv1D(Conv1D, PrunableLayer):
         bias_constraint=bias_constraint,
         **kwargs)
 
-  def call(self, inputs, training=None):
-    if training is None:
-      training = K.learning_phase()
+  def call(self, inputs):
     if self.kernel_quantizer:
-      self.kernel_quantizer_internal.set_istraining_var(training)
       quantized_kernel = self.kernel_quantizer_internal(self.kernel)
     else:
       quantized_kernel = self.kernel
@@ -147,7 +144,6 @@ class QConv1D(Conv1D, PrunableLayer):
 
     if self.use_bias:
       if self.bias_quantizer:
-        self.bias_quantizer_internal.set_istraining_var(training)
         quantized_bias = self.bias_quantizer_internal(self.bias)
       else:
         quantized_bias = self.bias
@@ -273,11 +269,8 @@ class QConv2D(Conv2D, PrunableLayer):
         bias_constraint=bias_constraint,
         **kwargs)
 
-  def call(self, inputs, training=None):
-    if training is None:
-      training = K.learning_phase()
+  def call(self, inputs):
     if self.kernel_quantizer:
-      self.kernel_quantizer_internal.set_istraining_var(training)
       quantized_kernel = self.kernel_quantizer_internal(self.kernel)
     else:
       quantized_kernel = self.kernel
@@ -292,7 +285,6 @@ class QConv2D(Conv2D, PrunableLayer):
 
     if self.use_bias:
       if self.bias_quantizer:
-        self.bias_quantizer_internal.set_istraining_var(training)
         quantized_bias = self.bias_quantizer_internal(self.bias)
       else:
         quantized_bias = self.bias
@@ -454,11 +446,8 @@ class QDepthwiseConv2D(DepthwiseConv2D, PrunableLayer):
     self.input_spec = InputSpec(ndim=4, axes={channel_axis: input_dim})
     self.built = True
 
-  def call(self, inputs, training=None):
-    if training is None:
-      training = K.learning_phase()
+  def call(self, inputs):
     if self.depthwise_quantizer:
-      self.depthwise_quantizer_internal.set_istraining_var(training)
       quantized_depthwise_kernel = (
           self.depthwise_quantizer_internal(self.depthwise_kernel))
     else:
@@ -473,7 +462,6 @@ class QDepthwiseConv2D(DepthwiseConv2D, PrunableLayer):
 
     if self.bias:
       if self.bias_quantizer:
-        self.bias_quantizer_internal.set_istraining_var(training)
         quantized_bias = self.bias_quantizer_internal(self.bias)
       else:
         quantized_bias = self.bias

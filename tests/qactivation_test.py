@@ -367,7 +367,6 @@ def test_stochastic_round_quantized_po2(test_values, expected_values):
   np.random.seed(666)
   x = K.placeholder(ndim=2) 
   q = quantized_po2(use_stochastic_rounding=True)
-  q.set_istraining_var(1)
   f = K.function([x], [q(x)])
   res = f([test_values])[0]
   res = np.average(res)
@@ -386,7 +385,6 @@ def test_stochastic_round_quantized_relu_po2(test_values, expected_values):
   np.random.seed(666)
   x = K.placeholder(ndim=2)
   q = quantized_relu_po2(use_stochastic_rounding=True)
-  q.set_istraining_var(1)
   f = K.function([x], [q(x)])
   res = f([test_values])[0]
   res = np.average(res)
@@ -401,7 +399,6 @@ def test_stochastic_binary():
   x = np.sort(x)
 
   s = stochastic_binary(alpha="auto_po2")
-  s.set_istraining_var(1)
 
   ty = np.zeros_like(s)
   ts = 0.0
@@ -436,9 +433,9 @@ def test_stochastic_binary():
      np.array([[-5.0, -5.0, -5.0, -5, 5.0, 5.0, 5, 5, 5]], dtype=K.floatx()))
 ])
 def test_stochastic_binary_inference_mode(alpha, test_values, expected_values):
+  K.set_learning_phase(0)
   x = K.placeholder(ndim=2)
   q = stochastic_binary(alpha)
-  q.set_istraining_var(0)
   f = K.function([x], [q(x)])
   result = f([test_values])[0]
   assert_allclose(result, expected_values, rtol=1e-05)
@@ -473,7 +470,6 @@ def test_stochastic_ternary(bound, alpha, temperature, expected_values,
   x = np.sort(x)
 
   s = stochastic_ternary(alpha=alpha, temperature=temperature)
-  s.set_istraining_var(1)
 
   ty = np.zeros_like(s)
   ts = 0.0
@@ -503,9 +499,9 @@ def test_stochastic_ternary(bound, alpha, temperature, expected_values,
      np.array([[-10.0, -10.0, 0.0, 0, 0.0, 0.0, 0, 0, 10]], dtype=K.floatx())),
 ])
 def test_stochastic_ternary_inference_mode(alpha, threshold, test_values, expected_values):
+  K.set_learning_phase(0)
   x = K.placeholder(ndim=2)
   q = stochastic_ternary(alpha, threshold)
-  q.set_istraining_var(0)
   f = K.function([x],
                  [q(x)])
   result = f([test_values])[0]

@@ -179,13 +179,7 @@ class QBatchNormalization(BatchNormalization, PrunableLayer):
         adjustment=None,
         **kwargs)
 
-  def call(self, inputs, training=None):
-    if training is None:
-      training = K.learning_phase()
-    for quantizer in self.quantizers:
-      if quantizer is not None:
-        quantizer.set_istraining_var(training)
-        
+  def call(self, inputs):
     if self.scale and self.gamma_quantizer:
       quantized_gamma = self.gamma_quantizer_internal(self.gamma)
     else:
