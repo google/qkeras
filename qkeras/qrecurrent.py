@@ -307,11 +307,11 @@ class QSimpleRNN(RNN):
   def get_config(self):
     config = {
         "kernel_quantizer":
-            constraints.serialize(self.kernel_quantizer_internal),
+            constraints.serialize(self.kernel_quantizer),
         "recurrent_quantizer":
-            constraints.serialize(self.recurrent_quantizer_internal),
+            constraints.serialize(self.recurrent_quantizer),
         "bias_quantizer":
-            constraints.serialize(self.bias_quantizer_internal)
+            constraints.serialize(self.bias_quantizer)
     }
     base_config = super(QSimpleRNN, self).get_config()
     return dict(list(base_config.items()) + list(config.items()))

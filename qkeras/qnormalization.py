@@ -327,7 +327,7 @@ class QBatchNormalization(BatchNormalization, PrunableLayer):
         'beta_range': self.beta_range,
         'gamma_range': self.gamma_range,
     }
-    base_config = super(BatchNormalization, self).get_config()
+    base_config = super(QBatchNormalization, self).get_config()
     return dict(list(base_config.items()) + list(config.items()))
 
   def compute_output_shape(self, input_shape):
