@@ -46,6 +46,8 @@ from .qlayers import QDense
 from .qlayers import QInitializer
 from .qconvolutional import QConv1D
 from .qconvolutional import QConv2D
+from .qrecurrent import QSimpleRNN
+from .qrecurrent import QSimpleRNNCell
 from .qconvolutional import QDepthwiseConv2D
 from .qnormalization import QBatchNormalization
 from .quantizers import binary
@@ -423,6 +425,8 @@ def _add_supported_quantized_objects(custom_objects):
   custom_objects["QDense"] = QDense
   custom_objects["QConv1D"] = QConv1D
   custom_objects["QConv2D"] = QConv2D
+  custom_objects["QSimpleRNNCell"] = QSimpleRNNCell
+  custom_objects["QSimpleRNN"] = QSimpleRNN
   custom_objects["QDepthwiseConv2D"] = QDepthwiseConv2D
   custom_objects["QActivation"] = QActivation
   custom_objects["QBatchNormalization"] = QBatchNormalization
@@ -550,7 +554,7 @@ def quantized_model_debug(model, X_test, plot=False):
   for layer in model.layers:
     if layer.__class__.__name__ in [
         "QActivation", "QBatchNormalization", "Activation", "QDense",
-        "QConv2D", "QDepthwiseConv2D"
+        "QConv2D", "QDepthwiseConv2D", "QSimpleRNN"
     ]:
       output_names.append(layer.name)
       outputs.append(layer.output)

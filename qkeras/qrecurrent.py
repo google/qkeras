@@ -20,6 +20,7 @@ from __future__ import print_function
 
 import warnings
 import tensorflow as tf
+from tensorflow.keras import activations
 from tensorflow.keras import constraints
 from tensorflow.keras import initializers
 from tensorflow.keras import regularizers
@@ -138,6 +139,19 @@ class QSimpleRNNCell(SimpleRNNCell):
     if self.activation is not None:
       output = self.activation(output)
     return output, [output]
+  
+  
+  def get_config(self):
+    config = {
+        "kernel_quantizer":
+            constraints.serialize(self.kernel_quantizer_internal),
+        "recurrent_quantizer":
+            constraints.serialize(self.recurrent_quantizer_internal),
+        "bias_quantizer":
+            constraints.serialize(self.bias_quantizer_internal)
+    }
+    base_config = super(QSimpleRNNCell, self).get_config()
+    return dict(list(base_config.items()) + list(config.items()))
 
 
 
@@ -172,12 +186,6 @@ class QSimpleRNN(RNN):
                unroll=False,
                **kwargs):
 
-    if 'implementation' in kwargs:
-      kwargs.pop('implementation')
-      raise Exception
-      # logging.warning('The `implementation` argument '
-      #                 'has been deprecated. '
-      #                 'Please remove it from your layer call.')
     if 'enable_caching_device' in kwargs:
       cell_kwargs = {'enable_caching_device':
                      kwargs.pop('enable_caching_device')}
@@ -228,43 +236,82 @@ class QSimpleRNN(RNN):
   def get_quantizers(self):
     return self.cell.quantizers
 
+  @property
+  def units(self):
+    return self.cell.units
+
+  @property
+  def activation(self):
+    return self.cell.activation
+
+  @property
+  def use_bias(self):
+    return self.cell.use_bias
+
+  @property
+  def kernel_initializer(self):
+    return self.cell.kernel_initializer
+
+  @property
+  def recurrent_initializer(self):
+    return self.cell.recurrent_initializer
+
+  @property
+  def bias_initializer(self):
+    return self.cell.bias_initializer
+
+  @property
+  def kernel_regularizer(self):
+    return self.cell.kernel_regularizer
+
+  @property
+  def recurrent_regularizer(self):
+    return self.cell.recurrent_regularizer
+
+  @property
+  def bias_regularizer(self):
+    return self.cell.bias_regularizer
+
+  @property
+  def kernel_constraint(self):
+    return self.cell.kernel_constraint
+
+  @property
+  def recurrent_constraint(self):
+    return self.cell.recurrent_constraint
+
+  @property
+  def bias_constraint(self):
+    return self.cell.bias_constraint
+
+  @property
+  def dropout(self):
+    return self.cell.dropout
+
+  @property
+  def recurrent_dropout(self):
+    return self.cell.recurrent_dropout
+
+  @property
+  def kernel_quantizer(self):
+    return self.cell.kernel_quantizer
+
+  @property
+  def recurrent_quantizer(self):
+    return self.cell.recurrent_quantizer
+
+  @property
+  def bias_quantizer(self):
+    return self.cell.bias_quantizer
 
   def get_config(self):
-    # TODO
     config = {
-        'units':
-            self.units,
-        'activation':
-            activations.serialize(self.activation),
-        'use_bias':
-            self.use_bias,
-        'kernel_initializer':
-            initializers.serialize(self.kernel_initializer),
-        'recurrent_initializer':
-            initializers.serialize(self.recurrent_initializer),
-        'bias_initializer':
-            initializers.serialize(self.bias_initializer),
-        'kernel_regularizer':
-            regularizers.serialize(self.kernel_regularizer),
-        'recurrent_regularizer':
-            regularizers.serialize(self.recurrent_regularizer),
-        'bias_regularizer':
-            regularizers.serialize(self.bias_regularizer),
-        'activity_regularizer':
-            regularizers.serialize(self.activity_regularizer),
-        'kernel_constraint':
-            constraints.serialize(self.kernel_constraint),
-        'recurrent_constraint':
-            constraints.serialize(self.recurrent_constraint),
-        'bias_constraint':
-            constraints.serialize(self.bias_constraint),
-        'dropout':
-            self.dropout,
-        'recurrent_dropout':
-            self.recurrent_dropout
+        "kernel_quantizer":
+            constraints.serialize(self.kernel_quantizer_internal),
+        "recurrent_quantizer":
+            constraints.serialize(self.recurrent_quantizer_internal),
+        "bias_quantizer":
+            constraints.serialize(self.bias_quantizer_internal)
     }
     base_config = super(QSimpleRNN, self).get_config()
-    config.update(_config_for_enable_caching_device(self.cell))
-    del base_config['cell']
     return dict(list(base_config.items()) + list(config.items()))
-
