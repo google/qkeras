@@ -417,13 +417,56 @@ def test_stochastic_binary():
   assert_allclose(scale, expected_scale, rtol=0.1)
 
 
-def test_stochastic_ternary():
+@pytest.mark.parametrize(
+    'bound, alpha, temperature, expected_values, expected_scale', [
+    (
+        0.5,
+        None, 
+        8,
+        np.array([-0.254, -0.028, -0.025,  0.,     0.,     0.,     
+            0.001,  0.,     0.02,   0.141]).astype(np.float32),
+        np.array([1.0])
+    ),
+    (
+        0.01,
+        0.0033,
+        8,
+        np.array([-1., -1., -0.999, -0.835,  0.474,  0.441,
+            0.949,  0.977,  0.999,  1.]).astype(np.float32),
+        np.array([0.0033])
+    ),
+    (
+        3,
+        5.0,
+        8,
+        np.array([-0.795, -0.21,  -0.18,   0.,     0.,     0., 
+            0.001,  0.004,  0.137,  0.593]).astype(np.float32),
+        np.array([5.0])
+    ),
+    (
+        0.01,
+        "auto",
+        8,
+        np.array([-0.999, -0.995, -0.996, -0.354,  0.088,  
+            0.068,  0.599,  0.764,  0.987,  1.]).astype(np.float32),
+        np.array([0.0068196])
+    ),
+    (
+        0.01,
+        "auto_po2",
+        8, 
+        np.array([-0.998, -0.992, -0.992, -0.208,  0.048,  0.04 , 
+            0.448,  0.606, 0.987,  0.998]).astype(np.float32),
+        np.array([0.007812])
+    )
+])
+def test_stochastic_ternary(bound, alpha, temperature, expected_values, expected_scale):
   np.random.seed(42)
 
-  x = np.random.uniform(-0.01, 0.01, size=10)
+  x = np.random.uniform(-bound, bound, size=10)
   x = np.sort(x)
 
-  s = stochastic_ternary(alpha="auto_po2", temperature=8)
+  s = stochastic_ternary(alpha=alpha, temperature=temperature)
   ty = np.zeros_like(s)
   ts = 0.0
 
@@ -431,20 +474,14 @@ def test_stochastic_ternary():
 
   for _ in range(n):
     y = K.eval(s(K.constant(x)))
-    scale = K.eval(s.scale)[0]
+    scale = float(K.eval(s.scale))
     ts = ts + scale
     ty = ty + (y / scale)
 
   result = (ty/n).astype(np.float32)
   scale = np.array([ts/n])
 
-  expected = np.array(
-      [-0.998, -0.992, -0.992, -0.208,  0.048,  0.04 ,  0.448,  0.606,
-        0.987,  0.998]
-  ).astype(np.float32)
-  expected_scale =  np.array([0.007812])
-
-  assert_allclose(result, expected, atol=0.1)
+  assert_allclose(result, expected_values, atol=0.1)
   assert_allclose(scale, expected_scale, rtol=0.1)
 
 
