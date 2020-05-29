@@ -64,7 +64,7 @@ class QSimpleRNNCell(SimpleRNNCell):
                **kwargs):
 
     self.kernel_quantizer = kernel_quantizer
-    self.recurrent_quantizer = recurrent_quantizer # not needed
+    self.recurrent_quantizer = recurrent_quantizer 
     self.bias_quantizer = bias_quantizer
 
     self.kernel_quantizer_internal = get_quantizer(self.kernel_quantizer)
@@ -106,7 +106,6 @@ class QSimpleRNNCell(SimpleRNNCell):
         prev_output, training)
 
     if self.kernel_quantizer:
-      self.kernel_quantizer_internal.set_istraining_var(training)
       quantized_kernel = self.kernel_quantizer_internal(self.kernel)
     else:
       quantized_kernel = self.kernel
@@ -118,7 +117,6 @@ class QSimpleRNNCell(SimpleRNNCell):
     
     if self.bias is not None:
       if self.bias_quantizer:
-        self.bias_quantizer_internal.set_istraining_var(training)
         quantized_bias = self.bias_quantizer_internal(self.bias)
       else:
         quantized_bias = self.bias
@@ -129,7 +127,6 @@ class QSimpleRNNCell(SimpleRNNCell):
       prev_output = prev_output * rec_dp_mask
 
     if self.recurrent_quantizer:
-      self.recurrent_quantizer_internal.set_istraining_var(training)
       quantized_recurrent = self.recurrent_quantizer_internal(self.recurrent_kernel)
     else:
       quantized_recurrent = self.recurrent_kernel
