@@ -48,14 +48,14 @@ def main():
   a = K.constant([val] * count)
   b = quantized_po2(use_stochastic_rounding=True)(a)
   res = np.sum(K.eval(b)) / count
-  print(res, "should be closed to ", val)
+  print(res, "should be close to ", val)
   b = quantized_relu_po2(use_stochastic_rounding=True)(a)
   res = np.sum(K.eval(b)) / count
-  print(res, "should be closed to ", val)
+  print(res, "should be close to ", val)
   a = K.constant([-1] * count)
   b = quantized_relu_po2(use_stochastic_rounding=True)(a)
   res = np.sum(K.eval(b)) / count
-  print(res, "should be closed to ", 0)
+  print(res, "should be all ", 0)
 
   # non-stochastic rounding quantizer.
   a = K.constant([-3.0, -2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0, 3.0])
@@ -78,9 +78,9 @@ def main():
   print("       hs =", K.eval(hard_sigmoid(c)).astype(np.float16))
   print("    b_all =", b.astype(np.float16))
   T = 0.0
-  t = K.eval(stochastic_ternary(threshold=T)(c_1000)).astype(np.int32)
+  t = K.eval(stochastic_ternary(threshold=T, alpha="auto")(c_1000))
   for i in range(10):
-    print("sternary({}) =".format(i), t[i])
+    print("stochastic_ternary({}) =".format(i), t[i])
   print("   st_all =", np.round(
       np.sum(t.astype(np.float32), axis=0).astype(np.float16) /
       1000.0, 2).astype(np.float16))
