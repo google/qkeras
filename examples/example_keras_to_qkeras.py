@@ -21,13 +21,15 @@ from __future__ import print_function
 
 from collections import defaultdict
 
+from tensorflow.keras.datasets import mnist
 from tensorflow.keras.layers import *
 from tensorflow.keras.models import Model
 
-from qkeras.utils import model_quantize
 from qkeras.estimate import print_qstats
+from qkeras.utils import model_quantize
+from qkeras.utils import quantized_model_dump
 
-x = x_in = Input((32, 32, 3), name="input")
+x = x_in = Input((28, 28, 1), name="input")
 x = Conv2D(128, (3, 3), strides=1, name="conv2d_0_m")(x)
 x = Activation("relu", name="act0_m")(x)
 x = MaxPooling2D(2, 2, name="mp_0")(x)
@@ -72,3 +74,8 @@ qmodel = model_quantize(model, q_dict, 4)
 qmodel.summary()
 
 print_qstats(qmodel)
+
+(x_train, y_train), (x_test, y_test) = mnist.load_data()
+
+quantized_model_dump(
+    qmodel, x_test[1:10, :], layers_to_dump=["act2_m", "act1_m", "act0_m"])
