@@ -18,9 +18,15 @@ from __future__ import division
 from __future__ import print_function
 import copy
 import json
-import six
 import types
 
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import numpy as np
+
+import os
+import six
 import tensorflow as tf
 import tensorflow.keras.backend as K
 
@@ -28,14 +34,10 @@ from tensorflow.keras import initializers
 
 from tensorflow.keras.models import Model
 from tensorflow.keras.models import model_from_json
-from tensorflow.keras.layers import Conv1D
 
 from tensorflow_model_optimization.python.core.sparsity.keras import pruning_wrapper
 from tensorflow_model_optimization.python.core.sparsity.keras import prune_registry
 from tensorflow_model_optimization.python.core.sparsity.keras import prunable_layer
-
-import numpy as np
-import matplotlib.pyplot as plt
 
 from .qlayers import Clip
 from .qlayers import QActivation
@@ -67,7 +69,7 @@ def model_save_quantized_weights(model, filename=None):
   """Quantizes model for inference and save it.
 
   Takes a model with weights, apply quantization function to weights and
-  returns a dictionarty with quantized weights.
+  returns a dictionary with quantized weights.
 
   User should be aware that "po2" quantization functions cannot really
   be quantized in meaningful way in Keras. So, in order to preserve
@@ -416,8 +418,7 @@ def model_quantize(model,
 
 
 def _add_supported_quantized_objects(custom_objects):
-
-  # Map all the quantized objects
+  """Map all the quantized objects."""
   custom_objects["QInitializer"] = QInitializer
   custom_objects["QDense"] = QDense
   custom_objects["QConv1D"] = QConv1D
@@ -480,28 +481,24 @@ def quantized_model_from_json(json_string, custom_objects=None):
 
 
 def load_qmodel(filepath, custom_objects=None, compile=True):
-  """
-  Load quantized model from Keras's model.save() h5 file.
+  """Loads quantized model from Keras's model.save() h5 file.
 
-  # Arguments:
-        filepath: one of the following:
-                  - string, path to the saved model
-                  - h5py.File or h5py.Group object from which to load the model
-                  - any file-like object implementing the method `read` that returns
-                  `bytes` data (e.g. `io.BytesIO`) that represents a valid h5py file image.
-        custom_objects: Optional dictionary mapping names
-                  (strings) to custom classes or functions to be
-                  considered during deserialization.
-        compile: Boolean, whether to compile the model
-                  after loading.
+  Arguments:
+      filepath: one of the following:
+          - string, path to the saved model
+          - h5py.File or h5py.Group object from which to load the model
+          - any file-like object implementing the method `read` that returns
+          `bytes` data (e.g. `io.BytesIO`) that represents a valid h5py file
+          image.
+      custom_objects: Optional dictionary mapping names (strings) to custom
+          classes or functions to be considered during deserialization.
+      compile: Boolean, whether to compile the model after loading.
 
-  # Returns
-        A Keras model instance. If an optimizer was found
-        as part of the saved model, the model is already
-        compiled. Otherwise, the model is uncompiled and
-        a warning will be displayed. When `compile` is set
-        to False, the compilation is omitted without any
-        warning.
+  Returns:
+      A Keras model instance. If an optimizer was found as part of the saved
+      model, the model is already compiled. Otherwise, the model is uncompiled
+      and a warning will be displayed. When `compile` is set to False, the
+      compilation is omitted without any warning.
   """
 
   if not custom_objects:
@@ -571,10 +568,15 @@ def quantized_model_debug(model, X_test, plot=False):
       alpha = get_weight_scale(layer.activation, p)
     else:
       alpha = 1.0
-    print("{:30} {: 8.4f} {: 8.4f}".format(n, np.min(p / alpha), np.max(p / alpha)), end="")
+    print(
+        "{:30} {: 8.4f} {: 8.4f}".format(n, np.min(p / alpha),
+                                         np.max(p / alpha)),
+        end="")
     if alpha != 1.0:
       print(" a[{: 8.4f} {:8.4f}]".format(np.min(alpha), np.max(alpha)))
-    if plot and layer.__class__.__name__ in ["QConv2D", "QDense", "QActivation"]:
+    if plot and layer.__class__.__name__ in [
+        "QConv2D", "QDense", "QActivation"
+    ]:
       plt.hist(p.flatten(), bins=25)
       plt.title(layer.name + "(output)")
       plt.show()
@@ -583,15 +585,12 @@ def quantized_model_debug(model, X_test, plot=False):
       if hasattr(layer, "get_quantizers") and layer.get_quantizers()[i]:
         weights = K.eval(layer.get_quantizers()[i](K.constant(weights)))
         if i == 0 and layer.__class__.__name__ in [
-            "QConv1D", "QConv2D", "QDense"]:
+            "QConv1D", "QConv2D", "QDense"
+        ]:
           alpha = get_weight_scale(layer.get_quantizers()[i], weights)
           # if alpha is 0, let's remove all weights.
           alpha_mask = (alpha == 0.0)
-          weights = np.where(
-            alpha_mask,
-            weights * alpha,
-            weights / alpha
-          )
+          weights = np.where(alpha_mask, weights * alpha, weights / alpha)
           if plot:
             plt.hist(weights.flatten(), bins=25)
             plt.title(layer.name + "(weights)")
@@ -602,3 +601,48 @@ def quantized_model_debug(model, X_test, plot=False):
       print(" a({: 10.6f} {: 10.6f})".format(
           np.min(alpha), np.max(alpha)), end="")
     print("")
+
+import tempfile
+def quantized_model_dump(model,
+                         x_test,
+                         output_dir=None,
+                         layers_to_dump=[]):
+  """Dumps tensors of target layers to binary files.
+
+  Arguments:
+    model: QKeras model object.
+    x_test: numpy type, test tensors to generate output tensors.
+    output_dir: a string for the directory to hold binary data.
+    layers_to_dump: a list of string, specified layers by layer
+      customized name.
+  """
+  outputs = []
+  y_names = []
+
+  if not output_dir:
+    with tempfile.TemporaryDirectory() as output_dir:
+      print("temp dir", output_dir)
+
+  if not os.path.exists(output_dir):
+    os.makedirs(output_dir)
+    print("create dir", output_dir)
+
+  for layer in model.layers:
+    if layer.__class__.__name__ in [
+        "QActivation", "Activation", "QDense", "QConv2D", "QDepthwiseConv2D",
+        "QBatchNormalization"
+    ]:
+      if not layers_to_dump or layer.name in layers_to_dump:
+        y_names.append(layer.name)
+        outputs.append(layer.output)
+
+  # Gather the tensor outputs from specified layers at layers_to_dump
+  model_debug = Model(inputs=model.inputs, outputs=outputs)
+  y_pred = model_debug.predict(x_test)
+
+  # dump to files
+  for name, tensor_data in zip(y_names, y_pred):
+    filename = os.path.join(output_dir, name + ".bin")
+    print("write to ", filename)
+    with open(filename, "w") as fid:
+      tensor_data.tofile(fid)
