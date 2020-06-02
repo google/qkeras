@@ -35,7 +35,7 @@ setuptools.setup(
     packages=setuptools.find_packages(),
     scripts=[],
     url="",
-    license="LICENSE",
+    license="Apache v.2.0",
     description="Quantization package for Keras",
     long_description=long_description,
     install_requires=[
