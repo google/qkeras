@@ -138,7 +138,7 @@ def GenerateGraphFromModel(model, input_quantizers,
   # dict that map input_tensor to its quantizer
   input_quantizer_map = {}
   for (idx, tensor) in enumerate(model.inputs):
-    input_quantizer_map[tensor.experimental_ref()] = input_quantizer_list[idx]
+    input_quantizer_map[tensor.ref()] = input_quantizer_list[idx]
 
   graph = nx.DiGraph()
 
@@ -171,9 +171,9 @@ def GenerateGraphFromModel(model, input_quantizers,
   for layer in model.layers:
     i_list = layer.input
     if not isinstance(layer.input, list):
-      i_list = [i_list.experimental_ref()]
+      i_list = [i_list.ref()]
     else:
-      i_list = [tmp.experimental_ref() for tmp in i_list]
+      i_list = [tmp.ref() for tmp in i_list]
 
     for i in i_list:
       # dict: tensor -> layers have this tensor as input
@@ -184,9 +184,9 @@ def GenerateGraphFromModel(model, input_quantizers,
 
     o_list = layer.output
     if not isinstance(layer.output, list):
-      o_list = [o_list.experimental_ref()]
+      o_list = [o_list.ref()]
     else:
-      o_list = [tmp.experimental_ref() for tmp in o_list]
+      o_list = [tmp.ref() for tmp in o_list]
 
     for o in o_list:
       # dict: tensor -> layer have this tensor as output
