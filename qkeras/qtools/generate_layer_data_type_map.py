@@ -228,8 +228,9 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
           operation_count
       )
 
-    # pooling/reshape/flatten
-    if qtools_util.is_shape_alternation_layers(layer):
+    # pooling/reshape/flatten/UpSampling1D/2D/3D
+    elif (qtools_util.is_shape_alternation_layers(layer) or
+          "UpSampling" in layer.__class__.__name__):
       input_quantizer = input_quantizer_list[0]
 
       # output quantizer
@@ -567,6 +568,23 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
 
       update_output_quantizer_in_graph(
           graph, node_id, quantizer_factory, input_quantizer, for_reference)
+
+      layer_data_type_map[layer] = LayerDataType(
+        input_quantizer_list,
+        None,
+        None,
+
+        None,
+        None,
+
+        None,
+        None,
+
+        output_quantizer,
+        output_shapes,
+
+        operation_count
+      )
 
   result = {"source_quantizer_list": source_quantizer_list,
             "output_layers": output_layers,

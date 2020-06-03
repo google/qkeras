@@ -110,6 +110,11 @@ def get_operation_count(layer, input_shape):
   if is_merge_layers(layer) or is_shape_alternation_layers(layer):
     operation_count = np.prod(input_shape[1:])
 
+  elif "UpSampling" in layer.__class__.__name__:
+    # UpSampling1D/2D/3D
+    output_shape = layer.compute_output_shape(input_shape)
+    operation_count = np.prod(output_shape[1:])
+
   elif ("Activation" in layer.__class__.__name__ or
         "BatchNormalization" in layer.__class__.__name__):
     operation_count = np.prod(input_shape[1:])
