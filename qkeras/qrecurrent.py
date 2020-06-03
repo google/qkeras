@@ -932,5 +932,5 @@ class QGRU(RNN):
         "bias_quantizer":
             constraints.serialize(self.bias_quantizer)
     }
-    base_config = super(QSimpleRNN, self).get_config()
+    base_config = super(QGRU, self).get_config()
     return dict(list(base_config.items()) + list(config.items()))
