@@ -254,7 +254,7 @@ def _ceil_through(x):
 
 class BaseQuantizer(object):
   """Base quantizer
-  
+
   Defines behavior all quantizers should follow.
   """
 
@@ -723,8 +723,8 @@ class stochastic_ternary(ternary):  # pylint: disable=invalid-name
   def __init__(self, alpha=None, threshold=None, temperature=8.0,
                use_real_sigmoid=True, number_of_unrolls=5):
     super(stochastic_ternary, self).__init__(
-      alpha=alpha, 
-      threshold=threshold, 
+      alpha=alpha,
+      threshold=threshold,
       number_of_unrolls=number_of_unrolls)
 
     self.bits = 2
@@ -1053,7 +1053,7 @@ class stochastic_binary(binary):  # pylint: disable=invalid-name
       scale = _get_scale(self.alpha, x, q_non_stochastic)
       self.scale = scale
       return x + tf.stop_gradient(-x + scale * q)
-    
+
     output = tf_utils.smart_cond(K.learning_phase(),
                                  stochastic_output,
                                  lambda: binary.__call__(self, x))
@@ -1113,6 +1113,7 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
     bits: number of bits to perform quantization.
     integer: number of bits to the left of the decimal point.
     use_sigmoid: if true, we apply sigmoid to input to normalize it.
+    negative_slope: slope when activaiton < 0, needs to be power of 2.
     use_stochastic_rounding: if true, we perform stochastic rounding.
 
   Returns:
@@ -1120,31 +1121,48 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
   """
 
   def __init__(self, bits=8, integer=0, use_sigmoid=0,
-               use_stochastic_rounding=False):
+               negative_slope=0, use_stochastic_rounding=False):
     super(quantized_relu, self).__init__()
     self.bits = bits
     self.integer = integer
     self.use_sigmoid = use_sigmoid
+    self.negative_slope = negative_slope
     self.use_stochastic_rounding = use_stochastic_rounding
+
+    assert negative_slope >= 0.0
+    if negative_slope != 0:
+      assert np.mod(np.log2(negative_slope), 1) == 0
 
   def __str__(self):
     flags = [str(self.bits), str(self.integer)]
     if self.use_sigmoid or self.use_stochastic_rounding:
       flags.append(str(int(self.use_sigmoid)))
+    if self.negative_slope:
+      flags.append(str(self.negative_slope))
     if self.use_stochastic_rounding:
       flags.append(str(int(self.use_stochastic_rounding)))
     return "quantized_relu(" + ",".join(flags) + ")"
 
   def __call__(self, x):
-    m = pow(2, self.bits)
-    m_i = pow(2, self.integer)
-    x_uq = tf.where(x <= m_i, K.relu(x), tf.ones_like(x) * m_i)
+    non_sign_bits = self.bits - (self.negative_slope != 0)
+    m = K.cast_to_floatx(pow(2, non_sign_bits))
+    m_i = K.cast_to_floatx(pow(2, self.integer))
+    x_uq = tf.where(
+        x <= m_i, K.relu(x, alpha=self.negative_slope), tf.ones_like(x) * m_i)
 
     if self.use_sigmoid:
       p = _sigmoid(x / m_i) * m
       xq = m_i * tf.keras.backend.clip(
           2.0 * (_round_through(p, self.use_stochastic_rounding) / m) - 1.0,
           0.0, 1.0 - 1.0 / m)
+      if self.negative_slope > 0:
+        neg_factor = 1 / (self.negative_slope * m)
+        xq = xq + m_i * self.negative_slope * tf.keras.backend.clip(
+            2.0 * (_round_through(p * self.negative_slope,
+            tf.math.logical_and(
+              tf.cast(self.use_stochastic_rounding, dtype=tf.bool),
+              tf.cast(K.learning_phase(), dtype=tf.bool))) * neg_factor) - 1.0,
+            -1.0, 0.0)
     else:
       p = x * m / m_i
       xq = m_i * tf.keras.backend.clip(
@@ -1157,7 +1175,7 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
 
   def max(self):
     """Get the maximum value that quantized_relu can represent."""
-    unsigned_bits = self.bits
+    unsigned_bits = self.bits - (self.negative_slow != 0.0)
 
     if unsigned_bits > 0:
       return max(1.0, np.power(2.0, self.integer))
@@ -1166,7 +1184,14 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
 
   def min(self):
     """Get the minimum value that quantized_relu can represent."""
-    return 0.0
+    if self.negative_slope == 0.0:
+      return 0.0
+
+    unsigned_bits = self.bits - 1
+    if unsigned_bits > 0:
+      return min(-1.0, - self.negative_slope * np.power(2.0, self.integer))
+    else:
+      return -1.0
 
   @classmethod
   def from_config(cls, config):
@@ -1177,6 +1202,7 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
         "bits": self.bits,
         "integer": self.integer,
         "use_sigmoid": self.use_sigmoid,
+        "negative_slope": self.negative_slope,
         "use_stochastic_rounding": self.use_stochastic_rounding
     }
     return config
