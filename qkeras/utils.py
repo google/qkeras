@@ -48,6 +48,10 @@ from .qconvolutional import QConv1D
 from .qconvolutional import QConv2D
 from .qrecurrent import QSimpleRNN
 from .qrecurrent import QSimpleRNNCell
+from .qrecurrent import QLSTM
+from .qrecurrent import QLSTMCell
+from .qrecurrent import QGRU
+from .qrecurrent import QGRUCell
 from .qconvolutional import QDepthwiseConv2D
 from .qnormalization import QBatchNormalization
 from .quantizers import binary
@@ -224,7 +228,7 @@ def model_quantize(model,
     "QConv2D": {
         "kernel_quantizer": "quantizer string",
         "bias_quantizer": "quantizer_string"
-    }
+    },
 
     "QBatchNormalization": {}
   }
@@ -427,6 +431,10 @@ def _add_supported_quantized_objects(custom_objects):
   custom_objects["QConv2D"] = QConv2D
   custom_objects["QSimpleRNNCell"] = QSimpleRNNCell
   custom_objects["QSimpleRNN"] = QSimpleRNN
+  custom_objects["QLSTMCell"] = QLSTMCell
+  custom_objects["QLSTM"] = QLSTM
+  custom_objects["QGRUCell"] = QGRUCell
+  custom_objects["QGRU"] = QGRU
   custom_objects["QDepthwiseConv2D"] = QDepthwiseConv2D
   custom_objects["QActivation"] = QActivation
   custom_objects["QBatchNormalization"] = QBatchNormalization

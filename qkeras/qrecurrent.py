@@ -521,6 +521,10 @@ class QLSTM(RNN):
                stateful=False,
                unroll=False,
                **kwargs):
+    if implementation == 0:
+      print('`implementation=0` has been deprecated, '
+              'and now defaults to `implementation=1`.'
+              'Please update your layer call.')
 
     if 'enable_caching_device' in kwargs:
       cell_kwargs = {'enable_caching_device':
