@@ -1,4 +1,4 @@
-# Copyright 2019 Google LLC
+# Copyright 2020 Google LLC
 #
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -32,6 +32,7 @@ from tensorflow.keras.layers import RNN
 from tensorflow.python.util import nest
 from tensorflow.python.keras.engine.input_spec import InputSpec
 from tensorflow.python.ops import array_ops
+from tensorflow_model_optimization.python.core.sparsity.keras.prunable_layer import PrunableLayer
 
 import tensorflow.keras.backend as K
 from .qlayers import get_auto_range_constraint_initializer
@@ -89,6 +90,25 @@ class QSimpleRNNCell(SimpleRNNCell):
       self.recurrent_quantizer_internal, 
       self.bias_quantizer_internal
     ]
+
+    if hasattr(self.kernel_quantizer_internal, "_set_trainable_parameter"):
+      self.kernel_quantizer_internal._set_trainable_parameter()
+
+    kernel_constraint, kernel_initializer = (
+        get_auto_range_constraint_initializer(self.kernel_quantizer_internal,
+                                              kernel_constraint,
+                                              kernel_initializer))
+
+    recurrent_constraint, recurrent_initializer = (
+        get_auto_range_constraint_initializer(self.recurrent_quantizer_internal,
+                                              recurrent_constraint,
+                                              recurrent_initializer))
+
+    if use_bias:
+      bias_constraint, bias_initializer = (
+          get_auto_range_constraint_initializer(self.bias_quantizer_internal,
+                                                bias_constraint,
+                                                bias_initializer))
 
     if activation is not None:
       activation = get_quantizer(activation)
@@ -164,7 +184,7 @@ class QSimpleRNNCell(SimpleRNNCell):
     return dict(list(base_config.items()) + list(config.items()))
 
 
-class QSimpleRNN(RNN):
+class QSimpleRNN(RNN, PrunableLayer):
   """
   Cell class for the QSimpleRNN layer.
 
@@ -257,6 +277,10 @@ class QSimpleRNN(RNN):
   def get_quantizers(self):
     return self.cell.quantizers
 
+  def get_prunable_weights(self):
+    return [self.cell.kernel, self.cell.recurrent_kernel]
+
+
   @property
   def kernel_quantizer(self):
     return self.cell.kernel_quantizer
@@ -334,6 +358,25 @@ class QLSTMCell(LSTMCell):
       self.recurrent_quantizer_internal, 
       self.bias_quantizer_internal
     ]
+
+    if hasattr(self.kernel_quantizer_internal, "_set_trainable_parameter"):
+      self.kernel_quantizer_internal._set_trainable_parameter() # TODO recurrent as well?
+
+    kernel_constraint, kernel_initializer = (
+        get_auto_range_constraint_initializer(self.kernel_quantizer_internal,
+                                              kernel_constraint,
+                                              kernel_initializer))
+
+    recurrent_constraint, recurrent_initializer = (
+        get_auto_range_constraint_initializer(self.recurrent_quantizer_internal,
+                                              recurrent_constraint,
+                                              recurrent_initializer))
+
+    if use_bias:
+      bias_constraint, bias_initializer = (
+          get_auto_range_constraint_initializer(self.bias_quantizer_internal,
+                                                bias_constraint,
+                                                bias_initializer))
 
     if activation is not None:
       activation = get_quantizer(activation)
@@ -476,7 +519,7 @@ class QLSTMCell(LSTMCell):
 
 
 
-class QLSTM(RNN):
+class QLSTM(RNN, PrunableLayer):
   """
   Cell class for the QLSTM layer.
 
@@ -579,6 +622,9 @@ class QLSTM(RNN):
   def get_quantizers(self):
     return self.cell.quantizers
 
+  def get_prunable_weights(self):
+    return [self.cell.kernel, self.cell.recurrent_kernel]
+
   @property
   def kernel_quantizer(self):
     return self.cell.kernel_quantizer
@@ -657,6 +703,25 @@ class QGRUCell(GRUCell):
       self.bias_quantizer_internal
     ]
 
+    if hasattr(self.kernel_quantizer_internal, "_set_trainable_parameter"):
+      self.kernel_quantizer_internal._set_trainable_parameter() # TODO recurrent as well?
+
+    kernel_constraint, kernel_initializer = (
+        get_auto_range_constraint_initializer(self.kernel_quantizer_internal,
+                                              kernel_constraint,
+                                              kernel_initializer))
+
+    recurrent_constraint, recurrent_initializer = (
+        get_auto_range_constraint_initializer(self.recurrent_quantizer_internal,
+                                              recurrent_constraint,
+                                              recurrent_initializer))
+
+    if use_bias:
+      bias_constraint, bias_initializer = (
+          get_auto_range_constraint_initializer(self.bias_quantizer_internal,
+                                                bias_constraint,
+                                                bias_initializer))
+
     if activation is not None:
       activation = get_quantizer(activation)
 
@@ -674,7 +739,7 @@ class QGRUCell(GRUCell):
       kernel_regularizer=kernel_regularizer,
       recurrent_regularizer=recurrent_regularizer,
       bias_regularizer=bias_regularizer,
-      kernel_constraint=kernel_constraint,
+      kernel_constraint=kernel_constraint, 
       recurrent_constraint=recurrent_constraint,
       bias_constraint=bias_constraint,
       dropout=dropout,
@@ -812,7 +877,7 @@ class QGRUCell(GRUCell):
     return dict(list(base_config.items()) + list(config.items()))
 
 
-class QGRU(RNN):
+class QGRU(RNN, PrunableLayer):
   """
   Cell class for the QGRU layer.
 
@@ -914,6 +979,9 @@ class QGRU(RNN):
 
   def get_quantizers(self):
     return self.cell.quantizers
+
+  def get_prunable_weights(self):
+    return [self.cell.kernel, self.cell.recurrent_kernel]
 
   @property
   def kernel_quantizer(self):
