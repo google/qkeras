@@ -662,6 +662,11 @@ class ternary(BaseQuantizer):  # pylint: disable=invalid-name
         thres = self.threshold
       q = K.cast(tf.abs(x) >= thres, K.floatx()) * tf.sign(x)
 
+    # ternary ranges from -1 to +1, so we use tanh(x) to be a differentiable
+    # version of that.
+    if self.alpha is None:
+      x = K.tanh(x)
+
     self.scale = scale
     return x + tf.stop_gradient(-x + scale * q)
 
@@ -754,6 +759,11 @@ class stochastic_ternary(ternary):  # pylint: disable=invalid-name
 
   def __call__(self, x):
     def stochastic_output():
+      # right now we only accept alpha = "auto" or "auto_po2"
+
+      assert isinstance(self.alpha, six.string_types)
+      assert self.alpha in ["auto", "auto_po2"]
+
       if self.alpha is None:
         scale = self.default_alpha
       elif isinstance(self.alpha, six.string_types):
@@ -772,7 +782,6 @@ class stochastic_ternary(ternary):  # pylint: disable=invalid-name
       else:
         axis = [0]
 
-      x_mean = K.mean(x, axis=axis, keepdims=True)
       x_std = K.std(x, axis=axis, keepdims=True)
 
       m = K.max(tf.abs(x), axis=axis, keepdims=True)
@@ -785,8 +794,8 @@ class stochastic_ternary(ternary):  # pylint: disable=invalid-name
         q_ns = K.cast(tf.abs(x) >= T, K.floatx()) * K.sign(x)
         scale = _get_scale(self.alpha, x, q_ns)
 
-      x_norm = (x - x_mean) / x_std
-      T = scale / (2.0 * x_std)
+      x_norm = x / (x_std + K.epsilon())
+      T = scale / (2.0 * (x_std + K.epsilon()))
 
       if self.use_real_sigmoid:
         p0 = tf.keras.backend.sigmoid(self.temperature * (x_norm - T))
@@ -917,25 +926,27 @@ class binary(BaseQuantizer):  # pylint: disable=invalid-name
       m = tf.where(m > 1.0, tf.ones_like(m), m)
       f = 2 * m
 
-      x = f * _round_through(
-          x / f, 
-          use_stochastic_rounding=tf.math.logical_and(
-              tf.cast(self.use_stochastic_rounding, dtype=tf.bool),
-              tf.cast(K.learning_phase(), dtype=tf.bool)),
-          precision=0.125
-      )
+      x = tf_utils.smart_cond(
+          K.learning_phase(),
+          lambda: f * _round_through(
+              x / f, use_stochastic_rounding=True, precision=0.125),
+          lambda: x)
 
     k_sign = tf.sign(x)
-    if tf.math.logical_and(
-          tf.cast(self.use_stochastic_rounding, dtype=tf.bool),
-          tf.cast(K.learning_phase(), dtype=tf.bool)):
-          
-      k_sign += (1.0 - tf.abs(k_sign)) * (
-          2.0 * tf.round(tf.random.uniform(tf.shape(x))) - 1.0)
+    if self.use_stochastic_rounding:
+      # in inference, we use a biased "1" for stochastic rounding right now
+      k_sign += (1.0 - tf.abs(k_sign)) * tf_utils.smart_cond(
+          K.learning_phase(),
+          lambda: 2.0 * tf.round(tf.random.uniform(tf.shape(x))) - 1.0,
+          lambda: tf.ones_like(tf.shape(x), dtype=K.floatx()))
       # if something still remains, just make it positive for now.
     k_sign += (1.0 - tf.abs(k_sign))
     if self.use_01:
       k_sign = (k_sign + 1.0) / 2.0
+
+    # approximate binary by tanh(x) as it has limited range between -1 and +1.
+    if self.alpha is None:
+      x = K.tanh(x)
 
     scale = _get_scale(self.alpha, x, k_sign)
     self.scale = scale
@@ -1490,10 +1501,9 @@ class quantized_po2(BaseQuantizer):  # pylint: disable=invalid-name
     x_sign = tf.sign(x)
     x_sign += (1.0 - tf.abs(x_sign))
     x_abs = tf.abs(x)
-    x_clipped = _clip_power_of_two(x_abs, self._min_exp, self._max_exp,
-                                   self.max_value,
-                                   self.quadratic_approximation,
-                                   tf.math.logical_and(
+    x_clipped = _clip_power_of_two(
+        x_abs, self._min_exp, self._max_exp, self.max_value,
+        self.quadratic_approximation, tf.math.logical_and(
                                       tf.cast(self.use_stochastic_rounding, dtype=tf.bool),
                                       tf.cast(K.learning_phase(), dtype=tf.bool)))
     return x + tf.stop_gradient(-x + x_sign * pow(2.0, x_clipped))
@@ -1589,10 +1599,9 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
       x = tf.where(
           x <= self.max_value, K.relu(x), tf.ones_like(x) * self.max_value)
 
-    x_clipped = _clip_power_of_two(x, self._min_exp, self._max_exp,
-                                   self.max_value,
-                                   self.quadratic_approximation,
-                                   tf.math.logical_and(
+    x_clipped = _clip_power_of_two(
+        x, self._min_exp, self._max_exp, self.max_value,
+        self.quadratic_approximation, tf.math.logical_and(
                                       tf.cast(self.use_stochastic_rounding, dtype=tf.bool),
                                       tf.cast(K.learning_phase(), dtype=tf.bool)))
     return x + tf.stop_gradient(-x + pow(2.0, x_clipped))
