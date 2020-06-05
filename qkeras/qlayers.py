@@ -48,7 +48,6 @@ from tensorflow.keras.layers import Dense
 from tensorflow.keras.layers import Layer
 from .quantizers import get_quantizer
 from tensorflow_model_optimization.python.core.sparsity.keras.prunable_layer import PrunableLayer
-import  tensorflow.keras.backend as K
 
 
 def get_auto_range_constraint_initializer(quantizer, constraint, initializer):

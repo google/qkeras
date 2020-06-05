@@ -33,7 +33,6 @@ from tensorflow.python.keras.utils import tf_utils
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import nn
-import tensorflow.keras.backend as K
 from .qlayers import Clip
 from .qlayers import get_auto_range_constraint_initializer
 from .qlayers import get_quantizer
@@ -179,7 +178,7 @@ class QBatchNormalization(BatchNormalization, PrunableLayer):
         adjustment=None,
         **kwargs)
 
-  def call(self, inputs):
+  def call(self, inputs, training=None):
     if self.scale and self.gamma_quantizer:
       quantized_gamma = self.gamma_quantizer_internal(self.gamma)
     else:
