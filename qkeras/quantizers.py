@@ -218,10 +218,12 @@ def _round_through(x, use_stochastic_rounding=False, precision=0.5):
   Returns:
     Rounded tensor.
   """
-  output = tf_utils.smart_cond(use_stochastic_rounding,
+  if use_stochastic_rounding:
+    output = tf_utils.smart_cond(K.learning_phase(),
     lambda: x + tf.stop_gradient(-x + stochastic_round(x, precision)),
     lambda: x + tf.stop_gradient(-x + tf.round(x)))
-  
+  else:
+    output = x + tf.stop_gradient(-x + tf.round(x))
   return output
 
 def _sign_through(x):
@@ -388,10 +390,7 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
     if unsigned_bits > 0:
       p = x * m / m_i
       xq = m_i * tf.keras.backend.clip(
-          _round_through(p, tf.math.logical_and(
-            tf.cast(self.use_stochastic_rounding, dtype=tf.bool),
-            tf.cast(K.learning_phase(), dtype=tf.bool)
-          ), precision=1.0),
+          _round_through(p, self.use_stochastic_rounding, precision=1.0),
           self.keep_negative * (-m + self.symmetric), m - 1) / m
     else:
       xq = tf.sign(x)
@@ -1144,16 +1143,12 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
     if self.use_sigmoid:
       p = _sigmoid(x / m_i) * m
       xq = m_i * tf.keras.backend.clip(
-          2.0 * (_round_through(p, tf.math.logical_and(
-              tf.cast(self.use_stochastic_rounding, dtype=tf.bool),
-              tf.cast(K.learning_phase(), dtype=tf.bool))) / m) - 1.0,
+          2.0 * (_round_through(p, self.use_stochastic_rounding) / m) - 1.0,
           0.0, 1.0 - 1.0 / m)
     else:
       p = x * m / m_i
       xq = m_i * tf.keras.backend.clip(
-          _round_through(p, tf.math.logical_and(
-                tf.cast(self.use_stochastic_rounding, dtype=tf.bool),
-                tf.cast(K.learning_phase(), dtype=tf.bool))) / m, 0.0,
+          _round_through(p, self.use_stochastic_rounding) / m, 0.0,
           1.0 - 1.0 / m)
     return x_uq + tf.stop_gradient(-x_uq + xq)
 
@@ -1302,9 +1297,7 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
     m_i = pow(2, self.integer)
     p = _sigmoid(x / m_i) * m
     xq = m_i * tf.keras.backend.clip(
-        2.0 * (_round_through(p, tf.math.logical_and(
-            tf.cast(self.use_stochastic_rounding, dtype=tf.bool),
-            tf.cast(K.learning_phase(), dtype=tf.bool))) / m) - \
+        2.0 * (_round_through(p, self.use_stochastic_rounding) / m) - \
         1.0, -1.0 + (1.0 * self.symmetric) / m, 1.0 - 1.0 / m)
     return xq
 
@@ -1383,16 +1376,22 @@ def _clip_power_of_two(x_abs,
       q_factor = 2.0
     else:
       q_factor = 1.0
+
     if use_stochastic_rounding:
       if quadratic_approximation:
-        x_log2 = stochastic_round_po2(tf.sqrt(x_abs))
+        x_log2 = tf_utils.smart_cond(K.learning_phase(),
+            lambda: stochastic_round_po2(tf.sqrt(x_abs)),
+            lambda: _round_through(tf.keras.backend.log(tf.sqrt(x_abs)) / log2))
       else:
-        x_log2 = stochastic_round_po2(x_abs)
+        x_log2 = tf_utils.smart_cond(K.learning_phase(),
+            lambda: stochastic_round_po2(x_abs),
+            lambda: _round_through(tf.keras.backend.log(x_abs) / log2))
     else:
       if quadratic_approximation:
         x_log2 = _round_through(tf.keras.backend.log(tf.sqrt(x_abs)) / log2)
       else:
         x_log2 = _round_through(tf.keras.backend.log(x_abs) / log2)
+
     x_clipped = q_factor * tf.keras.backend.clip(x_log2, min_exp, max_exp)
     return x_clipped
 
@@ -1503,9 +1502,7 @@ class quantized_po2(BaseQuantizer):  # pylint: disable=invalid-name
     x_abs = tf.abs(x)
     x_clipped = _clip_power_of_two(
         x_abs, self._min_exp, self._max_exp, self.max_value,
-        self.quadratic_approximation, tf.math.logical_and(
-                                      tf.cast(self.use_stochastic_rounding, dtype=tf.bool),
-                                      tf.cast(K.learning_phase(), dtype=tf.bool)))
+        self.quadratic_approximation, self.use_stochastic_rounding)
     return x + tf.stop_gradient(-x + x_sign * pow(2.0, x_clipped))
 
   def _set_trainable_parameter(self):
@@ -1601,9 +1598,7 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
 
     x_clipped = _clip_power_of_two(
         x, self._min_exp, self._max_exp, self.max_value,
-        self.quadratic_approximation, tf.math.logical_and(
-                                      tf.cast(self.use_stochastic_rounding, dtype=tf.bool),
-                                      tf.cast(K.learning_phase(), dtype=tf.bool)))
+        self.quadratic_approximation, self.use_stochastic_rounding)
     return x + tf.stop_gradient(-x + pow(2.0, x_clipped))
 
   def _set_trainable_parameter(self):
