@@ -222,7 +222,7 @@ def model_quantize(model,
     "QConv2D": {
         "kernel_quantizer": "quantizer string",
         "bias_quantizer": "quantizer_string"
-    }
+    },
 
     "QBatchNormalization": {}
   }
