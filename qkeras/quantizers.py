@@ -624,7 +624,13 @@ class stochastic_ternary(object):  # pylint: disable=invalid-name
       q_ns = K.cast(tf.abs(x) >= T, K.floatx()) * K.sign(x)
       scale = _get_scale(self.alpha, x, q_ns)
 
-    x_norm = (x - x_mean) / x_std
+    # To address the following issue
+    # when x == const != 0, std = 0.0, x/std = inf
+    # when x == 0, std = 0.000005, x/std =  0
+    # Solution reference:
+    # https://github.com/scikit-learn/scikit-learn/blob/7389dbac82d362f296dc2746f10e43ffa1615660/sklearn/preprocessing/data.py#L70  #pylint: disable=line-too-long
+    x_std = tf.where(x_std != 0, x_std, 1.0)
+    x_norm = x / x_std
     T = scale / (2.0 * x_std)
 
     if self.use_real_sigmoid:
