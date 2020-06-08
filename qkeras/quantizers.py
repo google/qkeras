@@ -648,9 +648,7 @@ class ternary(BaseQuantizer):  # pylint: disable=invalid-name
         # well for Uniform and Normal distribution of input
         v = scale * _round_through(
             x / scale,
-            use_stochastic_rounding=tf.math.logical_and(
-                tf.cast(self.use_stochastic_rounding, dtype=tf.bool),
-                tf.cast(K.learning_phase(), dtype=tf.bool)),
+            use_stochastic_rounding=self.use_stochastic_rounding,
             precision=1. / 3.)
         q = K.cast(tf.abs(v) >= thres, K.floatx()) * tf.sign(x)
         scale = _get_scale(self.alpha, x, q)
@@ -1297,8 +1295,9 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
     m_i = pow(2, self.integer)
     p = _sigmoid(x / m_i) * m
     xq = m_i * tf.keras.backend.clip(
-        2.0 * (_round_through(p, self.use_stochastic_rounding) / m) - \
-        1.0, -1.0 + (1.0 * self.symmetric) / m, 1.0 - 1.0 / m)
+        2.0 *
+        (_round_through(p, self.use_stochastic_rounding) / m) - 1.0, -1.0 +
+        (1.0 * self.symmetric) / m, 1.0 - 1.0 / m)
     return xq
 
   def _set_trainable_parameter(self):
@@ -1500,9 +1499,10 @@ class quantized_po2(BaseQuantizer):  # pylint: disable=invalid-name
     x_sign = tf.sign(x)
     x_sign += (1.0 - tf.abs(x_sign))
     x_abs = tf.abs(x)
-    x_clipped = _clip_power_of_two(
-        x_abs, self._min_exp, self._max_exp, self.max_value,
-        self.quadratic_approximation, self.use_stochastic_rounding)
+    x_clipped = _clip_power_of_two(x_abs, self._min_exp, self._max_exp,
+                                   self.max_value,
+                                   self.quadratic_approximation,
+                                   self.use_stochastic_rounding)
     return x + tf.stop_gradient(-x + x_sign * pow(2.0, x_clipped))
 
   def _set_trainable_parameter(self):
@@ -1596,9 +1596,10 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
       x = tf.where(
           x <= self.max_value, K.relu(x), tf.ones_like(x) * self.max_value)
 
-    x_clipped = _clip_power_of_two(
-        x, self._min_exp, self._max_exp, self.max_value,
-        self.quadratic_approximation, self.use_stochastic_rounding)
+    x_clipped = _clip_power_of_two(x, self._min_exp, self._max_exp,
+                                   self.max_value,
+                                   self.quadratic_approximation,
+                                   self.use_stochastic_rounding)
     return x + tf.stop_gradient(-x + pow(2.0, x_clipped))
 
   def _set_trainable_parameter(self):
