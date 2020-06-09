@@ -22,7 +22,6 @@ import numpy as np
 def BinaryToThermometer(
     x, classes, value_range, with_residue=False, merge_with_channels=False,
     use_two_hot_encoding=False):
-
   """Converts binary to one-hot (with scales).
 
   Given input matrix x with values (for example) 0, 1, 2, 3, 4, 5, 6, 7, create
