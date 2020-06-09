@@ -67,16 +67,16 @@ from qkeras.utils import load_qmodel
         np.array([3.7421875, 2.1328125, 15.875, -0.5,  0.0],
             dtype=np.float32),
         np.array(
-           [[0.2812  , 0.4949  , 0.10254 , 0.1215  ],
-            [0.1874  , 0.6055  , 0.09    , 0.1173  ],
-            [0.3965  , 0.4778  , 0.02974 , 0.0962  ],
-            [0.4158  , 0.5005  , 0.0172  , 0.06665 ],
-            [0.3367  , 0.537   , 0.02444 , 0.1018  ],
-            [0.2125  , 0.584   , 0.03937 , 0.164   ],
-            [0.2368  , 0.639   , 0.04245 , 0.0815  ],
-            [0.4468  , 0.4436  , 0.01942 , 0.0902  ],
-            [0.622   , 0.257   , 0.03293 , 0.0878  ],
-            [0.4814  , 0.3923  , 0.011215, 0.11505 ]], dtype=np.float16)
+           [[0.265 , 0.1775, 0.319 , 0.2384],
+            [0.2896, 0.2417, 0.2563, 0.2124],
+            [0.309 , 0.193 , 0.2734, 0.2246],
+            [0.322 , 0.17  , 0.2668, 0.2412],
+            [0.267 , 0.174 , 0.301 , 0.2578],
+            [0.311 , 0.1774, 0.2566, 0.255 ],
+            [0.2854, 0.174 , 0.2927, 0.248 ],
+            [0.2668, 0.2268, 0.2585, 0.2479],
+            [0.2795, 0.2113, 0.2659, 0.2434],
+            [0.275 , 0.2333, 0.2505, 0.2415]], dtype=np.float16)
       ),
       (
         QGRU,
@@ -101,7 +101,7 @@ def test_qrnn(rnn, all_weights_signature, expected_output):
   tf.random.set_seed(22)
 
   x = x_in = Input((2,4), name='input')
-  x = QSimpleRNN(
+  x = rnn(
     16,
     activation=quantized_tanh(bits=8),
     kernel_quantizer=quantized_bits(8, 0, 1, alpha=1.0),
@@ -150,13 +150,13 @@ def test_qrnn(rnn, all_weights_signature, expected_output):
   all_weights = np.array(all_weights)
 
   # test_qnetwork_weight_quantization: TODO
-  # assert all_weights.size == all_weights_signature.size
-  # assert np.all(all_weights == all_weights_signature)
+  assert all_weights.size == all_weights_signature.size
+  assert np.all(all_weights == all_weights_signature)
 
   # test_qnetwork_forward:  
-  # inputs = 2 * np.random.rand(10, 2, 4)
-  # actual_output = model.predict(inputs).astype(np.float16)
-  # assert_allclose(actual_output, expected_output, rtol=1e-4)
+  inputs = 2 * np.random.rand(10, 2, 4)
+  actual_output = model.predict(inputs).astype(np.float16)
+  assert_allclose(actual_output, expected_output, rtol=1e-4)
 
     
 
