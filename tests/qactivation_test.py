@@ -363,9 +363,11 @@ def test_binary(use_01, alpha, test_values, expected_values):
     (np.array([[0.0] * 100000], dtype=K.floatx()), 0.0),
 ])
 def test_stochastic_round_quantized_po2(test_values, expected_values):
+  K.set_learning_phase(1)
   np.random.seed(666)
-  x = K.placeholder(ndim=2)
-  f = K.function([x], [quantized_po2(use_stochastic_rounding=True)(x)])
+  x = K.placeholder(ndim=2) 
+  q = quantized_po2(use_stochastic_rounding=True)
+  f = K.function([x], [q(x)])
   res = f([test_values])[0]
   res = np.average(res)
   assert_allclose(res, expected_values, rtol=1e-01, atol=1e-6)
@@ -379,9 +381,11 @@ def test_stochastic_round_quantized_po2(test_values, expected_values):
     (np.array([[48.0] * 100000], dtype=K.floatx()), 48.0),
 ])
 def test_stochastic_round_quantized_relu_po2(test_values, expected_values):
+  K.set_learning_phase(1)
   np.random.seed(666)
   x = K.placeholder(ndim=2)
-  f = K.function([x], [quantized_relu_po2(use_stochastic_rounding=True)(x)])
+  q = quantized_relu_po2(use_stochastic_rounding=True)
+  f = K.function([x], [q(x)])
   res = f([test_values])[0]
   res = np.average(res)
   assert_allclose(res, expected_values, rtol=1e-01, atol=1e-6)
@@ -389,11 +393,13 @@ def test_stochastic_round_quantized_relu_po2(test_values, expected_values):
 
 def test_stochastic_binary():
   np.random.seed(42)
+  K.set_learning_phase(1)
 
   x = np.random.uniform(-0.01, 0.01, size=10)
   x = np.sort(x)
 
   s = stochastic_binary(alpha="auto_po2")
+
   ty = np.zeros_like(s)
   ts = 0.0
 
@@ -417,50 +423,86 @@ def test_stochastic_binary():
   assert_allclose(scale, expected_scale, rtol=0.1)
 
 
+@pytest.mark.parametrize('alpha, test_values, expected_values', [
+    (1.0,
+     np.array([[-3.0, -2.0, -1.0, -0.2, 0.0, 0.3, 1, 4, 10]], dtype=K.floatx()),
+     np.array([[-1.0, -1.0, -1.0, -1.0, 1, 1, 1, 1, 1]], dtype=K.floatx())),
+    (5.0,
+     np.array([[-11.0, -7.0, -4.0, -0.2, 0.0, 0.3, 1, 4, 10]],
+              dtype=K.floatx()),
+     np.array([[-5.0, -5.0, -5.0, -5, 5.0, 5.0, 5, 5, 5]], dtype=K.floatx()))
+])
+def test_stochastic_binary_inference_mode(alpha, test_values, expected_values):
+  K.set_learning_phase(0)
+  x = K.placeholder(ndim=2)
+  q = stochastic_binary(alpha)
+  f = K.function([x], [q(x)])
+  result = f([test_values])[0]
+  assert_allclose(result, expected_values, rtol=1e-05)
+
+
 @pytest.mark.parametrize(
-    'bound, alpha, temperature, expected_values, expected_scale',
-    [(0.5, None, 8,
-      np.array([-0.254, -0.028, -0.025, 0., 0., 0., 0.001, 0., 0.02, 0.141
-               ]).astype(np.float32), np.array([1.0])),
-     (0.01, 0.0033, 8,
-      np.array([-1., -0.999, -0.999, -0.735, 0.605, 0.62, 0.972, 0.981, 1., 1.
-               ]).astype(np.float32), np.array([0.0033])),
-     (3, 5.0, 8,
-      np.array([-0.682, -0.135, -0.132, 0., 0., 0., 0.002, 0.003, 0.194, 0.709
-               ]).astype(np.float32), np.array([5.0])),
-     (0.01, 'auto', 8,
-      np.array([
-          -0.999, -0.987, -0.992, -0.219, 0.114, 0.114, 0.697, 0.828, 0.991, 1.
-      ]).astype(np.float32), np.array([0.0068196])),
-     (0.01, 'auto_po2', 8,
-      np.array([
-          -0.998, -0.986, -0.977, -0.127, 0.057, 0.088, 0.631, 0.709, 0.986,
-          0.999
-      ]).astype(np.float32), np.array([0.007812]))])
-def test_stochastic_ternary(bound, alpha, temperature, expected_values,
-                            expected_scale):
+    'bound, alpha, temperature, expected_values, expected_scale', [
+    (
+        0.01,
+        "auto",
+        8,
+        np.array([-0.973, -0.903, -0.759, -0.574, -0.242,  0.161,  0.508,  0.723,
+            0.874,  0.975]).astype(np.float32),
+        np.array([0.008427, 0.007001, 0.0057  , 0.004457, 0.003537, 0.003416,
+            0.004507, 0.005536, 0.006853, 0.008282]).astype(np.float32)
+    ),
+    (
+        0.01,
+        "auto_po2",
+        8, 
+        np.array([-0.979, -0.877, -0.639, -0.586, -0.23 ,  0.154,  0.327,  0.603,
+            0.83 ,  0.986]).astype(np.float32),
+        np.array([0.007812, 0.007812, 0.007812, 0.003906, 0.003906, 0.003906,
+            0.007812, 0.007812, 0.007812, 0.007812]).astype(np.float32)
+    )
+])
+def test_stochastic_ternary(bound, alpha, temperature, expected_values, expected_scale):
   np.random.seed(42)
-
-  x = np.random.uniform(-bound, bound, size=10)
-  x = np.sort(x)
-
-  s = stochastic_ternary(alpha=alpha, temperature=temperature)
-  ty = np.zeros_like(s)
-  ts = 0.0
+  K.set_learning_phase(1)
 
   n = 1000
 
-  for _ in range(n):
-    y = K.eval(s(K.constant(x)))
-    scale = float(K.eval(s.scale))
-    ts = ts + scale
-    ty = ty + (y / scale)
+  x = np.random.uniform(-bound, bound, size=(n, 10))
+  x = np.sort(x, axis=1)
+
+  s = stochastic_ternary(alpha=alpha, temperature=temperature)
+
+  y = K.eval(s(K.constant(x)))
+  scale = K.eval(s.scale).astype(np.float32)[0]
+
+  ty = np.zeros_like(s)
+  for i in range(n):
+    ty = ty + (y[i] / scale)
 
   result = (ty/n).astype(np.float32)
-  scale = np.array([ts/n])
 
   assert_allclose(result, expected_values, atol=0.1)
   assert_allclose(scale, expected_scale, rtol=0.1)
+
+
+@pytest.mark.parametrize('alpha, threshold, test_values, expected_values', [
+    (1.0, 0.33,
+     np.array([[-3.0, -2.0, -1.0, -0.2, 0.0, 0.3, 1, 4, 10]], dtype=K.floatx()),
+     np.array([[-1.0, -1.0, -1.0, 0, 0.0, 0.0, 1, 1, 1]], dtype=K.floatx())),
+    (10.0, 5.0,
+     np.array([[-11.0, -7.0, -4.0, -0.2, 0.0, 0.3, 1, 4, 10]],
+              dtype=K.floatx()),
+     np.array([[-10.0, -10.0, 0.0, 0, 0.0, 0.0, 0, 0, 10]], dtype=K.floatx())),
+])
+def test_stochastic_ternary_inference_mode(alpha, threshold, test_values, expected_values):
+  K.set_learning_phase(0)
+  x = K.placeholder(ndim=2)
+  q = stochastic_ternary(alpha, threshold)
+  f = K.function([x],
+                 [q(x)])
+  result = f([test_values])[0]
+  assert_allclose(result, expected_values, rtol=1e-05)
 
 
 if __name__ == '__main__':
