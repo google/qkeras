@@ -41,8 +41,6 @@ from .qlayers import QActivation
 from .quantizers import get_quantized_initializer
 from .quantizers import get_quantizer
 
-# TODO _config_for_enable_caching_device use in get_config 
-
 class QSimpleRNNCell(SimpleRNNCell):
   """
   Cell class for the QSimpleRNNCell layer.
@@ -94,7 +92,10 @@ class QSimpleRNNCell(SimpleRNNCell):
     ]
 
     if hasattr(self.kernel_quantizer_internal, "_set_trainable_parameter"):
-      self.kernel_quantizer_internal._set_trainable_parameter()
+      self.kernel_quantizer_internal._set_trainable_parameter() 
+
+    if hasattr(self.recurrent_quantizer_internal, "_set_trainable_parameter"):
+      self.recurrent_quantizer_internal._set_trainable_parameter() 
 
     kernel_constraint, kernel_initializer = (
         get_auto_range_constraint_initializer(self.kernel_quantizer_internal,
@@ -390,7 +391,6 @@ class QSimpleRNN(RNN, PrunableLayer):
             self.recurrent_dropout
     }
     base_config = super(QSimpleRNN, self).get_config()
-    # config.update(_config_for_enable_caching_device(self.cell)) # TODO necessary?
     del base_config['cell']
     return dict(list(base_config.items()) + list(config.items()))
 
@@ -455,7 +455,10 @@ class QLSTMCell(LSTMCell):
     ]
 
     if hasattr(self.kernel_quantizer_internal, "_set_trainable_parameter"):
-      self.kernel_quantizer_internal._set_trainable_parameter() # TODO recurrent as well?
+      self.kernel_quantizer_internal._set_trainable_parameter() 
+      
+    if hasattr(self.recurrent_quantizer_internal, "_set_trainable_parameter"):
+      self.recurrent_quantizer_internal._set_trainable_parameter() 
 
     kernel_constraint, kernel_initializer = (
         get_auto_range_constraint_initializer(self.kernel_quantizer_internal,
@@ -909,7 +912,10 @@ class QGRUCell(GRUCell):
     ]
 
     if hasattr(self.kernel_quantizer_internal, "_set_trainable_parameter"):
-      self.kernel_quantizer_internal._set_trainable_parameter() # TODO recurrent as well?
+      self.kernel_quantizer_internal._set_trainable_parameter() 
+
+    if hasattr(self.recurrent_quantizer_internal, "_set_trainable_parameter"):
+      self.recurrent_quantizer_internal._set_trainable_parameter() 
 
     kernel_constraint, kernel_initializer = (
         get_auto_range_constraint_initializer(self.kernel_quantizer_internal,
