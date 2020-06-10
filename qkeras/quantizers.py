@@ -36,12 +36,12 @@ from .safe_eval import safe_eval
 #
 
 
-def get_weight_scale(quantizer, x):
+def get_weight_scale(quantizer, x=None):
   """Gets the scales of weights for (stochastic_)binary and ternary quantizers.
 
-  Arguments
+  Arguments:
     quantizer: A binary or teneray quantizer class.
-    x: A weight tensor.
+    x: A weight tensor.  We keep it here for now for backward compatibility.
 
   Returns:
     Weight scale per channel for binary and ternary
@@ -254,7 +254,7 @@ def _ceil_through(x):
 
 class BaseQuantizer(object):
   """Base quantizer
-  
+
   Defines behavior all quantizers should follow.
   """
 
@@ -723,8 +723,8 @@ class stochastic_ternary(ternary):  # pylint: disable=invalid-name
   def __init__(self, alpha=None, threshold=None, temperature=8.0,
                use_real_sigmoid=True, number_of_unrolls=5):
     super(stochastic_ternary, self).__init__(
-      alpha=alpha, 
-      threshold=threshold, 
+      alpha=alpha,
+      threshold=threshold,
       number_of_unrolls=number_of_unrolls)
 
     self.bits = 2
@@ -811,9 +811,9 @@ class stochastic_ternary(ternary):  # pylint: disable=invalid-name
       q = (q0 + q1) / 2.0
       self.scale = scale
       return x + tf.stop_gradient(-x + scale * q)
-    
+
     output = tf_utils.smart_cond(
-      K.learning_phase(), 
+      K.learning_phase(),
       stochastic_output,
       lambda: ternary.__call__(self, x))
     return output
@@ -821,8 +821,6 @@ class stochastic_ternary(ternary):  # pylint: disable=invalid-name
   def _set_trainable_parameter(self):
     if self.alpha is None:
       self.alpha = "auto_po2"
-      if self.threshold is None:
-        self.threshold = self.default_threshold
 
   def max(self):
     """Get the maximum value that stochastic_ternary can respresent."""
@@ -1053,7 +1051,7 @@ class stochastic_binary(binary):  # pylint: disable=invalid-name
       scale = _get_scale(self.alpha, x, q_non_stochastic)
       self.scale = scale
       return x + tf.stop_gradient(-x + scale * q)
-    
+
     output = tf_utils.smart_cond(K.learning_phase(),
                                  stochastic_output,
                                  lambda: binary.__call__(self, x))
