@@ -222,7 +222,7 @@ def model_quantize(model,
     "QConv2D": {
         "kernel_quantizer": "quantizer string",
         "bias_quantizer": "quantizer_string"
-    }
+    },
 
     "QBatchNormalization": {}
   }
@@ -371,6 +371,59 @@ def model_quantize(model,
           layer_config["activation"] = quantizer
         else:
           quantize_activation(layer_config, activation_bits)
+
+    # we have to do this because of other instances of ReLU
+    elif layer["class_name"] in ["ReLU", "relu", "LeakyReLU"]:
+
+      quantizer = get_config(quantizer_config, layer, "QActivation")
+      # this is to avoid unwanted transformations
+      if quantizer is None:
+        continue
+
+      if layer["class_name"] == "LeakyReLU":
+        negative_slope = layer["config"]["alpha"]
+      elif layer["class_name"] == "relu":
+        max_value = layer["config"]["max_value"]
+        negative_slope = layer["config"]["alpha"]
+        threshold = layer["config"]["threshold"]
+      else: # ReLU from mobilenet
+        max_value = layer["config"]["max_value"]
+        negative_slope = layer["config"]["negative_slope"]
+        threshold = layer["config"]["threshold"]
+
+      if negative_slope > 0:
+        q_name = "leakyrelu"
+      else:
+        q_name = "relu"
+
+      # if quantizer exists in dictionary related to this name,
+      # use it, otherwise, use normal transformations
+
+      if not isinstance(quantizer, dict) or quantizer.get(q_name, None):
+        # only change activation layer if we will use a quantized activation
+
+        layer["class_name"] = "QActivation"
+
+        # remove relu specific configurations
+        # remember that quantized relu's are always upper bounded
+
+        if layer["class_name"] == "LeakyReLU":
+          del layer["config"]["alpha"]
+        elif layer["class_name"] == "relu":
+          del layer["config"]["max_value"]
+          del layer["config"]["alpha"]
+          del layer["config"]["threshold"]
+        else: # ReLU from mobilenet
+          del layer["config"]["max_value"]
+          del layer["config"]["negative_slope"]
+          del layer["config"]["threshold"]
+
+        if isinstance(quantizer, dict):
+          quantizer = quantizer[q_name]
+        if quantizer:
+          layer["config"]["activation"] = quantizer
+        else:
+          quantize_activation(layer["config"], activation_bits)
 
     elif layer["class_name"] == "BatchNormalization":
       # we will assume at least QBatchNormalization or
