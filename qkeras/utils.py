@@ -622,7 +622,7 @@ def quantized_model_debug(model, X_test, plot=False):
     if alpha != 1.0:
       print(" a[{: 8.4f} {:8.4f}]".format(np.min(alpha), np.max(alpha)))
     if plot and layer.__class__.__name__ in [
-        "QConv2D", "QDense", "QActivation"
+      "QConv2D", "QDense", "QActivation", "QSimpleRNN", "QLSTM", "QGRU"
     ]:
       plt.hist(p.flatten(), bins=25)
       plt.title(layer.name + "(output)")
@@ -632,7 +632,7 @@ def quantized_model_debug(model, X_test, plot=False):
       if hasattr(layer, "get_quantizers") and layer.get_quantizers()[i]:
         weights = K.eval(layer.get_quantizers()[i](K.constant(weights)))
         if i == 0 and layer.__class__.__name__ in [
-            "QConv1D", "QConv2D", "QDense"
+            "QConv1D", "QConv2D", "QDense", "QSimpleRNN", "QLSTM", "QGRU"
         ]:
           alpha = get_weight_scale(layer.get_quantizers()[i], weights)
           # if alpha is 0, let's remove all weights.
@@ -677,7 +677,7 @@ def quantized_model_dump(model,
   for layer in model.layers:
     if layer.__class__.__name__ in [
         "QActivation", "Activation", "QDense", "QConv2D", "QDepthwiseConv2D",
-        "QBatchNormalization"
+        "QBatchNormalization", "QSimpleRNN", "QLSTM", "QGRU"
     ]:
       if not layers_to_dump or layer.name in layers_to_dump:
         y_names.append(layer.name)
