@@ -20,6 +20,8 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+import copy
+import json
 import numpy as np
 import tensorflow as tf
 from numpy.testing import assert_allclose
@@ -31,6 +33,11 @@ from tensorflow.keras.layers import Flatten
 from tensorflow.keras.layers import Input
 from tensorflow.keras.models import Model
 from tensorflow.keras.backend import clear_session
+from tensorflow.keras.layers import SimpleRNN
+from tensorflow.keras.layers import LSTM
+from tensorflow.keras.layers import GRU
+from tensorflow.keras.layers import Dense
+from tensorflow.keras.models import Sequential
 
 from qkeras import QActivation
 from qkeras import QSimpleRNN
@@ -42,6 +49,7 @@ from qkeras import quantized_tanh
 from qkeras.utils import model_save_quantized_weights
 from qkeras.utils import quantized_model_from_json
 from qkeras.utils import load_qmodel
+from qkeras.utils import model_quantize
 
 @pytest.mark.parametrize(
     'rnn, all_weights_signature, expected_output',
@@ -158,7 +166,25 @@ def test_qrnn(rnn, all_weights_signature, expected_output):
   actual_output = model.predict(inputs).astype(np.float16)
   assert_allclose(actual_output, expected_output, rtol=1e-4)
 
-    
+
+@pytest.mark.parametrize(
+  'rnn', 
+  [
+    SimpleRNN, LSTM, GRU
+  ])    
+def test_network_quantization(rnn):
+  model = Sequential([rnn(16)])  
+  jm = copy.deepcopy(json.loads(model.to_json()))
+  config = jm["config"]
+  layers = config["layers"]
+  d = {
+      f"Q{layers[0]['class_name']}": {
+          "kernel_quantizer": "binary",
+          "recurrent_quantizer": "binary",
+          "bias_quantizer": "binary"
+      }}
+  qmodel = model_quantize(model, d, 4)
+  assert str(qmodel.layers[0].activation) == "quantized_tanh(4,0)"
 
 if __name__ == '__main__':
   pytest.main([__file__])
