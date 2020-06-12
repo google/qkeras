@@ -588,6 +588,11 @@ def print_model_sparsity(model):
           ])))
   print("\n")
 
+# layers we are interested in debugging
+_debug_layers = [
+        "QActivation", "QBatchNormalization", "Activation", "QDense",
+        "QConv2D", "QDepthwiseConv2D", "QSimpleRNN", "QLSTM", "QGRU"
+    ]
 
 def quantized_model_debug(model, X_test, plot=False):
   """Debugs and plots model weights and activations."""
@@ -595,10 +600,7 @@ def quantized_model_debug(model, X_test, plot=False):
   output_names = []
 
   for layer in model.layers:
-    if layer.__class__.__name__ in [
-        "QActivation", "QBatchNormalization", "Activation", "QDense",
-        "QConv2D", "QDepthwiseConv2D", "QSimpleRNN", "QLSTM", "QGRU"
-    ]:
+    if layer.__class__.__name__ in _debug_layers:
       output_names.append(layer.name)
       outputs.append(layer.output)
 
@@ -622,7 +624,7 @@ def quantized_model_debug(model, X_test, plot=False):
     if alpha != 1.0:
       print(" a[{: 8.4f} {:8.4f}]".format(np.min(alpha), np.max(alpha)))
     if plot and layer.__class__.__name__ in [
-      "QConv2D", "QDense", "QActivation", "QSimpleRNN", "QLSTM", "QGRU"
+      "QConv1D", "QConv2D", "QDense", "QActivation", "QSimpleRNN", "QLSTM", "QGRU"
     ]:
       plt.hist(p.flatten(), bins=25)
       plt.title(layer.name + "(output)")
@@ -675,10 +677,7 @@ def quantized_model_dump(model,
     print("create dir", output_dir)
 
   for layer in model.layers:
-    if layer.__class__.__name__ in [
-        "QActivation", "Activation", "QDense", "QConv2D", "QDepthwiseConv2D",
-        "QBatchNormalization", "QSimpleRNN", "QLSTM", "QGRU"
-    ]:
+    if layer.__class__.__name__ in _debug_layers:
       if not layers_to_dump or layer.name in layers_to_dump:
         y_names.append(layer.name)
         outputs.append(layer.output)
