@@ -77,7 +77,7 @@ if __name__ == "__main__":
   q = run_qtools.QTools(
       model,
       # energy calculation using a given process
-      process="5nm",
+      process="horowitz",
       # quantizers for model input
       source_quantizers=[quantizers.quantized_bits(8, 0, 1)],
       is_inference=False,
@@ -118,7 +118,7 @@ if __name__ == "__main__":
   # keras_quantizer to quantize weights/bias and keras_accumulator to quantize
   # MAC variables for all keras layers.
   q = run_qtools.QTools(
-      model, process="5nm",
+      model, process="horowitz",
       source_quantizers=[quantizers.quantized_bits(8, 0, 1)],
       is_inference=False, weights_path=None,
       keras_quantizer=reference_internal,
