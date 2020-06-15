@@ -591,7 +591,7 @@ def print_model_sparsity(model):
 # layers we are interested in debugging
 _debug_layers = [
         "QActivation", "QBatchNormalization", "Activation", "QDense",
-        "QConv2D", "QDepthwiseConv2D", "QSimpleRNN", "QLSTM", "QGRU"
+        "QConv1D", "QConv2D", "QDepthwiseConv2D", "QSimpleRNN", "QLSTM", "QGRU"
     ]
 
 def quantized_model_debug(model, X_test, plot=False):
