@@ -1111,7 +1111,7 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
     bits: number of bits to perform quantization.
     integer: number of bits to the left of the decimal point.
     use_sigmoid: if true, we apply sigmoid to input to normalize it.
-    negative_slope: slope when activaiton < 0, needs to be power of 2.
+    negative_slope: slope when activation < 0, needs to be power of 2.
     use_stochastic_rounding: if true, we perform stochastic rounding.
 
   Returns:
