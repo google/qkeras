@@ -18,6 +18,7 @@ from __future__ import division
 from __future__ import print_function
 import copy
 import json
+import tempfile
 import types
 
 import matplotlib
@@ -61,6 +62,14 @@ from .quantizers import stochastic_binary
 from .quantizers import stochastic_ternary
 from .quantizers import ternary
 from .safe_eval import safe_eval
+
+
+REGISTERED_LAYERS = [
+    "QActivation", "Activation",
+    "QDense", "QConv1D", "QConv2D", "QDepthwiseConv2D",
+    "QBatchNormalization"
+]
+
 
 #
 # Model utilities: before saving the weights, we want to apply the quantizers
@@ -601,10 +610,7 @@ def quantized_model_debug(model, X_test, plot=False):
   output_names = []
 
   for layer in model.layers:
-    if layer.__class__.__name__ in [
-        "QActivation", "QBatchNormalization", "Activation", "QDense",
-        "QConv2D", "QDepthwiseConv2D"
-    ]:
+    if layer.__class__.__name__ in REGISTERED_LAYERS:
       output_names.append(layer.name)
       outputs.append(layer.output)
 
@@ -655,7 +661,7 @@ def quantized_model_debug(model, X_test, plot=False):
           np.min(alpha), np.max(alpha)), end="")
     print("")
 
-import tempfile
+
 def quantized_model_dump(model,
                          x_test,
                          output_dir=None,
@@ -681,10 +687,7 @@ def quantized_model_dump(model,
     print("create dir", output_dir)
 
   for layer in model.layers:
-    if layer.__class__.__name__ in [
-        "QActivation", "Activation", "QDense", "QConv2D", "QDepthwiseConv2D",
-        "QBatchNormalization"
-    ]:
+    if layer.__class__.__name__ in ["InputLayer"] + REGISTERED_LAYERS:
       if not layers_to_dump or layer.name in layers_to_dump:
         y_names.append(layer.name)
         outputs.append(layer.output)
@@ -693,9 +696,9 @@ def quantized_model_dump(model,
   model_debug = Model(inputs=model.inputs, outputs=outputs)
   y_pred = model_debug.predict(x_test)
 
-  # dump to files
+  # dump tensors to files
   for name, tensor_data in zip(y_names, y_pred):
     filename = os.path.join(output_dir, name + ".bin")
-    print("write to ", filename)
+    print("writing the layer output tensor to ", filename)
     with open(filename, "w") as fid:
-      tensor_data.tofile(fid)
+      tensor_data.astype(np.float32).tofile(fid)
