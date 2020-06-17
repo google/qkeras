@@ -227,6 +227,7 @@ def _round_through(x, use_stochastic_rounding=False, precision=0.5):
     output = x + tf.stop_gradient(-x + tf.round(x))
   return output
 
+
 def _sign_through(x):
   """Computes the sign operation using the straight through estimator."""
 

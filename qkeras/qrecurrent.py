@@ -41,6 +41,7 @@ from .qlayers import QActivation
 from .quantizers import get_quantized_initializer
 from .quantizers import get_quantizer
 
+
 class QSimpleRNNCell(SimpleRNNCell):
   """
   Cell class for the QSimpleRNNCell layer.
@@ -48,11 +49,11 @@ class QSimpleRNNCell(SimpleRNNCell):
   Most of these parameters follow the implementation of SimpleRNNCell in
   Keras, with the exception of kernel_quantizer, recurrent_quantizer,
   and bias_quantizer.
-  
+
   kernel_quantizer: quantizer function/class for kernel
   recurrent_quantizer: quantizer function/class for recurrent kernel
   bias_quantizer: quantizer function/class for bias
-  
+
   We refer the reader to the documentation of SimpleRNNCell in Keras for the
   other parameters.
 
@@ -60,7 +61,7 @@ class QSimpleRNNCell(SimpleRNNCell):
   def __init__(self,
                units,
                activation='quantized_tanh',
-               use_bias=True, 
+               use_bias=True,
                kernel_initializer='glorot_uniform',
                recurrent_initializer='orthogonal',
                bias_initializer='zeros',
@@ -78,7 +79,7 @@ class QSimpleRNNCell(SimpleRNNCell):
                **kwargs):
 
     self.kernel_quantizer = kernel_quantizer
-    self.recurrent_quantizer = recurrent_quantizer 
+    self.recurrent_quantizer = recurrent_quantizer
     self.bias_quantizer = bias_quantizer
 
     self.kernel_quantizer_internal = get_quantizer(self.kernel_quantizer)
@@ -87,15 +88,15 @@ class QSimpleRNNCell(SimpleRNNCell):
 
     self.quantizers = [
       self.kernel_quantizer_internal,
-      self.recurrent_quantizer_internal, 
+      self.recurrent_quantizer_internal,
       self.bias_quantizer_internal
     ]
 
     if hasattr(self.kernel_quantizer_internal, "_set_trainable_parameter"):
-      self.kernel_quantizer_internal._set_trainable_parameter() 
+      self.kernel_quantizer_internal._set_trainable_parameter()
 
     if hasattr(self.recurrent_quantizer_internal, "_set_trainable_parameter"):
-      self.recurrent_quantizer_internal._set_trainable_parameter() 
+      self.recurrent_quantizer_internal._set_trainable_parameter()
 
     kernel_constraint, kernel_initializer = (
         get_auto_range_constraint_initializer(self.kernel_quantizer_internal,
@@ -134,7 +135,6 @@ class QSimpleRNNCell(SimpleRNNCell):
       **kwargs
     )
 
-
   def call(self, inputs, states, training=None):
     prev_output = states[0] if nest.is_sequence(states) else states
     dp_mask = self.get_dropout_mask_for_cell(inputs, training)
@@ -150,7 +150,7 @@ class QSimpleRNNCell(SimpleRNNCell):
       h = K.dot(inputs * dp_mask, quantized_kernel)
     else:
       h = K.dot(inputs, quantized_kernel)
-    
+
     if self.bias is not None:
       if self.bias_quantizer:
         quantized_bias = self.bias_quantizer_internal(self.bias)
@@ -172,8 +172,7 @@ class QSimpleRNNCell(SimpleRNNCell):
     if self.activation is not None:
       output = self.activation(output)
     return output, [output]
-  
-  
+
   def get_config(self):
     config = {
         "kernel_quantizer":
@@ -194,11 +193,13 @@ class QSimpleRNN(RNN, PrunableLayer):
   Most of these parameters follow the implementation of SimpleRNN in
   Keras, with the exception of kernel_quantizer, recurrent_quantizer,
   and bias_quantizer.
-  
+
+
   kernel_quantizer: quantizer function/class for kernel
   recurrent_quantizer: quantizer function/class for recurrent kernel
   bias_quantizer: quantizer function/class for bias
-  
+
+
   We refer the reader to the documentation of SimpleRNN in Keras for the
   other parameters.
 
@@ -258,7 +259,6 @@ class QSimpleRNN(RNN, PrunableLayer):
         trainable=kwargs.get('trainable', True),
         **cell_kwargs)
 
-
     super(QSimpleRNN, self).__init__(
         cell,
         return_sequences=return_sequences,
@@ -270,12 +270,10 @@ class QSimpleRNN(RNN, PrunableLayer):
     self.activity_regularizer = regularizers.get(activity_regularizer)
     self.input_spec = [InputSpec(ndim=3)]
 
-
   def call(self, inputs, mask=None, training=None, initial_state=None):
     self._maybe_reset_cell_dropout_mask(self.cell)
     return super(QSimpleRNN, self).call(
         inputs, mask=mask, training=training, initial_state=initial_state)
-
 
   def get_quantizers(self):
     return self.cell.quantizers
@@ -408,11 +406,13 @@ class QLSTMCell(LSTMCell):
   Most of these parameters follow the implementation of LSTMCell in
   Keras, with the exception of kernel_quantizer, recurrent_quantizer,
   and bias_quantizer.
-  
+
+
   kernel_quantizer: quantizer function/class for kernel
   recurrent_quantizer: quantizer function/class for recurrent kernel
   bias_quantizer: quantizer function/class for bias
-  
+
+
   We refer the reader to the documentation of LSTMCell in Keras for the
   other parameters.
 
@@ -441,7 +441,7 @@ class QLSTMCell(LSTMCell):
                implementation=1,
                **kwargs):
     self.kernel_quantizer = kernel_quantizer
-    self.recurrent_quantizer = recurrent_quantizer 
+    self.recurrent_quantizer = recurrent_quantizer
     self.bias_quantizer = bias_quantizer
 
     self.kernel_quantizer_internal = get_quantizer(self.kernel_quantizer)
@@ -450,15 +450,15 @@ class QLSTMCell(LSTMCell):
 
     self.quantizers = [
       self.kernel_quantizer_internal,
-      self.recurrent_quantizer_internal, 
+      self.recurrent_quantizer_internal,
       self.bias_quantizer_internal
     ]
 
     if hasattr(self.kernel_quantizer_internal, "_set_trainable_parameter"):
-      self.kernel_quantizer_internal._set_trainable_parameter() 
-      
+      self.kernel_quantizer_internal._set_trainable_parameter()
+
     if hasattr(self.recurrent_quantizer_internal, "_set_trainable_parameter"):
-      self.recurrent_quantizer_internal._set_trainable_parameter() 
+      self.recurrent_quantizer_internal._set_trainable_parameter()
 
     kernel_constraint, kernel_initializer = (
         get_auto_range_constraint_initializer(self.kernel_quantizer_internal,
@@ -483,7 +483,7 @@ class QLSTMCell(LSTMCell):
       recurrent_activation = get_quantizer(recurrent_activation)
 
     super(QLSTMCell, self).__init__(
-      units=units ,
+      units=units,
       activation=activation,
       use_bias=use_bias,
       recurrent_activation=recurrent_activation,
@@ -503,7 +503,6 @@ class QLSTMCell(LSTMCell):
       **kwargs
     )
 
-
   def _compute_carry_and_output(self, x, h_tm1, c_tm1, quantized_recurrent):
     """Computes carry and output using split kernels."""
     x_i, x_f, x_c, x_o = x
@@ -518,7 +517,6 @@ class QLSTMCell(LSTMCell):
         x_o + K.dot(h_tm1_o, quantized_recurrent[:, self.units * 3:]))
     return c, o
 
-
   def _compute_carry_and_output_fused(self, z, c_tm1):
     """Computes carry and output using fused kernels."""
     z0, z1, z2, z3 = z
@@ -527,7 +525,6 @@ class QLSTMCell(LSTMCell):
     c = f * c_tm1 + i * self.activation(z2)
     o = self.recurrent_activation(z3)
     return c, o
-
 
   def call(self, inputs, states, training=None):
     h_tm1 = states[0]  # previous memory state
@@ -601,7 +598,6 @@ class QLSTMCell(LSTMCell):
 
     h = o * self.activation(c)
     return h, [h, c]
-  
 
   def get_config(self):
     config = {
@@ -616,7 +612,6 @@ class QLSTMCell(LSTMCell):
     return dict(list(base_config.items()) + list(config.items()))
 
 
-
 class QLSTM(RNN, PrunableLayer):
   """
   Cell class for the QLSTM layer.
@@ -624,11 +619,13 @@ class QLSTM(RNN, PrunableLayer):
   Most of these parameters follow the implementation of LSTM in
   Keras, with the exception of kernel_quantizer, recurrent_quantizer,
   and bias_quantizer.
-  
+
+
   kernel_quantizer: quantizer function/class for kernel
   recurrent_quantizer: quantizer function/class for recurrent kernel
   bias_quantizer: quantizer function/class for bias
-  
+
+
   We refer the reader to the documentation of LSTM in Keras for the
   other parameters.
 
@@ -698,7 +695,6 @@ class QLSTM(RNN, PrunableLayer):
         trainable=kwargs.get('trainable', True),
         **cell_kwargs)
 
-
     super(QLSTM, self).__init__(
         cell,
         return_sequences=return_sequences,
@@ -709,7 +705,6 @@ class QLSTM(RNN, PrunableLayer):
         **kwargs)
     self.activity_regularizer = regularizers.get(activity_regularizer)
     self.input_spec = [InputSpec(ndim=3)]
-
 
   def call(self, inputs, mask=None, training=None, initial_state=None):
     self._maybe_reset_cell_dropout_mask(self.cell)
@@ -865,11 +860,13 @@ class QGRUCell(GRUCell):
   Most of these parameters follow the implementation of GRUCell in
   Keras, with the exception of kernel_quantizer, recurrent_quantizer,
   and bias_quantizer.
-  
+
+
   kernel_quantizer: quantizer function/class for kernel
   recurrent_quantizer: quantizer function/class for recurrent kernel
   bias_quantizer: quantizer function/class for bias
-  
+
+
   We refer the reader to the documentation of GRUCell in Keras for the
   other parameters.
 
@@ -878,7 +875,7 @@ class QGRUCell(GRUCell):
                units,
                activation='quantized_tanh',
                recurrent_activation='hard_sigmoid',
-               use_bias=True, 
+               use_bias=True,
                kernel_initializer='glorot_uniform',
                recurrent_initializer='orthogonal',
                bias_initializer='zeros',
@@ -898,7 +895,7 @@ class QGRUCell(GRUCell):
                **kwargs):
 
     self.kernel_quantizer = kernel_quantizer
-    self.recurrent_quantizer = recurrent_quantizer 
+    self.recurrent_quantizer = recurrent_quantizer
     self.bias_quantizer = bias_quantizer
 
     self.kernel_quantizer_internal = get_quantizer(self.kernel_quantizer)
@@ -907,15 +904,15 @@ class QGRUCell(GRUCell):
 
     self.quantizers = [
       self.kernel_quantizer_internal,
-      self.recurrent_quantizer_internal, 
+      self.recurrent_quantizer_internal,
       self.bias_quantizer_internal
     ]
 
     if hasattr(self.kernel_quantizer_internal, "_set_trainable_parameter"):
-      self.kernel_quantizer_internal._set_trainable_parameter() 
+      self.kernel_quantizer_internal._set_trainable_parameter()
 
     if hasattr(self.recurrent_quantizer_internal, "_set_trainable_parameter"):
-      self.recurrent_quantizer_internal._set_trainable_parameter() 
+      self.recurrent_quantizer_internal._set_trainable_parameter()
 
     kernel_constraint, kernel_initializer = (
         get_auto_range_constraint_initializer(self.kernel_quantizer_internal,
@@ -950,7 +947,7 @@ class QGRUCell(GRUCell):
       kernel_regularizer=kernel_regularizer,
       recurrent_regularizer=recurrent_regularizer,
       bias_regularizer=bias_regularizer,
-      kernel_constraint=kernel_constraint, 
+      kernel_constraint=kernel_constraint,
       recurrent_constraint=recurrent_constraint,
       bias_constraint=bias_constraint,
       dropout=dropout,
@@ -1073,8 +1070,7 @@ class QGRUCell(GRUCell):
     # previous and candidate state mixed by update gate
     h = z * h_tm1 + (1 - z) * hh
     return h, [h]
-  
-  
+
   def get_config(self):
     config = {
         "kernel_quantizer":
@@ -1095,11 +1091,13 @@ class QGRU(RNN, PrunableLayer):
   Most of these parameters follow the implementation of GRU in
   Keras, with the exception of kernel_quantizer, recurrent_quantizer,
   and bias_quantizer.
-  
+
+
   kernel_quantizer: quantizer function/class for kernel
   recurrent_quantizer: quantizer function/class for recurrent kernel
   bias_quantizer: quantizer function/class for bias
-  
+
+
   We refer the reader to the documentation of GRU in Keras for the
   other parameters.
 
@@ -1137,7 +1135,7 @@ class QGRU(RNN, PrunableLayer):
       print('`implementation=0` has been deprecated, '
               'and now defaults to `implementation=1`.'
               'Please update your layer call.')
-                      
+
     if 'enable_caching_device' in kwargs:
       cell_kwargs = {'enable_caching_device':
                      kwargs.pop('enable_caching_device')}
@@ -1169,7 +1167,6 @@ class QGRU(RNN, PrunableLayer):
         trainable=kwargs.get('trainable', True),
         **cell_kwargs)
 
-
     super(QGRU, self).__init__(
         cell,
         return_sequences=return_sequences,
@@ -1181,12 +1178,10 @@ class QGRU(RNN, PrunableLayer):
     self.activity_regularizer = regularizers.get(activity_regularizer)
     self.input_spec = [InputSpec(ndim=3)]
 
-
   def call(self, inputs, mask=None, training=None, initial_state=None):
     self._maybe_reset_cell_dropout_mask(self.cell)
     return super(QGRU, self).call(
         inputs, mask=mask, training=training, initial_state=initial_state)
-
 
   def get_quantizers(self):
     return self.cell.quantizers
@@ -1322,7 +1317,6 @@ class QGRU(RNN, PrunableLayer):
     base_config = super(QGRU, self).get_config()
     del base_config['cell']
     return dict(list(base_config.items()) + list(config.items()))
-
 
   @classmethod
   def from_config(cls, config):
