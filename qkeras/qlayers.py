@@ -70,9 +70,14 @@ def get_auto_range_constraint_initializer(quantizer, constraint, initializer):
     min_value = quantizer.min() if hasattr(quantizer, "min") else -1.0
 
     if constraint:
-      constraint = constraints.get(constraint)
-
-    constraint = Clip(-max_value, max_value, constraint, quantizer)
+      if isinstance(constraint, dict):
+        if constraint['class_name'] == 'Clip':
+          constraint = Clip(**constraint['config'])
+      else:
+        constraint = constraints.get(constraint)
+    else:
+      constraint = Clip(-max_value, max_value, constraint, quantizer)
+      
     initializer = initializers.get(initializer)
     if initializer and initializer.__class__.__name__ not in ["Ones", "Zeros"]:
       # we want to get the max value of the quantizer that depends
