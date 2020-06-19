@@ -1,9 +1,30 @@
 # QKeras
 
-[github.com/google/qkeras](https://github.com/google/qkeras) 
+[github.com/google/qkeras](https://github.com/google/qkeras)
 
 [![Build Status](https://travis-ci.org/google/qkeras.svg?branch=master)](https://travis-ci.org/google/qkeras)
 
+QKeras 0.8 highlights:
+
+- Automatic quantization using QKeras;
+
+- Stochastic behavior (including stochastic rouding) is disabled during
+inference;
+
+- LeakyReLU for quantized_relu;
+
+- Qtools for estimating effort to perform inference;
+
+  * Qtools will estimate the sizes and types of operations to perform inference,
+    with its data sizes compatible with high-level synthesis datatypes. For
+    example, quantized_bits and quantized_relu bits and int_bits from Qtools
+    will match exactly ac_fixed datatypes (if you rely on QKeras alone, the
+    correct datatype should be ac_fixed\<bits, int_bits+is_negative,
+    is_negative\>, where is_negative has to be inferred from the other
+    parameters of the quantizer.
+
+
+## Introduction
 
 QKeras is a quantization extension to Keras that provides drop-in
 replacement for some of the Keras layers, especially the ones that
@@ -39,6 +60,10 @@ In order to successfully quantize a model, users need to replace
 variable creating layers (Dense, Conv2D, etc) by their counterparts
 (QDense, QConv2D, etc), and any layers that perform math operations
 need to be quantized afterwards.
+
+## Publications
+
+http://arxiv.org/abs/2006.10159
 
 ## Layers Implemented in QKeras
 
@@ -103,7 +128,7 @@ interface has not been fully tested yet.
 
 - binary(alpha=1.0)(x)
 
-- quantized_relu(bits=8, integer=0, use_sigmoid=0)(x)
+- quantized_relu(bits=8, integer=0, use_sigmoid=0, negative_slope=0.0)(x)
 
 - quantized_ulaw(bits=8, integer=0, symmetric=0, u=255.0)(x)
 
@@ -236,6 +261,19 @@ data published in this work.
 Example of how to generate data type map can be found in qkeras/qtools/
 examples/example_generate_json.py. Example of how to generate energy consumption
 estimation can be found in qkeras/qtools/examples/example_get_energy.py
+
+
+## AutoQKeras
+
+AutoQKeras allows the automatic quantization and rebalancing of deep neural
+networks by treating quantization and rebalancing of an existing deep neural
+network as a hyperparameter search in Keras-Tuner using random search,
+hyperband or gaussian processes.
+
+In order to contain the explosion of hyperparameters, users can group tasks by
+patterns, and perform distribute training using available resources.
+
+Extensive documentation is present in notebook/AutoQKeras.ipynb.
 
 
 ## Related Work
