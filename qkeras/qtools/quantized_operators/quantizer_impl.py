@@ -203,6 +203,8 @@ class QuantizedRelu(IQuantizer):
     self.mode = mode
     self.bits = bits
     self.int_bits = int_bits
+    if hasattr(quantizer, "negative_slope") and quantizer.negative_slope != 0:
+      self.is_signed = 1
 
 
 class Ternary(IQuantizer):
