@@ -132,8 +132,9 @@ Every time we use a quantization for weights and bias that can
 generate numbers outside the range [-1.0, 1.0], we need to adjust the
 *_range to the number. For example, if we have a
 quantized_bits(bits=6, integer=2) in a weight of a layer, we need to
-set the weight range to 2**2. Similarly, for quantization functions
-that accept an alpha parameter, we need to specify a range of alpha,
+set the weight range to 2**2, which is equivalent to Catapult HLS
+ac_fixed<6, 3, true>. Similarly, for quantization functions that accept an 
+alpha parameter, we need to specify a range of alpha,
 and for po2 type of quantizers, we need to specify the range of
 max_value.
 

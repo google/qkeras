@@ -391,19 +391,19 @@ def test_qbn_inference():
 
   assert multiplier["quantizer_type"] == "quantized_bits"
   assert multiplier["bits"] == 15
-  assert multiplier["int_bits"] == 6
+  assert multiplier["int_bits"] == 7
   assert multiplier["is_signed"] == 1
   assert multiplier["op_type"] == "shifter"
 
   assert accumulator["quantizer_type"] == "quantized_bits"
   assert accumulator["bits"] == 18
-  assert accumulator["int_bits"] == 9
+  assert accumulator["int_bits"] == 10
   assert accumulator["is_signed"] == 1
   assert accumulator["op_type"] == "add"
 
   assert output["quantizer_type"] == "quantized_bits"
   assert output["bits"] == 18
-  assert output["int_bits"] == 9
+  assert output["int_bits"] == 10
   assert output["is_signed"] == 1
 
 
@@ -441,12 +441,12 @@ def test_conv2d():
 
   assert multiplier["quantizer_type"] == "quantized_bits"
   assert multiplier["bits"] == 15
-  assert multiplier["int_bits"] == 1
+  assert multiplier["int_bits"] == 2
   assert multiplier["is_signed"] == 1
   assert multiplier["op_type"] == "shifter"
   assert accumulator["quantizer_type"] == "quantized_bits"
   assert accumulator["bits"] == 18
-  assert accumulator["int_bits"] == 4
+  assert accumulator["int_bits"] == 5
   assert accumulator["is_signed"] == 1
   assert accumulator["op_type"] == "add"
   assert op_count == 7744
@@ -460,14 +460,14 @@ def test_qdense_model_fork():
   multiplier = dtype_dict["qdense_3"]["multiplier"]
   assert multiplier["quantizer_type"] == "quantized_bits"
   assert multiplier["bits"] == 5
-  assert multiplier["int_bits"] == 0
+  assert multiplier["int_bits"] == 1
   assert multiplier["is_signed"] == 1
   assert multiplier["op_type"] == "mux"
 
   accumulator = dtype_dict["qdense_3"]["accumulator"]
   assert accumulator["quantizer_type"] == "quantized_bits"
   assert accumulator["bits"] == 10
-  assert accumulator["int_bits"] == 5
+  assert accumulator["int_bits"] == 6
   assert accumulator["is_signed"] == 1
   assert accumulator["op_type"] == "add"
 
@@ -495,14 +495,14 @@ def test_util_layers():
   multiplier = dtype_dict["qdense_4"]["multiplier"]
   assert multiplier["quantizer_type"] == "quantized_bits"
   assert multiplier["bits"] == 6
-  assert multiplier["int_bits"] == 0
+  assert multiplier["int_bits"] == 1
   assert multiplier["is_signed"] == 1
   assert multiplier["op_type"] == "and"
 
   accumulator = dtype_dict["qdense_4"]["accumulator"]
   assert accumulator["quantizer_type"] == "quantized_bits"
   assert accumulator["bits"] == 14
-  assert accumulator["int_bits"] == 8
+  assert accumulator["int_bits"] == 9
   assert accumulator["is_signed"] == 1
   assert accumulator["op_type"] == "add"
 
@@ -524,7 +524,7 @@ def test_merge_layers():
   merge_quantizer = dtype_dict["add"]["Add_quantizer"]
   assert merge_quantizer["quantizer_type"] == "quantized_bits"
   assert merge_quantizer["bits"] == 7
-  assert merge_quantizer["int_bits"] == 1
+  assert merge_quantizer["int_bits"] == 2
   assert merge_quantizer["is_signed"] == 1
 
   model = multiply_qmodel()
@@ -532,7 +532,7 @@ def test_merge_layers():
   merge_quantizer = dtype_dict["multiply"]["Multiply_quantizer"]
   assert merge_quantizer["quantizer_type"] == "quantized_bits"
   assert merge_quantizer["bits"] == 15
-  assert merge_quantizer["int_bits"] == 0
+  assert merge_quantizer["int_bits"] == 1
   assert merge_quantizer["is_signed"] == 1
   assert merge_quantizer["op_type"] == "mul"
 
@@ -543,7 +543,7 @@ def test_merge_layers():
   merge_quantizer = dtype_dict["maximum"]["Maximum_quantizer"]
   assert merge_quantizer["quantizer_type"] == "quantized_bits"
   assert merge_quantizer["bits"] == 6
-  assert merge_quantizer["int_bits"] == 0
+  assert merge_quantizer["int_bits"] == 1
   assert merge_quantizer["is_signed"] == 1
 
   model = concatenate_qmodel(
@@ -553,7 +553,7 @@ def test_merge_layers():
   merge_quantizer = dtype_dict["concatenate"]["Concatenate_quantizer"]
   assert merge_quantizer["quantizer_type"] == "quantized_bits"
   assert merge_quantizer["bits"] == 15
-  assert merge_quantizer["int_bits"] == 3
+  assert merge_quantizer["int_bits"] == 4
   assert merge_quantizer["is_signed"] == 1
 
 
