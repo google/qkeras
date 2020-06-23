@@ -37,6 +37,7 @@ from tensorflow.keras.layers import SimpleRNN
 from tensorflow.keras.layers import LSTM
 from tensorflow.keras.layers import GRU
 from tensorflow.keras.layers import Dense
+from tensorflow.keras.layers import Bidirectional
 from tensorflow.keras.models import Sequential
 
 from qkeras import QActivation
@@ -185,6 +186,131 @@ def test_network_quantization(rnn):
       }}
   qmodel = model_quantize(model, d, 4)
   assert str(qmodel.layers[0].activation) == "quantized_tanh(4,0)"
+
+
+@pytest.mark.parametrize(
+  'rnn, all_weights_signature, expected_output',
+  [
+    (
+      SimpleRNN,
+      np.array([
+        -2.3938613 , -4.0119915 ,  0.        ,  0.12281364, -5.739211  ,
+         0.        , -0.7584611 ,  0.        , -2.3938613 , -4.0119915 ,
+         0.        ,  0.12281364, -5.739211  ,  0.        ], dtype=np.float32),
+      np.array([
+        [0.0851 , 0.1288 , 0.586  , 0.2002 ],
+        [0.1044 , 0.1643 , 0.7217 , 0.00978],
+        [0.04135, 0.0537 , 0.8706 , 0.03455],
+        [0.03354, 0.0489 , 0.889  , 0.02852],
+        [0.04358, 0.05246, 0.7563 , 0.1478 ],
+        [0.03403, 0.0743 , 0.4177 , 0.4739 ],
+        [0.0859 , 0.1567 , 0.3972 , 0.36   ],
+        [0.27   , 0.1945 , 0.4841 , 0.05124],
+        [0.12115, 0.05722, 0.728  , 0.0938 ],
+        [0.2864 , 0.1262 , 0.339  , 0.2484 ]], dtype=np.float16)
+    ), 
+    (
+      LSTM,
+      np.array([
+        -2.3938613 , -4.0119915 ,  0.        ,  0.12281364, -5.739211  ,
+         0.        , -0.7584611 ,  0.        , -2.3938613 , -4.0119915 ,
+         0.        ,  0.12281364, -5.739211  ,  0.        ], dtype=np.float32),
+      np.array([
+        [0.0851 , 0.1288 , 0.586  , 0.2002 ],
+        [0.1044 , 0.1643 , 0.7217 , 0.00978],
+        [0.04135, 0.0537 , 0.8706 , 0.03455],
+        [0.03354, 0.0489 , 0.889  , 0.02852],
+        [0.04358, 0.05246, 0.7563 , 0.1478 ],
+        [0.03403, 0.0743 , 0.4177 , 0.4739 ],
+        [0.0859 , 0.1567 , 0.3972 , 0.36   ],
+        [0.27   , 0.1945 , 0.4841 , 0.05124],
+        [0.12115, 0.05722, 0.728  , 0.0938 ],
+        [0.2864 , 0.1262 , 0.339  , 0.2484 ]], dtype=np.float16)
+    ), 
+    (
+      GRU,
+      np.array([
+        -2.3938613 , -4.0119915 ,  0.        ,  0.12281364, -5.739211  ,
+         0.        , -0.7584611 ,  0.        , -2.3938613 , -4.0119915 ,
+         0.        ,  0.12281364, -5.739211  ,  0.        ], dtype=np.float32),
+      np.array([
+        [0.0851 , 0.1288 , 0.586  , 0.2002 ],
+        [0.1044 , 0.1643 , 0.7217 , 0.00978],
+        [0.04135, 0.0537 , 0.8706 , 0.03455],
+        [0.03354, 0.0489 , 0.889  , 0.02852],
+        [0.04358, 0.05246, 0.7563 , 0.1478 ],
+        [0.03403, 0.0743 , 0.4177 , 0.4739 ],
+        [0.0859 , 0.1567 , 0.3972 , 0.36   ],
+        [0.27   , 0.1945 , 0.4841 , 0.05124],
+        [0.12115, 0.05722, 0.728  , 0.0938 ],
+        [0.2864 , 0.1262 , 0.339  , 0.2484 ]], dtype=np.float16)
+    )
+  ])
+def test_bidirectional_wrapper(rnn, all_weights_signature, expected_output):
+  K.set_learning_phase(0)
+  np.random.seed(22)
+  tf.random.set_seed(22)
+
+  x = x_in = Input((2,4), name='input')
+  x = Bidirectional(QSimpleRNN(
+    16,
+    activation="quantized_po2(8)",
+    kernel_quantizer="quantized_po2(8)",
+    recurrent_quantizer="quantized_po2(8)",
+    bias_quantizer="quantized_po2(8)",
+    name='qbirnn_0'))(
+        x)
+  x = QDense(
+      4,
+      kernel_quantizer=quantized_bits(8, 2, 1, alpha=1.0),
+      bias_quantizer=quantized_bits(8, 0, 1),
+      name='dense')(
+          x)
+  x = Activation('softmax', name='softmax')(x)
+
+  model = Model(inputs=[x_in], outputs=[x])
+
+  # reload the model to ensure saving/loading works
+  json_string = model.to_json()
+  clear_session()
+  model = quantized_model_from_json(json_string)
+
+  # Save the model as an h5 file using Keras's model.save()
+  fd, fname = tempfile.mkstemp('.h5')
+  model.save(fname)
+  del model  # Delete the existing model
+
+  # Return a compiled model identical to the previous one
+  model = load_qmodel(fname)
+
+  # Clean the created h5 file after loading the model
+  os.close(fd)
+  os.remove(fname)
+
+  all_weights = []
+
+  all_layers = model.layers + [
+    model.layers[1].forward_layer,
+    model.layers[1].backward_layer
+  ]
+
+  for layer in all_layers:
+    for i, weights in enumerate(layer.get_weights()):
+
+      w = np.sum(weights)
+      all_weights.append(w)
+
+  all_weights = np.array(all_weights)
+
+  # test_qnetwork_weight_quantization: TODO
+  assert all_weights.size == all_weights_signature.size
+  assert np.all(all_weights == all_weights_signature)
+
+  # test_qnetwork_forward:  
+  inputs = 2 * np.random.rand(10, 2, 4)
+  actual_output = model.predict(inputs).astype(np.float16)
+  assert_allclose(actual_output, expected_output, rtol=1e-4)
+
 
 if __name__ == '__main__':
   pytest.main([__file__])
