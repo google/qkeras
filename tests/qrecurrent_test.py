@@ -51,6 +51,7 @@ from qkeras.utils import quantized_model_from_json
 from qkeras.utils import load_qmodel
 from qkeras.utils import model_quantize
 
+
 @pytest.mark.parametrize(
     'rnn, all_weights_signature, expected_output',
     [
@@ -108,7 +109,7 @@ def test_qrnn(rnn, all_weights_signature, expected_output):
   np.random.seed(22)
   tf.random.set_seed(22)
 
-  x = x_in = Input((2,4), name='input')
+  x = x_in = Input((2, 4), name='input')
   x = rnn(
     16,
     activation=quantized_tanh(bits=8),
@@ -151,29 +152,28 @@ def test_qrnn(rnn, all_weights_signature, expected_output):
 
   for layer in model.layers:
     for i, weights in enumerate(layer.get_weights()):
-      
       w = np.sum(weights)
       all_weights.append(w)
 
   all_weights = np.array(all_weights)
 
-  # test_qnetwork_weight_quantization: TODO
+  # test_qnetwork_weight_quantization:
   assert all_weights.size == all_weights_signature.size
   assert np.all(all_weights == all_weights_signature)
 
-  # test_qnetwork_forward:  
+  # test_qnetwork_forward:
   inputs = 2 * np.random.rand(10, 2, 4)
   actual_output = model.predict(inputs).astype(np.float16)
   assert_allclose(actual_output, expected_output, rtol=1e-4)
 
 
 @pytest.mark.parametrize(
-  'rnn', 
+  'rnn',
   [
     SimpleRNN, LSTM, GRU
-  ])    
+  ])
 def test_network_quantization(rnn):
-  model = Sequential([rnn(16)])  
+  model = Sequential([rnn(16)])
   jm = copy.deepcopy(json.loads(model.to_json()))
   config = jm["config"]
   layers = config["layers"]

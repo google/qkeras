@@ -223,7 +223,7 @@ class Clip(Constraint):
 
   @classmethod
   def from_config(cls, config):
-    if isinstance(config.get('constraint', None), Clip): 
+    if isinstance(config.get('constraint', None), Clip):
       config['constraint'] = None
     config['constraint'] = constraints.get(config.get('constraint', None))
     config['quantizer'] = get_quantizer(config.get('quantizer', None))
@@ -387,7 +387,7 @@ def get_constraint(identifier, quantizer):
     quantizer: A quantizer class or quantization function
 
   Returns:
-    A constraint class 
+    A constraint class
   """
   if identifier:
     if isinstance(identifier, dict) and identifier['class_name'] == 'Clip':
@@ -397,7 +397,6 @@ def get_constraint(identifier, quantizer):
   else:
     max_value = max(1, quantizer.max()) if hasattr(quantizer, "max") else 1.0
     return Clip(-max_value, max_value, identifier, quantizer)
-    
 
 def get_initializer(identifier):
   """Gets the initializer.
@@ -406,7 +405,7 @@ def get_initializer(identifier):
     identifier: An initializer, which could be dict, string, or callable function.
 
   Returns:
-    A initializer class 
+    A initializer class
 
   Raises:
     ValueError: An error occurred when quantizer cannot be interpreted.
