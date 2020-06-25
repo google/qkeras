@@ -291,6 +291,12 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
   Symmetric and keep_negative allow us to generate numbers that are symmetric
   (same number of negative and positive representations), and numbers that
   are positive.
+  
+  Note:
+    the behavior of quantized_bits is different than Catapult HLS ac_fixed 
+    or Vivado HLS ap_fixed. For ac_fixed<word_length, integer_lenth, signed>, 
+    when signed = true, it is equavlent to 
+    quantized_bits(word_length, integer_length-1, keep_negative=1)
 
   Attributes:
     bits: number of bits to perform quantization.

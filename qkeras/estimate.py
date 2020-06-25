@@ -290,9 +290,9 @@ def get_operation_type(layer, output_cache):
 
     # for the input, get tensor input and search the cache that associates
     # the quantizer with a tensor
-    if output_cache.get(layer.input.ref(), None) is not None:
+    if output_cache.get(layer.input.experimental_ref(), None) is not None:
       x_mode, x_bits, x_sign = get_quant_mode(
-          output_cache.get(layer.input.ref()))
+          output_cache.get(layer.input.experimental_ref()))
     else:
       print("cannot determine presently model for {}".format(layer.name))
       return "null", (w_mode, -1), (w_bits, -1), (w_sign, -1)
@@ -311,28 +311,28 @@ def create_activation_cache(model):
   # cache graph tensors' activations
 
   for l in model.layers:
-    output_cache[l.output.ref()] = l
+    output_cache[l.output.experimental_ref()] = l
     if isinstance(l, QActivation):
-      output_cache[l.output.ref()] = l.quantizer
+      output_cache[l.output.experimental_ref()] = l.quantizer
     elif isinstance(l, InputLayer):
       # assume the input is 8-bit positive value
-      output_cache[l.output.ref()] = quantized_relu(8, 0)
+      output_cache[l.output.experimental_ref()] = quantized_relu(8, 0)
     elif l.__class__.__name__ in [
         "QDense", "QConv2D", "QConv1D", "QDepthwiseConv2D"
     ]:
-      output_cache[l.output.ref()] = l.activation
+      output_cache[l.output.experimental_ref()] = l.activation
     else:
       if isinstance(l.input, list):
         # right now, we just get the first one - we assume this is the leading
         # one.
         all_q = [
-            output_cache.get(l.input[i].ref())
+            output_cache.get(l.input[i].experimental_ref())
             for i in range(len(l.input))
         ]
         q = all_q[0]
       else:
-        q = output_cache.get(l.input.ref(), None)
-      output_cache[l.output.ref()] = q
+        q = output_cache.get(l.input.experimental_ref(), None)
+      output_cache[l.output.experimental_ref()] = q
       if q is None:
         raise ValueError("Unknown operation in {}".format(l.name))
 
@@ -354,12 +354,12 @@ def extract_model_operations(model):
 
     if isinstance(layer.input, list):
       input_shape = [
-          cache_o.get(layer.input[i].ref(),
+          cache_o.get(layer.input[i].experimental_ref(),
                       layer.input[i].get_shape())
           for i in range(len(layer.input))
       ]
     else:
-      input_shape = cache_o.get(layer.input.ref(),
+      input_shape = cache_o.get(layer.input.experimental_ref(),
                                 layer.input.get_shape())
 
     # Check if the inputs are a list of Dimensions
@@ -374,7 +374,7 @@ def extract_model_operations(model):
 
     output_shape = layer.compute_output_shape(input_shape)
 
-    cache_o[layer.output.ref()] = output_shape
+    cache_o[layer.output.experimental_ref()] = output_shape
 
     if layer.__class__.__name__ not in ["QDense", "QConv2D", "QConv1D",
                                         "QDepthwiseConv2D"]:

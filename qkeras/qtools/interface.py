@@ -98,7 +98,7 @@ def populate_quantizer(quantizer, shape=None, implemented_as=None):
     # quantized_bits
     elif quantizer.mode == 0:
       mydict["bits"] = quantizer.bits
-      mydict["int_bits"] = quantizer.int_bits
+      mydict["int_bits"] = quantizer.int_bits + quantizer.is_signed
       mydict["is_signed"] = quantizer.is_signed
 
     if shape is not None:
