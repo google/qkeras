@@ -44,6 +44,7 @@ from qkeras import QActivation
 from qkeras import QSimpleRNN
 from qkeras import QLSTM
 from qkeras import QGRU
+from qkeras import QBidirectional
 from qkeras import QDense
 from qkeras import quantized_bits
 from qkeras import quantized_tanh
@@ -192,11 +193,10 @@ def test_network_quantization(rnn):
   'rnn, all_weights_signature, expected_output',
   [
     (
-      SimpleRNN,
+      QSimpleRNN,
       np.array([
-        -2.3938613 , -4.0119915 ,  0.        ,  0.12281364, -5.739211  ,
-         0.        , -0.7584611 ,  0.        , -2.3938613 , -4.0119915 ,
-         0.        ,  0.12281364, -5.739211  ,  0.        ], dtype=np.float32),
+        -2.6562500e+00, -4.3466797e+00,  8.6736174e-19,  6.2548828e-01,
+        -6.0751953e+00,  8.6736174e-19, -7.5000000e-01,  0.0], dtype=np.float32),
       np.array([
         [0.0851 , 0.1288 , 0.586  , 0.2002 ],
         [0.1044 , 0.1643 , 0.7217 , 0.00978],
@@ -208,51 +208,49 @@ def test_network_quantization(rnn):
         [0.27   , 0.1945 , 0.4841 , 0.05124],
         [0.12115, 0.05722, 0.728  , 0.0938 ],
         [0.2864 , 0.1262 , 0.339  , 0.2484 ]], dtype=np.float16)
-    ), 
+    ),
     (
-      LSTM,
+      QLSTM,
       np.array([
-        -2.3938613 , -4.0119915 ,  0.        ,  0.12281364, -5.739211  ,
-         0.        , -0.7584611 ,  0.        , -2.3938613 , -4.0119915 ,
-         0.        ,  0.12281364, -5.739211  ,  0.        ], dtype=np.float32),
+        -4.1406555,  3.2921143, 16.       ,  7.0236816,  4.1237793,
+        16.       , -0.75     ,  0.       ], dtype=np.float32),
       np.array([
-        [0.0851 , 0.1288 , 0.586  , 0.2002 ],
-        [0.1044 , 0.1643 , 0.7217 , 0.00978],
-        [0.04135, 0.0537 , 0.8706 , 0.03455],
-        [0.03354, 0.0489 , 0.889  , 0.02852],
-        [0.04358, 0.05246, 0.7563 , 0.1478 ],
-        [0.03403, 0.0743 , 0.4177 , 0.4739 ],
-        [0.0859 , 0.1567 , 0.3972 , 0.36   ],
-        [0.27   , 0.1945 , 0.4841 , 0.05124],
-        [0.12115, 0.05722, 0.728  , 0.0938 ],
-        [0.2864 , 0.1262 , 0.339  , 0.2484 ]], dtype=np.float16)
-    ), 
+        [0.3066, 0.2026, 0.2335, 0.2573],
+        [0.1796, 0.283 , 0.27  , 0.2673],
+        [0.1702, 0.2144, 0.308 , 0.3074],
+        [0.2216, 0.2153, 0.286 , 0.277 ],
+        [0.3533, 0.1725, 0.2322, 0.2421],
+        [0.2764, 0.2153, 0.227 , 0.2812],
+        [0.2786, 0.1711, 0.2861, 0.2642],
+        [0.2493, 0.1882, 0.3098, 0.2527],
+        [0.1926, 0.1779, 0.3137, 0.316 ],
+        [0.263 , 0.1783, 0.3086, 0.2502]], dtype=np.float16)
+    ),
     (
-      GRU,
+      QGRU,
       np.array([
-        -2.3938613 , -4.0119915 ,  0.        ,  0.12281364, -5.739211  ,
-         0.        , -0.7584611 ,  0.        , -2.3938613 , -4.0119915 ,
-         0.        ,  0.12281364, -5.739211  ,  0.        ], dtype=np.float32),
+        -6.7578125e-01,  3.6837769e-01,  2.6020852e-18,  4.1682129e+00,
+        -7.5769043e-01,  2.6020852e-18, -7.5000000e-01,  0.0], dtype=np.float32),
       np.array([
-        [0.0851 , 0.1288 , 0.586  , 0.2002 ],
-        [0.1044 , 0.1643 , 0.7217 , 0.00978],
-        [0.04135, 0.0537 , 0.8706 , 0.03455],
-        [0.03354, 0.0489 , 0.889  , 0.02852],
-        [0.04358, 0.05246, 0.7563 , 0.1478 ],
-        [0.03403, 0.0743 , 0.4177 , 0.4739 ],
-        [0.0859 , 0.1567 , 0.3972 , 0.36   ],
-        [0.27   , 0.1945 , 0.4841 , 0.05124],
-        [0.12115, 0.05722, 0.728  , 0.0938 ],
-        [0.2864 , 0.1262 , 0.339  , 0.2484 ]], dtype=np.float16)
+        [0.2764, 0.1531, 0.3047, 0.2659],
+        [0.2012, 0.1885, 0.3638, 0.2466],
+        [0.2024, 0.1703, 0.3718, 0.2554],
+        [0.2451, 0.1581, 0.294 , 0.3027],
+        [0.3987, 0.117 , 0.2343, 0.25  ],
+        [0.2834, 0.1829, 0.2734, 0.2603],
+        [0.2905, 0.1345, 0.3003, 0.2747],
+        [0.2954, 0.1481, 0.2744, 0.2822],
+        [0.2336, 0.1282, 0.334 , 0.3042],
+        [0.2396, 0.1595, 0.3093, 0.2915]], dtype=np.float16)
     )
   ])
-def test_bidirectional_wrapper(rnn, all_weights_signature, expected_output):
+def test_qbidirectional(rnn, all_weights_signature, expected_output):
   K.set_learning_phase(0)
   np.random.seed(22)
   tf.random.set_seed(22)
 
   x = x_in = Input((2,4), name='input')
-  x = Bidirectional(QSimpleRNN(
+  x = QBidirectional(rnn(
     16,
     activation="quantized_po2(8)",
     kernel_quantizer="quantized_po2(8)",
@@ -287,14 +285,12 @@ def test_bidirectional_wrapper(rnn, all_weights_signature, expected_output):
   os.close(fd)
   os.remove(fname)
 
+  # apply quantizer to weights
+  model_save_quantized_weights(model)
+
   all_weights = []
 
-  all_layers = model.layers + [
-    model.layers[1].forward_layer,
-    model.layers[1].backward_layer
-  ]
-
-  for layer in all_layers:
+  for layer in model.layers:
     for i, weights in enumerate(layer.get_weights()):
 
       w = np.sum(weights)

@@ -53,6 +53,7 @@ from .qrecurrent import QLSTM
 from .qrecurrent import QLSTMCell
 from .qrecurrent import QGRU
 from .qrecurrent import QGRUCell
+from .qrecurrent import QBidirectional
 from .qconvolutional import QDepthwiseConv2D
 from .qnormalization import QBatchNormalization
 from .quantizers import binary
@@ -73,6 +74,7 @@ from .safe_eval import safe_eval
 REGISTERED_LAYERS = [
     "QActivation", "Activation",
     "QDense", "QConv1D", "QConv2D", "QDepthwiseConv2D",
+    "QSimpleRNN", "QLSTM", "QGRU", "QBidirectional",
     "QBatchNormalization"
 ]
 
@@ -283,6 +285,41 @@ def model_quantize(model,
   config = jm["config"]
   layers = config["layers"]
 
+  def quantize_rnn(layer):
+    q_name = "Q" + layer["class_name"]
+    # needs to add kernel, recurrent bias quantizers
+    kernel_quantizer = get_config(
+        quantizer_config, layer, q_name, "kernel_quantizer")
+    recurrent_quantizer = get_config(
+        quantizer_config, layer, q_name, "recurrent_quantizer")
+    bias_quantizer = get_config(
+        quantizer_config, layer, q_name, "bias_quantizer")
+
+    # this is to avoid unwanted transformations
+    if kernel_quantizer is None:
+      return
+
+    layer["class_name"] = q_name
+
+    layer_config["kernel_quantizer"] = kernel_quantizer
+    layer_config["recurrent_quantizer"] = recurrent_quantizer
+    layer_config["bias_quantizer"] = bias_quantizer
+
+    # if activation is present, add activation here
+    activation = get_config(
+        quantizer_config, layer, q_name, "activation_quantizer")
+    if activation:
+      layer_config["activation"] = activation
+    else:
+      quantize_activation(layer_config, activation_bits)
+
+    # if recurrent activation is present, add activation here
+    if layer["class_name"] in ["LSTM", "GRU"]:
+      recurrent_activation = get_config(
+          quantizer_config, layer, q_name, "recurrent_activation_quantizer")
+      if recurrent_activation:
+        layer_config["recurrent_activation"] = recurrent_activation
+
   for layer in layers:
     layer_config = layer["config"]
 
@@ -367,39 +404,12 @@ def model_quantize(model,
         quantize_activation(layer_config, activation_bits)
 
     elif layer["class_name"] in ["SimpleRNN", "LSTM", "GRU"]:
-      q_name = "Q" + layer["class_name"]
-      # needs to add kernel, recurrent bias quantizers
-      kernel_quantizer = get_config(
-          quantizer_config, layer, q_name, "kernel_quantizer")
-      recurrent_quantizer = get_config(
-          quantizer_config, layer, q_name, "recurrent_quantizer")
-      bias_quantizer = get_config(
-          quantizer_config, layer, q_name, "bias_quantizer")
+      quantize_rnn(layer)
 
-      # this is to avoid unwanted transformations
-      if kernel_quantizer is None:
-        continue
-
-      layer["class_name"] = q_name
-
-      layer_config["kernel_quantizer"] = kernel_quantizer
-      layer_config["recurrent_quantizer"] = recurrent_quantizer
-      layer_config["bias_quantizer"] = bias_quantizer
-
-      # if activation is present, add activation here
-      activation = get_config(
-          quantizer_config, layer, q_name, "activation_quantizer")
-      if activation:
-        layer_config["activation"] = activation
-      else:
-        quantize_activation(layer_config, activation_bits)
-
-      # if recurrent activation is present, add activation here
-      if layer["class_name"] in ["LSTM", "GRU"]:
-        recurrent_activation = get_config(
-            quantizer_config, layer, q_name, "recurrent_activation_quantizer")
-        if recurrent_activation:
-          layer_config["recurrent_activation"] = recurrent_activation
+    elif layer['class_name'] == 'QBidirectional':
+      quantize_rnn(layer['layer'])
+      if "backward_layer" in layer:
+        quantize_rnn(layer['backward_layer'])
 
     elif layer["class_name"] == "Activation":
       quantizer = get_config(quantizer_config, layer, "QActivation")
@@ -532,6 +542,7 @@ def _add_supported_quantized_objects(custom_objects):
   custom_objects["QLSTM"] = QLSTM
   custom_objects["QGRUCell"] = QGRUCell
   custom_objects["QGRU"] = QGRU
+  custom_objects["QBidirectional"] = QBidirectional
   custom_objects["QDepthwiseConv2D"] = QDepthwiseConv2D
   custom_objects["QActivation"] = QActivation
   custom_objects["QBatchNormalization"] = QBatchNormalization
@@ -650,12 +661,6 @@ def print_model_sparsity(model):
           ])))
   print("\n")
 
-# layers we are interested in debugging
-_debug_layers = [
-        "QActivation", "QBatchNormalization", "Activation", "QDense",
-        "QConv1D", "QConv2D", "QDepthwiseConv2D", "QSimpleRNN", "QLSTM", "QGRU"
-    ]
-
 def quantized_model_debug(model, X_test, plot=False):
   """Debugs and plots model weights and activations."""
   outputs = []
@@ -686,7 +691,8 @@ def quantized_model_debug(model, X_test, plot=False):
     if alpha != 1.0:
       print(" a[{: 8.4f} {:8.4f}]".format(np.min(alpha), np.max(alpha)))
     if plot and layer.__class__.__name__ in [
-      "QConv1D", "QConv2D", "QDense", "QActivation", "QSimpleRNN", "QLSTM", "QGRU"
+      "QConv1D", "QConv2D", "QDense", "QActivation", 
+      "QSimpleRNN", "QLSTM", "QGRU", "QBidirectional"
     ]:
       plt.hist(p.flatten(), bins=25)
       plt.title(layer.name + "(output)")

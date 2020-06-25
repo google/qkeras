@@ -29,6 +29,7 @@ from tensorflow.keras.layers import SimpleRNNCell
 from tensorflow.keras.layers import LSTMCell
 from tensorflow.keras.layers import GRUCell
 from tensorflow.keras.layers import RNN
+from tensorflow.keras.layers import Bidirectional
 from tensorflow.python.util import nest
 from tensorflow.python.keras.engine.input_spec import InputSpec
 from tensorflow.python.ops import array_ops
@@ -188,7 +189,7 @@ class QSimpleRNNCell(SimpleRNNCell):
 
 class QSimpleRNN(RNN, PrunableLayer):
   """
-  Cell class for the QSimpleRNN layer.
+  Class for the QSimpleRNN layer.
 
   Most of these parameters follow the implementation of SimpleRNN in
   Keras, with the exception of kernel_quantizer, recurrent_quantizer,
@@ -614,7 +615,7 @@ class QLSTMCell(LSTMCell):
 
 class QLSTM(RNN, PrunableLayer):
   """
-  Cell class for the QLSTM layer.
+  Class for the QLSTM layer.
 
   Most of these parameters follow the implementation of LSTM in
   Keras, with the exception of kernel_quantizer, recurrent_quantizer,
@@ -1086,7 +1087,7 @@ class QGRUCell(GRUCell):
 
 class QGRU(RNN, PrunableLayer):
   """
-  Cell class for the QGRU layer.
+  Class for the QGRU layer.
 
   Most of these parameters follow the implementation of GRU in
   Keras, with the exception of kernel_quantizer, recurrent_quantizer,
@@ -1323,3 +1324,21 @@ class QGRU(RNN, PrunableLayer):
     if 'implementation' in config and config['implementation'] == 0:
       config['implementation'] = 1
     return cls(**config)
+
+
+class QBidirectional(Bidirectional):
+  """
+  Class for the QBidirecitonal wrapper.
+
+  Most of these parameters follow the implementation of Bidirectional in
+  Keras.
+
+  We refer the reader to the documentation of Bidirectional in Keras for the
+  other parameters.
+
+  """
+  def get_quantizers(self):
+    """
+    Returns quantizers in the order they were created.
+    """
+    return self.forward_layer.get_quantizers() + self.backward_layer.get_quantizers()
