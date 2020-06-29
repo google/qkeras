@@ -159,11 +159,10 @@ def test_qrnn(rnn, all_weights_signature, expected_output):
 
   all_weights = np.array(all_weights)
 
-  # test_qnetwork_weight_quantization:
   assert all_weights.size == all_weights_signature.size
   assert np.all(all_weights == all_weights_signature)
 
-  # test_qnetwork_forward:
+  # test forward:
   inputs = 2 * np.random.rand(10, 2, 4)
   actual_output = model.predict(inputs).astype(np.float16)
   assert_allclose(actual_output, expected_output, rtol=1e-4)
@@ -298,11 +297,10 @@ def test_qbidirectional(rnn, all_weights_signature, expected_output):
 
   all_weights = np.array(all_weights)
 
-  # test_qnetwork_weight_quantization: TODO
   assert all_weights.size == all_weights_signature.size
   assert np.all(all_weights == all_weights_signature)
 
-  # test_qnetwork_forward:  
+  # test forward:  
   inputs = 2 * np.random.rand(10, 2, 4)
   actual_output = model.predict(inputs).astype(np.float16)
   assert_allclose(actual_output, expected_output, rtol=1e-4)
