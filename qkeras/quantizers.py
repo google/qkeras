@@ -261,6 +261,8 @@ class BaseQuantizer(object):
   def __init__(self):
     pass
 
+  def _set_trainable_parameter(self):
+    pass
 
 class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
   """Quantizes the number to a number of bits.
@@ -1247,9 +1249,6 @@ class quantized_ulaw(BaseQuantizer):  # pylint: disable=invalid-name
                                      (1.0 * self.symmetric) / m, 1.0 - 1.0 / m)
     return xq
 
-  def _set_trainable_parameter(self):
-    pass
-
   def max(self):
     """Get the maximum value that quantized_ulaw can represent."""
     unsigned_bits = self.bits - 1
@@ -1325,9 +1324,6 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
         (_round_through(p, self.use_stochastic_rounding) / m) - 1.0, -1.0 +
         (1.0 * self.symmetric) / m, 1.0 - 1.0 / m)
     return xq
-
-  def _set_trainable_parameter(self):
-    pass
 
   def max(self):
     """Get the maximum value that quantized_tanh can represent."""
@@ -1533,9 +1529,6 @@ class quantized_po2(BaseQuantizer):  # pylint: disable=invalid-name
                                    self.use_stochastic_rounding)
     return x + tf.stop_gradient(-x + x_sign * pow(2.0, x_clipped))
 
-  def _set_trainable_parameter(self):
-    pass
-
   def max(self):
     """Get the maximum value that quantized_po2 can represent."""
     if self.max_value:
@@ -1648,9 +1641,9 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
     x_neg_clipped = _clip_power_of_two(
         K.relu(-x_original) * self.negative_slope,
         self._min_exp, self._max_exp,
-                                   self.max_value,
-                                   self.quadratic_approximation,
-                                   self.use_stochastic_rounding)
+        self.max_value,
+        self.quadratic_approximation,
+        self.use_stochastic_rounding)
 
     return x + tf.stop_gradient(
         -x + tf.where(x_original >= 0, pow(2.0, x_pos_clipped), -pow(2.0, x_neg_clipped)))
@@ -1671,7 +1664,7 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
     if unsigned_bits > 0:
       return min(2**self._min_exp, - self.negative_slope * np.power(2.0, unsigned_bits))
     else:
-    return 2**self._min_exp
+      return 2**self._min_exp
 
 
   @classmethod
