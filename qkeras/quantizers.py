@@ -1171,12 +1171,9 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
                            self.use_stochastic_rounding) * neg_factor, -1.0, 0.0))
     return x_uq + tf.stop_gradient(-x_uq + xq)
 
-  def _set_trainable_parameter(self):
-    pass
-
   def max(self):
     """Get the maximum value that quantized_relu can represent."""
-    unsigned_bits = self.bits - (self.negative_slow != 0.0)
+    unsigned_bits = self.bits - (self.negative_slope!= 0.0)
 
     if unsigned_bits > 0:
       return max(1.0, np.power(2.0, self.integer))
@@ -1190,7 +1187,7 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
 
     unsigned_bits = self.bits - 1
     if unsigned_bits > 0:
-      return min(-1.0, - self.negative_slope * np.power(2.0, self.integer))
+      return min(-0.0, - self.negative_slope * np.power(2.0, self.integer))
     else:
       return -1.0
 
