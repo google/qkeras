@@ -24,6 +24,7 @@ import pytest
 from tensorflow.keras import backend as K
 
 from qkeras import quantized_relu
+from qkeras import quantized_relu_po2
 
 
 @pytest.mark.parametrize(
@@ -76,6 +77,60 @@ def test_quantized_relu(bits, integer, use_sigmoid, negative_slope, test_values,
   x = K.placeholder(ndim=2)
   f = K.function([x], [quantized_relu(bits, integer, use_sigmoid,
                                       negative_slope)(x)])
+  result = f([test_values])[0]
+  assert_allclose(result, expected_values, rtol=1e-05)
+
+
+@pytest.mark.parametrize(
+    'bits, negative_slope, test_values, expected_values',
+    [
+        (
+            8, 2**-4,
+            np.array([[
+                -1.00000000e+00, -9.00000000e-01, -8.00000000e-01, -7.00000000e-01,
+                -6.00000000e-01, -5.00000000e-01, -4.00000000e-01, -3.00000000e-01,
+                -2.00000000e-01, -1.00000000e-01, -2.22044605e-16,  1.00000000e-01,
+                 2.00000000e-01,  3.00000000e-01,  4.00000000e-01,  5.00000000e-01,
+                 6.00000000e-01,  7.00000000e-01,  8.00000000e-01,  9.00000000e-01
+                ]], dtype=K.floatx()),
+            np.array([[
+                -0.0625   , -0.0625   , -0.0625   , -0.03125  , -0.03125  ,
+                -0.03125  , -0.03125  , -0.015625 , -0.015625 , -0.0078125,
+                 0.       ,  0.125    ,  0.25     ,  0.25     ,  0.5      ,
+                 0.5      ,  0.5      ,  0.5      ,  1.       ,  1.       
+                ]], dtype=K.floatx())
+        ),
+        (
+            3, 2**-4,
+            np.array([[
+                -1.00000000e+00, -9.00000000e-01, -8.00000000e-01, -7.00000000e-01,
+                -6.00000000e-01, -5.00000000e-01, -4.00000000e-01, -3.00000000e-01,
+                -2.00000000e-01, -1.00000000e-01, -2.22044605e-16,  1.00000000e-01,
+                 2.00000000e-01,  3.00000000e-01,  4.00000000e-01,  5.00000000e-01,
+                 6.00000000e-01,  7.00000000e-01,  8.00000000e-01,  9.00000000e-01
+                ]], dtype=K.floatx()),
+            np.array([[
+                -0.0625, -0.0625, -0.0625, -0.0625, -0.0625, -0.0625, -0.0625,
+                -0.0625, -0.0625, -0.0625, -0.0625,  0.125 ,  0.25  ,  0.25  ,
+                0.5   ,  0.5   ,  0.5   ,  0.5   ,  1.    ,  1.    
+                ]], dtype=K.floatx())
+        ),
+        (
+            6, 2**-3,
+            np.array([[
+                -3.0, -2.0, -1.0, 0.0, 2.5625, 3.3671875, 1.5625, 1.046875,
+                0.054688, 6.0]], dtype=K.floatx()),
+            np.array([[
+                -5.00000000e-01, -2.50000000e-01, -1.25000000e-01,  2.32830644e-10,
+                2.00000000e+00,  4.00000000e+00,  2.00000000e+00,  1.00000000e+00,
+                6.25000000e-02,  8.00000000e+00   
+                ]], dtype=K.floatx())
+        )
+        
+    ])
+def test_quantized_relu_po2(bits, negative_slope, test_values, expected_values):
+  x = K.placeholder(ndim=2)
+  f = K.function([x], [quantized_relu_po2(bits, negative_slope=negative_slope)(x)])
   result = f([test_values])[0]
   assert_allclose(result, expected_values, rtol=1e-05)
 
