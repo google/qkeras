@@ -1658,7 +1658,7 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
   def min(self):
     """Get the minimum value that quantized_relu_po2 can represent."""
     if self.negative_slope == 0.0:
-      return 0.0
+      return 2**self._min_exp
 
     unsigned_bits = self.bits - 1
     if unsigned_bits > 0:
