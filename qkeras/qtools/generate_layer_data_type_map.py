@@ -566,7 +566,7 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
         input_quantizer = quantizer_factory.make_default_quantizer(
             mode=keras_quantizer)
 
-      update_output_quantizer_in_graph(
+      output_quantizer = update_output_quantizer_in_graph(
           graph, node_id, quantizer_factory, input_quantizer, for_reference)
 
       layer_data_type_map[layer] = LayerDataType(
