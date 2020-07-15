@@ -307,7 +307,6 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
   Returns:
     Function that computes fixed-point quantization with bits.
   """
-
   def __init__(self, bits=8, integer=0, symmetric=0, keep_negative=1,
                alpha=None, use_stochastic_rounding=False):
     super(quantized_bits, self).__init__()
@@ -1646,7 +1645,8 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
         self.use_stochastic_rounding)
 
     return x + tf.stop_gradient(
-        -x + tf.where(x_original >= 0, pow(2.0, x_pos_clipped), -pow(2.0, x_neg_clipped)))
+        -x + tf.where(tf.logical_or(x_original >= 0.0, self.negative_slope == 0.0), 
+        pow(2.0, x_pos_clipped), -pow(2.0, x_neg_clipped)))
 
   def max(self):
     """Get the maximum value that quantized_relu_po2 can represent."""
