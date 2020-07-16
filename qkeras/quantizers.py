@@ -227,6 +227,7 @@ def _round_through(x, use_stochastic_rounding=False, precision=0.5):
     output = x + tf.stop_gradient(-x + tf.round(x))
   return output
 
+
 def _sign_through(x):
   """Computes the sign operation using the straight through estimator."""
 
@@ -263,6 +264,7 @@ class BaseQuantizer(object):
 
   def _set_trainable_parameter(self):
     pass
+
 
 class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
   """Quantizes the number to a number of bits.
@@ -1665,7 +1667,6 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
       return min(2**self._min_exp, - self.negative_slope * np.power(2.0, unsigned_bits))
     else:
       return 2**self._min_exp
-
 
   @classmethod
   def from_config(cls, config):
