@@ -26,6 +26,7 @@ from .qnormalization import * # pylint: disable=wildcard-import
 from .qoctave import *  # pylint: disable=wildcard-import
 from .qpooling import *  # pylint: disable=wildcard-import
 from .safe_eval import *  # pylint: disable=wildcard-import
-#from .qtools import *  # pylint:disable=wildcard-import
+#from .qtools.run_qtools import QTools
+#from .qtools.settings import cfg
 
 __version__ = "0.8.0"
