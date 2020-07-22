@@ -148,6 +148,9 @@ class AutoQKHyperModel(HyperModel):
     self._adjust_limit("DepthwiseConv2D", default)
     self._adjust_limit("Dense", default)
     self._adjust_limit("Activation", default)
+    self._adjust_limit("SimpleRNN", default)
+    self._adjust_limit("LSTM", default)
+    self._adjust_limit("GRU", default)
 
     print("Limit configuration:" + json.dumps(self.limit))
 
@@ -168,7 +171,7 @@ class AutoQKHyperModel(HyperModel):
   def _adjust_limit(self, name, default):
     """Makes sure limit has all the fields required."""
 
-    if isinstance(default, list):
+    if isinstance(default, list): # TODO treat kernel limits for recurrent kernel?
       assert len(default) == 3
     else:
       default = [default] * 3
@@ -187,7 +190,6 @@ class AutoQKHyperModel(HyperModel):
   def _get_quantizer(self, hp, head, layer_name, layer_class_name,
                      i_list=None, is_kernel=True, is_linear=False):
     """Gets a quantizer randomly for kernels/bias/activations."""
-
     # first pick up which group we belong to.
 
     if not i_list:
@@ -207,6 +209,13 @@ class AutoQKHyperModel(HyperModel):
       index = 0
       q_list = list(kq.keys())
       q_dict = kq
+    elif "recurrent" in head: # limit is same as kernel
+      # recurrent kernel quantizers
+      field_name = "recurrent_kernel"
+      kq = self.quantization_config["recurrent_kernel"]
+      index = 0
+      q_list = list(kq.keys())
+      q_dict = kq
     elif "bias" in head:
       # bias quantizers
       field_name = "bias"
@@ -223,7 +232,7 @@ class AutoQKHyperModel(HyperModel):
       q_dict = aq
 
     # we first we search for layer name. If it is not there, we switch to
-    # layer class name.
+    # layer class name. TODO what is this doing exactly?
 
     found_pattern = False
     name = layer_class_name
@@ -314,7 +323,8 @@ class AutoQKHyperModel(HyperModel):
     filter_sweep_enabled = False
     for layer in model.layers:
       if layer.__class__.__name__ in [
-          "Dense", "Conv1D", "Conv2D", "DepthwiseConv2D"]:
+          "Dense", "Conv1D", "Conv2D", "DepthwiseConv2D",
+          "SimpleRNN", "LSTM", "GRU"]:
         kernel_quantizer, bits = self._get_quantizer(
             hp, layer.name + "_kernel", layer.name, layer.__class__.__name__,
             is_kernel=True)
@@ -331,6 +341,11 @@ class AutoQKHyperModel(HyperModel):
               layer.__class__.__name__ in ["Dense", "Conv1D", "Conv2D"]
           ):
             filter_sweep_enabled = True
+
+        if layer.__class__.__name__ in ["SimpleRNN", "LSTM", "GRU"]:
+          recurrent_quantizer, _ = self._get_quantizer(
+            hp, layer.name + "_recurrent", layer.name, layer.__class__.__name__,
+            is_kernel=True)
 
     if self.tune_filters == "block" and filter_sweep_enabled:
       network_filters = hp.Choice(
@@ -352,7 +367,8 @@ class AutoQKHyperModel(HyperModel):
       layer_d = {}
 
       if layer.__class__.__name__ in [
-          "QDense", "QConv1D", "QConv2D", "QDepthwiseConv2D"]:
+          "QDense", "QConv1D", "QConv2D", "QDepthwiseConv2D",
+          "QSimpleRNN", "QLSTM", "QGRU"]:
         weights = layer.get_weights()[0]
         if (
             layer.get_quantizers()[0] and
@@ -363,7 +379,8 @@ class AutoQKHyperModel(HyperModel):
           bits = 8
         fanin.append(np.prod(weights.shape[:-1]) * (8. - bits) / 8.)
       if layer.__class__.__name__ in [
-          "Dense", "Conv1D", "Conv2D", "DepthwiseConv2D"]:
+          "Dense", "Conv1D", "Conv2D", "DepthwiseConv2D",
+          "SimpleRNN", "LSTM", "GRU"]:
         # difference between depthwise and the rest is just the name
         # of the kernel.
         if layer.__class__.__name__ == "DepthwiseConv2D":
@@ -404,6 +421,9 @@ class AutoQKHyperModel(HyperModel):
             layer.filters = max(int(layer.filters * layer_filters), 1)
 
         layer_d[kernel_name] = kernel_quantizer
+
+        if layer.__class__.__name__ in ["SimpleRNN", "LSTM", "GRU"]:
+          layer_d['recurrent_quantizer'] = recurrent_quantizer
 
         # if we use bias, sample quantizer.
         if layer.use_bias:
