@@ -236,7 +236,7 @@ class AutoQKHyperModel(HyperModel):
       q_dict = aq
 
     # we first we search for layer name. If it is not there, we switch to
-    # layer class name.
+    # layer class name. TODO what is this doing exactly?
 
     found_pattern = False
     name = layer_class_name
