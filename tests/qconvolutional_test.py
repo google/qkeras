@@ -36,6 +36,7 @@ from qkeras import QActivation
 from qkeras import QDense
 from qkeras import QConv1D
 from qkeras import QConv2D
+from qkeras import QConv2DTranspose
 from qkeras import QSeparableConv2D
 from qkeras import quantized_bits
 from qkeras import quantized_relu
@@ -217,6 +218,28 @@ def test_qconv1d():
                  [-2.652, -0.467]]]).astype(np.float16)
   assert np.all(p == y)
 
+def test_qconv2dtranspose():
+  x = Input((4, 4, 1,))
+  y = QConv2DTranspose(
+    1,
+    kernel_size=(3, 3),
+    kernel_quantizer=binary(),
+    bias_quantizer=binary(),
+    name='conv2d_tran')(x)
+  model = Model(inputs=x, outputs=y)
+  data = np.ones(shape=(1,4,4,1))
+  kernel = np.ones(shape=(3,3,1,1))
+  bias = np.ones(shape=(1,))
+  model.get_layer('conv2d_tran').set_weights([kernel, bias])
+  actual_output = model.predict(data).astype(np.float16)
+  expected_output = np.array(
+      [ [2., 3., 4., 4., 3., 2.],
+      [3., 5., 7., 7., 5., 3.],
+      [4., 7., 10., 10., 7., 4.],
+      [4., 7., 10., 10., 7., 4.],
+      [3., 5., 7., 7., 5., 3.],
+      [2., 3., 4., 4., 3., 2.] ]).reshape((1,6,6,1)).astype(np.float16)
+  assert_allclose(actual_output, expected_output, rtol=1e-4)
 
 if __name__ == '__main__':
   pytest.main([__file__])
