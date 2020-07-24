@@ -70,6 +70,8 @@ from qkeras.utils import model_quantize
 #   chosen by hypermodel tuner.
 #
 
+REGISTERED_LAYERS = ["Dense", "Conv1D", "Conv2D", "DepthwiseConv2D",
+                     "Activation", "SimpleRNN", "LSTM", "GRU"]
 
 class AutoQKHyperModel(HyperModel):
   """Creates an hypermodel to attempt to quantize a reference model.
@@ -123,6 +125,7 @@ class AutoQKHyperModel(HyperModel):
     # limit is in the format, where default replaces missing values:
     # '{
     #      "Conv2D":[weight,bias,activation],
+    #      "RNN":[weight,bias,recurrent,activation],
     #      "Dense":[weight,bias,activation],
     #      "Activation":[activation]
     #      "default": value
@@ -143,14 +146,7 @@ class AutoQKHyperModel(HyperModel):
       default = self.limit["default"]
 
     # make sure we have entries for every type of layer we process
-    self._adjust_limit("Conv1D", default)
-    self._adjust_limit("Conv2D", default)
-    self._adjust_limit("DepthwiseConv2D", default)
-    self._adjust_limit("Dense", default)
-    self._adjust_limit("Activation", default)
-    self._adjust_limit("SimpleRNN", default)
-    self._adjust_limit("LSTM", default)
-    self._adjust_limit("GRU", default)
+    self._adjust_limit(default)
 
     print("Limit configuration:" + json.dumps(self.limit))
 
@@ -168,20 +164,28 @@ class AutoQKHyperModel(HyperModel):
     else:
       self.quantization_config = quantization_config
 
-  def _adjust_limit(self, name, default):
+  def _adjust_limit(self, default):
     """Makes sure limit has all the fields required."""
+    required_default_limits = 3
+    for name in ["SimpleRNN", "LSTM", "GRU"]:
+        if name in self.limit:
+          required_default_limits = 4
 
-    if isinstance(default, list): # TODO treat kernel limits for recurrent kernel?
-      assert len(default) == 3
+    if isinstance(default, list):
+      assert len(default) == required_default_limits
     else:
-      default = [default] * 3
+      default = [default] * required_default_limits
 
     # we consider that if name is not there, we will ignore the layer
-    if name in self.limit:
-      length = len(self.limit[name])
-      # for Activation we only need one entry.
-      if length < 3 and name != "Activation":
-        self.limit[name] = self.limit[name] + default[length:]
+    for name in REGISTERED_LAYERS:
+      if name in self.limit:
+        length = len(self.limit[name])
+        if length < 4 and name in ["SimpleRNN", "LSTM", "GRU"]:
+          self.limit[name] = self.limit[name] + default[length:]
+        elif length < 3 and name != "Activation":
+          # for Activation we only need one entry. 
+          # No recurrent limit needed for non recurrent layers
+          self.limit[name] = self.limit[name] + default[length:2] + default[-1:]
 
   def _n(self, name, s_list):
     """Creates a unique name for the tuner."""
@@ -213,7 +217,7 @@ class AutoQKHyperModel(HyperModel):
       # recurrent kernel quantizers
       field_name = "recurrent_kernel"
       kq = self.quantization_config["recurrent_kernel"]
-      index = 0
+      index = 2
       q_list = list(kq.keys())
       q_dict = kq
     elif "bias" in head:
@@ -232,7 +236,7 @@ class AutoQKHyperModel(HyperModel):
       q_dict = aq
 
     # we first we search for layer name. If it is not there, we switch to
-    # layer class name. TODO what is this doing exactly?
+    # layer class name.
 
     found_pattern = False
     name = layer_class_name
