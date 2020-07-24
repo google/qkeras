@@ -189,7 +189,8 @@ def test_quantized_relu_po2(bits,
   """Test quantized_po2 function."""
   x = K.placeholder(ndim=2)
   f = K.function([x],
-                 [quantized_relu_po2(bits, max_value, use_stochastic_rounding,
+                 [quantized_relu_po2(bits, max_value, 0,
+                                     use_stochastic_rounding,
                                      quadratic_approximation)(x)])
   result = f([test_values])[0]
   assert_allclose(result, expected_values, rtol=1e-05, atol=1e-05)

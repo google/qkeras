@@ -227,6 +227,7 @@ def _round_through(x, use_stochastic_rounding=False, precision=0.5):
     output = x + tf.stop_gradient(-x + tf.round(x))
   return output
 
+
 def _sign_through(x):
   """Computes the sign operation using the straight through estimator."""
 
@@ -259,6 +260,9 @@ class BaseQuantizer(object):
   """
 
   def __init__(self):
+    pass
+
+  def _set_trainable_parameter(self):
     pass
 
 
@@ -1116,7 +1120,7 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
     bits: number of bits to perform quantization.
     integer: number of bits to the left of the decimal point.
     use_sigmoid: if true, we apply sigmoid to input to normalize it.
-    negative_slope: slope when activaiton < 0, needs to be power of 2.
+    negative_slope: slope when activation < 0, needs to be power of 2.
     use_stochastic_rounding: if true, we perform stochastic rounding.
 
   Returns:
@@ -1176,12 +1180,9 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
                            self.use_stochastic_rounding) * neg_factor, -1.0, 0.0))
     return x_uq + tf.stop_gradient(-x_uq + xq)
 
-  def _set_trainable_parameter(self):
-    pass
-
   def max(self):
     """Get the maximum value that quantized_relu can represent."""
-    unsigned_bits = self.bits - (self.negative_slow != 0.0)
+    unsigned_bits = self.bits - (self.negative_slope!= 0.0)
 
     if unsigned_bits > 0:
       return max(1.0, np.power(2.0, self.integer))
@@ -1195,7 +1196,7 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
 
     unsigned_bits = self.bits - 1
     if unsigned_bits > 0:
-      return min(-1.0, - self.negative_slope * np.power(2.0, self.integer))
+      return min(-0.0, - self.negative_slope * np.power(2.0, self.integer))
     else:
       return -1.0
 
@@ -1254,9 +1255,6 @@ class quantized_ulaw(BaseQuantizer):  # pylint: disable=invalid-name
     xq = m_i * tf.keras.backend.clip(u_law_p, -1.0 +
                                      (1.0 * self.symmetric) / m, 1.0 - 1.0 / m)
     return xq
-
-  def _set_trainable_parameter(self):
-    pass
 
   def max(self):
     """Get the maximum value that quantized_ulaw can represent."""
@@ -1333,9 +1331,6 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
         (_round_through(p, self.use_stochastic_rounding) / m) - 1.0, -1.0 +
         (1.0 * self.symmetric) / m, 1.0 - 1.0 / m)
     return xq
-
-  def _set_trainable_parameter(self):
-    pass
 
   def max(self):
     """Get the maximum value that quantized_tanh can represent."""
@@ -1541,9 +1536,6 @@ class quantized_po2(BaseQuantizer):  # pylint: disable=invalid-name
                                    self.use_stochastic_rounding)
     return x + tf.stop_gradient(-x + x_sign * pow(2.0, x_clipped))
 
-  def _set_trainable_parameter(self):
-    pass
-
   def max(self):
     """Get the maximum value that quantized_po2 can represent."""
     if self.max_value:
@@ -1585,12 +1577,13 @@ class quantized_po2(BaseQuantizer):  # pylint: disable=invalid-name
 
 
 class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
-  """Quantizes x to the closest power of 2 when x > 0 else 2**min_exp.
+  """Quantizes x to the closest power of 2 when x > 0 
 
   Attributes:
     bits: An integer, the bits allocated for the exponent and its sign.
     max_value: default is None, or a non-negative value to put a constraint for
       the max value.
+    negative_slope: slope when activation < 0, needs to be power of 2.
     use_stochastic_rounding: A boolean, default is False, if True, it uses
       stochastic rounding and forces the mean of x to be x statstically.
     quadratic_approximation: A boolean, default is False if True, it forces the
@@ -1600,10 +1593,13 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
   def __init__(self,
                bits=8,
                max_value=None,
+               negative_slope=0,
                use_stochastic_rounding=False,
                quadratic_approximation=False):
+    super(quantized_relu_po2, self).__init__()
     self.bits = bits
     self.max_value = max_value
+    self.negative_slope = negative_slope
     self.use_stochastic_rounding = use_stochastic_rounding
     # if True, round to the exponent for sqrt(x),
     # so that the return value can be divided by two without remainder.
@@ -1614,10 +1610,16 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
     if self.quadratic_approximation:
       self._max_exp = 2 * (self._max_exp // 2)
 
+    assert negative_slope >= 0.0
+    if negative_slope != 0:
+      assert np.mod(np.log2(negative_slope), 1) == 0
+
   def __str__(self):
     flags = [str(self.bits)]
     if self.max_value is not None or self.use_stochastic_rounding:
       flags.append(str(int(self.max_value)))
+    if self.negative_slope:
+      flags.append(str(self.negative_slope))
     if self.use_stochastic_rounding:
       flags.append(str(int(self.use_stochastic_rounding)))
     if self.quadratic_approximation:
@@ -1626,20 +1628,33 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
     return "quantized_relu_po2(" + ",".join(flags) + ")"
 
   def __call__(self, x):
+    x_original = x
+
     if self.max_value is None:
-      x = K.relu(x)
+      x = K.relu(x, self.negative_slope)
     else:
       x = tf.where(
-          x <= self.max_value, K.relu(x), tf.ones_like(x) * self.max_value)
+          x <= self.max_value, 
+          K.relu(x, self.negative_slope), 
+          tf.ones_like(x) * self.max_value)
 
-    x_clipped = _clip_power_of_two(x, self._min_exp, self._max_exp,
-                                   self.max_value,
-                                   self.quadratic_approximation,
-                                   self.use_stochastic_rounding)
-    return x + tf.stop_gradient(-x + pow(2.0, x_clipped))
+    x_pos_clipped = _clip_power_of_two(
+        K.relu(x_original), 
+        self._min_exp, self._max_exp,
+        self.max_value,
+        self.quadratic_approximation,
+        self.use_stochastic_rounding)
 
-  def _set_trainable_parameter(self):
-    pass
+    x_neg_clipped = _clip_power_of_two(
+        K.relu(-x_original) * self.negative_slope,
+        self._min_exp, self._max_exp,
+        self.max_value,
+        self.quadratic_approximation,
+        self.use_stochastic_rounding)
+
+    return x + tf.stop_gradient(
+        -x + tf.where(tf.logical_or(x_original >= 0.0, self.negative_slope == 0.0), 
+        pow(2.0, x_pos_clipped), -pow(2.0, x_neg_clipped)))
 
   def max(self):
     """Get the maximum value that quantized_relu_po2 can represent."""
@@ -1650,7 +1665,14 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
 
   def min(self):
     """Get the minimum value that quantized_relu_po2 can represent."""
-    return 2**self._min_exp
+    if self.negative_slope == 0.0:
+      return 2**self._min_exp
+
+    unsigned_bits = self.bits - 1
+    if unsigned_bits > 0:
+      return min(2**self._min_exp, - self.negative_slope * np.power(2.0, unsigned_bits))
+    else:
+      return 2**self._min_exp
 
   @classmethod
   def from_config(cls, config):
@@ -1673,6 +1695,7 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
     config = {
         "bits": self.bits,
         "max_value": self.max_value,
+        "negative_slope": self.negative_slope,
         "use_stochastic_rounding": self.use_stochastic_rounding,
         "quadratic_approximation": self.quadratic_approximation
     }
