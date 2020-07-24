@@ -65,16 +65,10 @@ def get_auto_range_constraint_initializer(quantizer, constraint, initializer):
       initializer is initializer contraint by value range of quantizer.
   """
   if quantizer is not None:
-    # let's use now symmetric clipping function
-    max_value = max(1, quantizer.max()) if hasattr(quantizer, "max") else 1.0
-    min_value = quantizer.min() if hasattr(quantizer, "min") else -1.0
+    constraint = get_constraint(constraint, quantizer)
+    initializer = get_initializer(initializer)
 
-    if constraint:
-      constraint = constraints.get(constraint)
-
-    constraint = Clip(-max_value, max_value, constraint, quantizer)
-    initializer = initializers.get(initializer)
-    if initializer and initializer.__class__.__name__ not in ["Ones", "Zeros"]:
+    if initializer and initializer.__class__.__name__ not in ["Ones", "Zeros", 'QInitializer']:
       # we want to get the max value of the quantizer that depends
       # on the distribution and scale
       if not (hasattr(quantizer, "alpha") and
@@ -131,6 +125,13 @@ class QInitializer(Initializer):
         "quantizer": self.quantizer,
     }
 
+  @classmethod
+  def from_config(cls, config):
+    config = {
+      'initializer' : get_initializer(config['initializer']),
+      'use_scale'   : config['use_scale'],
+      'quantizer'   : get_quantizer(config['quantizer'])}
+    return cls(**config)
 
 #
 # Because it may be hard to get serialization from activation functions,
@@ -219,6 +220,14 @@ class Clip(Constraint):
   def get_config(self):
     """Returns configuration of constraint class."""
     return {"min_value": self.min_value, "max_value": self.max_value}
+
+  @classmethod
+  def from_config(cls, config):
+    if isinstance(config.get('constraint', None), Clip):
+      config['constraint'] = None
+    config['constraint'] = constraints.get(config.get('constraint', None))
+    config['quantizer'] = get_quantizer(config.get('quantizer', None))
+    return cls(**config)
 
 #
 # Definition of Quantized NN classes. These classes were copied
@@ -368,3 +377,50 @@ class QDense(Dense, PrunableLayer):
 
   def get_prunable_weights(self):
     return [self.kernel]
+
+
+def get_constraint(identifier, quantizer):
+  """Gets the initializer.
+
+  Args:
+    identifier: A constraint, which could be dict, string, or callable function.
+    quantizer: A quantizer class or quantization function
+
+  Returns:
+    A constraint class
+  """
+  if identifier:
+    if isinstance(identifier, dict) and identifier['class_name'] == 'Clip':
+      return Clip.from_config(identifier['config'])
+    else:
+      return constraints.get(identifier)
+  else:
+    max_value = max(1, quantizer.max()) if hasattr(quantizer, "max") else 1.0
+    return Clip(-max_value, max_value, identifier, quantizer)
+
+def get_initializer(identifier):
+  """Gets the initializer.
+
+  Args:
+    identifier: An initializer, which could be dict, string, or callable function.
+
+  Returns:
+    A initializer class
+
+  Raises:
+    ValueError: An error occurred when quantizer cannot be interpreted.
+  """
+  if identifier is None:
+    return None
+  if isinstance(identifier, dict):
+    if identifier['class_name'] == 'QInitializer':
+      return QInitializer.from_config(identifier['config'])
+    else:
+      return initializers.get(identifier)
+  elif isinstance(identifier, six.string_types):
+    return initializers.get(identifier)
+  elif callable(identifier):
+    return identifier
+  else:
+    raise ValueError("Could not interpret initializer identifier: " +
+                     str(identifier))

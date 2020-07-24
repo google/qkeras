@@ -22,6 +22,7 @@ from .estimate import *  # pylint: disable=wildcard-import
 from .qlayers import *  # pylint: disable=wildcard-import
 from .quantizers import *  # pylint: disable=wildcard-import
 from .qconvolutional import *  # pylint: disable=wildcard-import
+from .qrecurrent import *  # pylint: disable=wildcard-import
 from .qnormalization import * # pylint: disable=wildcard-import
 from .qoctave import *  # pylint: disable=wildcard-import
 from .qpooling import *  # pylint: disable=wildcard-import
