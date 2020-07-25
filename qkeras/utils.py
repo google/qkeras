@@ -244,6 +244,15 @@ def model_quantize(model,
     "QBatchNormalization": {}
   }
 
+  In the case of "QBidirectional", we can follow the same form as above.
+  {
+    "QLSTM" : {
+        "kernel_quantizer" : "quantizer string",
+        "bias_quantizer" : "quantizer string",
+        "recurrent_quantizer" : "quantizer string"
+    }
+  }
+
   In the case of "QActivation", we can modify only certain types of
   activations, for example, a "relu". In this case we represent the
   activation name by a dictionary, or we can modify all activations,
