@@ -244,9 +244,11 @@ def model_quantize(model,
     "QBatchNormalization": {}
   }
 
-  In the case of "QBidirectional", we can follow the same form as above.
+  In the case of "QBidirectional", we can follow the same form as above. 
+  The specified configuration will be used for both forward and backwards 
+  layer.
   {
-    "QLSTM" : {
+    "Bidirectional" : {
         "kernel_quantizer" : "quantizer string",
         "bias_quantizer" : "quantizer string",
         "recurrent_quantizer" : "quantizer string"
@@ -416,9 +418,13 @@ def model_quantize(model,
       quantize_rnn(layer)
 
     elif layer['class_name'] == 'Bidirectional':
+      quantizer_config[layer_config['layer']['config']['name']] = quantizer_config['Bidirectional']
       quantize_rnn(layer['config']['layer'])
-      if "backward_layer" in layer:
+      del quantizer_config[layer_config['layer']['config']['name']]
+      if "backward_layer" in layer_config:
+        quantizer_config[layer_config['backward_layer']['config']['name']] = quantizer_config['Bidirectional']
         quantize_rnn(layer['config']['backward_layer'])
+        del quantizer_config[layer_config['backward_layer']['config']['name']]
       layer["class_name"] = "QBidirectional"
 
     elif layer["class_name"] == "Activation":
