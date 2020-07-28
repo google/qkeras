@@ -1378,3 +1378,7 @@ class QBidirectional(Bidirectional):
     Returns quantizers in the order they were created.
     """
     return self.forward_layer.get_quantizers() + self.backward_layer.get_quantizers()
+
+  @property
+  def activation(self):
+    return self.layer.activation
