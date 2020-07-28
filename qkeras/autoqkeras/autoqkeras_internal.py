@@ -71,7 +71,7 @@ from qkeras.utils import model_quantize
 #
 
 REGISTERED_LAYERS = ["Dense", "Conv1D", "Conv2D", "DepthwiseConv2D",
-                     "Activation", "SimpleRNN", "LSTM", "GRU"]
+                     "Activation", "SimpleRNN", "LSTM", "GRU", "Bidirectional"]
 
 class AutoQKHyperModel(HyperModel):
   """Creates an hypermodel to attempt to quantize a reference model.
@@ -166,21 +166,17 @@ class AutoQKHyperModel(HyperModel):
 
   def _adjust_limit(self, default):
     """Makes sure limit has all the fields required."""
-    required_default_limits = 3
-    for name in ["SimpleRNN", "LSTM", "GRU"]:
-        if name in self.limit:
-          required_default_limits = 4
-
     if isinstance(default, list):
-      assert len(default) == required_default_limits
+      assert 3 <= len(default) <= 4 
     else:
-      default = [default] * required_default_limits
+      default = [default] * 3
 
     # we consider that if name is not there, we will ignore the layer
     for name in REGISTERED_LAYERS:
       if name in self.limit:
         length = len(self.limit[name])
-        if length < 4 and name in ["SimpleRNN", "LSTM", "GRU"]:
+        if length < 4 and name in ["SimpleRNN", "LSTM", "GRU", "Bidirectional"]:
+          assert len(default) == 4
           self.limit[name] = self.limit[name] + default[length:]
         elif length < 3 and name != "Activation":
           # for Activation we only need one entry. 
@@ -195,7 +191,6 @@ class AutoQKHyperModel(HyperModel):
                      i_list=None, is_kernel=True, is_linear=False):
     """Gets a quantizer randomly for kernels/bias/activations."""
     # first pick up which group we belong to.
-
     if not i_list:
       i_list = []
 
@@ -328,7 +323,7 @@ class AutoQKHyperModel(HyperModel):
     for layer in model.layers:
       if layer.__class__.__name__ in [
           "Dense", "Conv1D", "Conv2D", "DepthwiseConv2D",
-          "SimpleRNN", "LSTM", "GRU"]:
+          "SimpleRNN", "LSTM", "GRU", "Bidirectional"]:
         kernel_quantizer, bits = self._get_quantizer(
             hp, layer.name + "_kernel", layer.name, layer.__class__.__name__,
             is_kernel=True)
@@ -346,7 +341,7 @@ class AutoQKHyperModel(HyperModel):
           ):
             filter_sweep_enabled = True
 
-        if layer.__class__.__name__ in ["SimpleRNN", "LSTM", "GRU"]:
+        if layer.__class__.__name__ in ["SimpleRNN", "LSTM", "GRU", "Bidirectional"]:
           recurrent_quantizer, _ = self._get_quantizer(
             hp, layer.name + "_recurrent", layer.name, layer.__class__.__name__,
             is_kernel=True)
@@ -372,7 +367,7 @@ class AutoQKHyperModel(HyperModel):
 
       if layer.__class__.__name__ in [
           "QDense", "QConv1D", "QConv2D", "QDepthwiseConv2D",
-          "QSimpleRNN", "QLSTM", "QGRU"]:
+          "QSimpleRNN", "QLSTM", "QGRU", "QBidirectional"]:
         weights = layer.get_weights()[0]
         if (
             layer.get_quantizers()[0] and
@@ -382,9 +377,10 @@ class AutoQKHyperModel(HyperModel):
         else:
           bits = 8
         fanin.append(np.prod(weights.shape[:-1]) * (8. - bits) / 8.)
+        
       if layer.__class__.__name__ in [
           "Dense", "Conv1D", "Conv2D", "DepthwiseConv2D",
-          "SimpleRNN", "LSTM", "GRU"]:
+          "SimpleRNN", "LSTM", "GRU", "Bidirectional"]:
         # difference between depthwise and the rest is just the name
         # of the kernel.
         if layer.__class__.__name__ == "DepthwiseConv2D":
@@ -426,33 +422,42 @@ class AutoQKHyperModel(HyperModel):
 
         layer_d[kernel_name] = kernel_quantizer
 
-        if layer.__class__.__name__ in ["SimpleRNN", "LSTM", "GRU"]:
+        if layer.__class__.__name__ in ["SimpleRNN", "LSTM", "GRU", "Bidirectional"]:
           layer_d['recurrent_quantizer'] = recurrent_quantizer
 
         # if we use bias, sample quantizer.
-        if layer.use_bias:
+        if layer.__class__.__name__ == "Bidirectional":
           layer_d["bias_quantizer"], bits = self._get_quantizer(
               hp, layer.name + "_bias", layer.name, layer.__class__.__name__,
               is_kernel=False)
-
-        # if activation is not linear/softmax we need to process it.
-        if layer.activation is None:
-          is_softmax = False
-          is_linear = False
-        else:
-          if isinstance(layer.activation, six.string_types):
-            is_softmax = layer.activation == "softmax"
-            is_linear = layer.activation == "linear"
-          else:
-            is_softmax = layer.activation.__name__ == "softmax"
-            is_linear = layer.activation.__name__ == "linear"
-
-        if not is_softmax and not is_linear:
           layer_d["activation"], bits = self._get_quantizer(
               hp, layer.name + "_activation", layer.name,
               layer.__class__.__name__, is_kernel=False)
+          q_dict[layer.layer.name] = layer_d 
+        else:
+          if layer.use_bias:
+            layer_d["bias_quantizer"], bits = self._get_quantizer(
+                hp, layer.name + "_bias", layer.name, layer.__class__.__name__,
+                is_kernel=False)
 
-        q_dict[layer.name] = layer_d
+          # if activation is not linear/softmax we need to process it.
+          if layer.activation is None:
+            is_softmax = False
+            is_linear = False
+          else:
+            if isinstance(layer.activation, six.string_types):
+              is_softmax = layer.activation == "softmax"
+              is_linear = layer.activation == "linear"
+            else:
+              is_softmax = layer.activation.__name__ == "softmax"
+              is_linear = layer.activation.__name__ == "linear"
+
+          if not is_softmax and not is_linear:
+            layer_d["activation"], bits = self._get_quantizer(
+                hp, layer.name + "_activation", layer.name,
+                layer.__class__.__name__, is_kernel=False)
+
+          q_dict[layer.name] = layer_d
 
       elif layer.__class__.__name__ in ["Reshape"]:
         # we cannot handle fine tuning filters per layer right now.
