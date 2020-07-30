@@ -433,7 +433,7 @@ class AutoQKHyperModel(HyperModel):
           layer_d["activation"], bits = self._get_quantizer(
               hp, layer.name + "_activation", layer.name,
               layer.__class__.__name__, is_kernel=False)
-          q_dict[layer.layer.name] = layer_d 
+          q_dict[layer.name] = layer_d 
         else:
           if layer.use_bias:
             layer_d["bias_quantizer"], bits = self._get_quantizer(
