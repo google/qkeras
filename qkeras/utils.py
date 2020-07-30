@@ -418,11 +418,13 @@ def model_quantize(model,
       quantize_rnn(layer)
 
     elif layer['class_name'] == 'Bidirectional':
-      quantizer_config[layer_config['layer']['config']['name']] = quantizer_config['Bidirectional']
+      quantizer_config[layer_config['layer']['config']['name']] = get_config(quantizer_config, 
+                                                                        layer, "QBidirectional")
       quantize_rnn(layer['config']['layer'])
       del quantizer_config[layer_config['layer']['config']['name']]
       if "backward_layer" in layer_config:
-        quantizer_config[layer_config['backward_layer']['config']['name']] = quantizer_config['Bidirectional']
+        quantizer_config[layer_config['layer']['config']['name']] = get_config(quantizer_config, 
+                                                                          layer, "QBidirectional")
         quantize_rnn(layer['config']['backward_layer'])
         del quantizer_config[layer_config['backward_layer']['config']['name']]
       layer["class_name"] = "QBidirectional"
