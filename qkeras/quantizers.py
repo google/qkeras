@@ -220,9 +220,9 @@ def _round_through(x, use_stochastic_rounding=False, precision=0.5):
   """
   if use_stochastic_rounding:
     output = tf_utils.smart_cond(
-      K.learning_phase(),
-      lambda: x + tf.stop_gradient(-x + stochastic_round(x, precision)),
-      lambda: x + tf.stop_gradient(-x + tf.round(x)))
+        K.learning_phase(),
+        lambda: x + tf.stop_gradient(-x + stochastic_round(x, precision)),
+        lambda: x + tf.stop_gradient(-x + tf.round(x)))
   else:
     output = x + tf.stop_gradient(-x + tf.round(x))
   return output
@@ -822,9 +822,9 @@ class stochastic_ternary(ternary):  # pylint: disable=invalid-name
       return x + tf.stop_gradient(-x + scale * q)
 
     output = tf_utils.smart_cond(
-      K.learning_phase(),
-      stochastic_output,
-      lambda: ternary.__call__(self, x))
+        K.learning_phase(),
+        stochastic_output,
+        lambda: ternary.__call__(self, x))
     return output
 
   def _set_trainable_parameter(self):
@@ -1061,9 +1061,8 @@ class stochastic_binary(binary):  # pylint: disable=invalid-name
       self.scale = scale
       return x + tf.stop_gradient(-x + scale * q)
 
-    output = tf_utils.smart_cond(K.learning_phase(),
-                                 stochastic_output,
-                                 lambda: binary.__call__(self, x))
+    output = tf_utils.smart_cond(
+        K.learning_phase(), stochastic_output, lambda: binary.__call__(self, x))
     return output
 
   def _set_trainable_parameter(self):
@@ -1408,14 +1407,14 @@ def _clip_power_of_two(x_abs,
     if use_stochastic_rounding:
       if quadratic_approximation:
         x_log2 = tf_utils.smart_cond(
-          K.learning_phase(),
-          lambda: stochastic_round_po2(tf.sqrt(x_abs)),
-          lambda: _round_through(tf.keras.backend.log(tf.sqrt(x_abs)) / log2))
+            K.learning_phase(),
+            lambda: stochastic_round_po2(tf.sqrt(x_abs)),
+            lambda: _round_through(tf.keras.backend.log(tf.sqrt(x_abs)) / log2))
       else:
         x_log2 = tf_utils.smart_cond(
-          K.learning_phase(),
-          lambda: stochastic_round_po2(x_abs),
-          lambda: _round_through(tf.keras.backend.log(x_abs) / log2))
+            K.learning_phase(),
+            lambda: stochastic_round_po2(x_abs),
+            lambda: _round_through(tf.keras.backend.log(x_abs) / log2))
     else:
       if quadratic_approximation:
         x_log2 = _round_through(tf.keras.backend.log(tf.sqrt(x_abs)) / log2)

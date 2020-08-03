@@ -236,9 +236,8 @@ class QBatchNormalization(BatchNormalization, PrunableLayer):
       moving_mean = self.moving_mean
       moving_variance = self.moving_variance
 
-      mean = tf_utils.smart_cond(training,
-                                 lambda: mean,
-                                 lambda: ops.convert_to_tensor(moving_mean))
+      mean = tf_utils.smart_cond(
+          training, lambda: mean, lambda: ops.convert_to_tensor(moving_mean))
       variance = tf_utils.smart_cond(
           training,
           lambda: variance,
