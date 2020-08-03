@@ -68,7 +68,13 @@ def _get_scale(alpha, x, q):
 
   if isinstance(alpha, six.string_types) and "auto" in alpha:
     assert alpha in ["auto", "auto_po2"]
-    x_shape = x.shape.as_list()
+    # in different tensorflow version (e.g., 2.4)
+    # x.shape is a tuple which doesn't have as_list() method
+    try:
+      x_shape = x.shape.as_list()
+    except AttributeError:
+      x_shape = list(x.shape)
+
     len_axis = len(x_shape)
     if len_axis > 1:
       if K.image_data_format() == "channels_last":
@@ -636,7 +642,11 @@ class ternary(BaseQuantizer):  # pylint: disable=invalid-name
       # It is for parameters
       # first, compute which asix corresponds to the channels.
       # TODO(hzhuang): support channels_first
-      len_axis = len(x.shape.as_list())
+      try:
+        len_axis = len(x.shape.as_list())
+      except AttributeError:
+        len_axis = len(list(x.shape))
+
       if len_axis == 1:
         axis = None
       elif K.image_data_format() == "channels_last":
@@ -916,7 +926,10 @@ class binary(BaseQuantizer):  # pylint: disable=invalid-name
       scale = float(self.alpha)
 
     if self.use_stochastic_rounding:
-      len_axis = len(x.shape.as_list())
+      try:
+        len_axis = len(x.shape.as_list())
+      except AttributeError:
+        len_axis = len(list(x.shape))
       if len_axis == 1:
         axis = None
       elif K.image_data_format() == "channels_last":
