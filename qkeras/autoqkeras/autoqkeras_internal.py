@@ -654,7 +654,8 @@ class AutoQKeras:
       output_dir="result", mode="random", transfer_weights=False,
       frozen_layers=None, activation_bits=4, limit=None, tune_filters="none",
       tune_filters_exceptions=None, learning_rate_optimizer=False,
-      layer_indexes=None, quantization_config=None, **tuner_kwargs):
+      layer_indexes=None, quantization_config=None, overwrite=True,
+      **tuner_kwargs):
 
     if not metrics:
       metrics = []
@@ -693,6 +694,8 @@ class AutoQKeras:
           }
       }
 
+    self.overwrite = overwrite
+
     # if we have not created it already, create new one.
     if not isinstance(goal, ForgivingFactor):
       target = forgiving_factor[goal["type"]](**goal["params"])
@@ -720,9 +723,10 @@ class AutoQKeras:
     # right now we create unique results directory
     idx = 0
     name = output_dir
-    while os.path.exists(name):
-      idx += 1
-      name = output_dir + "_" + str(idx)
+    if self.overwrite:
+      while os.path.exists(name):
+        idx += 1
+        name = output_dir + "_" + str(idx)
     output_dir = name
     self.output_dir = output_dir
 
@@ -879,7 +883,7 @@ class AutoQKerasScheduler:
       activation_bits=4, limit=None, tune_filters="none",
       tune_filters_exceptions=None, layer_indexes=None,
       learning_rate_optimizer=False, blocks=None, schedule_block="sequential",
-      quantization_config=None, debug=False, **tuner_kwargs):
+      quantization_config=None, overwrite=True, debug=False, **tuner_kwargs):
 
     if not metrics:
       metrics = []
@@ -938,17 +942,48 @@ class AutoQKerasScheduler:
 
     self.autoqk = None
     self.learning_rate = model.optimizer.lr.numpy()
+    self.overwrite = overwrite
 
     assert self.schedule_block in ["sequential", "cost"]
 
     # right now we create unique results directory
     idx = 0
     name = output_dir
-    while os.path.exists(name):
-      idx += 1
-      name = output_dir + "_" + str(idx)
+    if self.overwrite:
+      while os.path.exists(name):
+        idx += 1
+        name = output_dir + "_" + str(idx)
     output_dir = name
     self.output_dir = output_dir
+    self.next_block = self.get_next_block(overwrite)
+    if self.next_block > 0:
+      strategy = self.tuner_kwargs.get("distribution_strategy", None)
+      if strategy:
+        with strategy.scope():
+          self.model = tf.keras.models.load_model(
+              os.path.join(
+                  self.output_dir, "model_block_" + str(self.next_block - 1)),
+              custom_objects=self.custom_objects)
+      else:
+        self.model = tf.keras.models.load_model(
+            os.path.join(
+                self.output_dir, "model_block_" + str(self.next_block - 1)),
+            custom_objects=self.custom_objects)
+      print("Load model completed")
+
+  def get_next_block(self, overwrite):
+    """Get the next block id to be worked on."""
+    if overwrite:
+      return 0
+    else:
+      try:
+        with tf.io.gfile.GFile(os.path.join(self.output_dir, "scheduler.json"),
+                               "r") as f:
+          scheduler_json = f.read()
+        scheduler = json.loads(scheduler_json)
+        return scheduler["next_block"]
+      except:  # pylint: disable=bare-except
+        return 0
 
   def get_limit(self, model, pattern):
     """Apply patterned group to limit to obtain new limit set."""
@@ -999,6 +1034,10 @@ class AutoQKerasScheduler:
     for i, (pattern, cost) in enumerate(self.retrieve_max_block()):
 
       # now create new limit pattern
+      if not self.overwrite:
+        if i < self.next_block:
+          print("Resume tuning. Skipping block ", i)
+          continue
 
       print("... block cost: {:.0f} / {:.0f}".format(cost, self.reference_size))
 
@@ -1038,6 +1077,7 @@ class AutoQKerasScheduler:
           layer_indexes=self.layer_indexes,
           learning_rate_optimizer=self.learning_rate_optimizer,
           quantization_config=self.quantization_config,
+          overwrite=self.overwrite,
           **self.tuner_kwargs)
 
       self.autoqk.fit(*fit_args, **fit_kwargs)
@@ -1058,6 +1098,15 @@ class AutoQKerasScheduler:
           metrics=self.model.metrics)
 
       frozen_layers = frozen_layers + new_frozen_layers
+
+      filename = self.output_dir + "/model_block_" + str(i)
+      model.save(filename)
+      self.next_block = i + 1
+
+      # update scheduler json
+      with tf.io.gfile.GFile(os.path.join(self.output_dir, "scheduler.json"),
+                             "w") as f:
+        f.write(json.dumps({"next_block": self.next_block}))
 
     if self.debug:
       return
