@@ -29,7 +29,7 @@ from tensorflow.keras import initializers
 from tensorflow.keras import regularizers
 from tensorflow.keras.layers import BatchNormalization
 from tensorflow.python.framework import ops
-from tensorflow.python.keras.utils import tf_utils
+from tensorflow.python.framework import smart_cond as tf_utils
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import nn
@@ -220,7 +220,7 @@ class QBatchNormalization(BatchNormalization, PrunableLayer):
     scale, offset = _broadcast(quantized_gamma), _broadcast(quantized_beta)
 
     # Determine a boolean value for `training`: could be True, False, or None.
-    training_value = tf_utils.constant_value(training)
+    training_value = tf_utils.smart_constant_value(training)
     if training_value == False:  # pylint: disable=singleton-comparison,g-explicit-bool-comparison
       quantized_mean, quantized_variance = (quantized_moving_mean,
                                             quantized_moving_variance)
