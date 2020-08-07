@@ -412,6 +412,13 @@ class quantized_bits(object):  # pylint: disable=invalid-name
     else:
       return -1.0
 
+  def range(self):
+    x = np.asarray(range(2**self.bits), dtype=np.float32)
+    p_and_n = np.where(x >= 2**(self.bits-1), 
+                      (x-2**(self.bits-1)) - 2**(self.bits-1), 
+                      x)
+    return p_and_n * 2**(-self.bits + self.integer + 1)
+
   @classmethod
   def from_config(cls, config):
     return cls(**config)
@@ -1115,6 +1122,10 @@ class quantized_relu(object):  # pylint: disable=invalid-name
   def min(self):
     """Get the minimum value that quantized_relu can represent."""
     return 0.0
+
+  def range(self):
+    x = np.asarray(range(2**self.bits))
+    return x * 2**(-self.bits + self.integer)
 
   @classmethod
   def from_config(cls, config):
