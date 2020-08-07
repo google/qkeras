@@ -1136,6 +1136,10 @@ class quantized_relu(object):  # pylint: disable=invalid-name
     x = np.asarray(range(2**self.bits))
     return x * 2**(-self.bits + self.integer)
 
+  def range(self):
+    x = np.asarray(range(2**self.bits))
+    return x * 2**(-self.bits + self.integer)
+
   @classmethod
   def from_config(cls, config):
     return cls(**config)
