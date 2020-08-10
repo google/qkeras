@@ -30,7 +30,8 @@ from .quantizers import get_quantizer
 
 
 
-def create_indirect_indexes(model, compile_config, activation_indexes, bits, X_train, y_train, X_test, y_test):
+def create_indirect_indexes(model, compile_config, activation_indexes, 
+                            bits, X_train, y_train, X_test, y_test):
   assert len(activation_indexes) > 0
   
   km_models = [KMeans(2**bits)] * len(activation_indexes)
@@ -55,8 +56,10 @@ def create_indirect_indexes(model, compile_config, activation_indexes, bits, X_t
     x = model.predict(x)
     km = km_models[i]
     km.fit(x.flatten().reshape(-1, 1))
-    km.cluster_centers_ = model.layers[-1].quantizer(km.cluster_centers_).numpy()
-    cb_tables[i] = create_in_out_table(km, model.layers[-1].quantizer)
+    quantizer = getattr(model.layers[-1], 'quantizer', 
+                    getattr(model.layers[-1], 'activation'))
+    km.cluster_centers_ = quantizer(km.cluster_centers_).numpy()
+    cb_tables[i] = create_in_out_table(km, quantizer)
     
     
   x = X_test
