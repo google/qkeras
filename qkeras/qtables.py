@@ -78,6 +78,44 @@ def create_in_out_table(km, quantizer):
   return [in_table, out_table]
 
 
+def codebook_embeddings(embeddings, bits, quantizer, tier=2):
+  from tqdm import tqdm
+  if tier == 1:
+    cluster_embeddings = np.zeros(embeddings.shape)
+    for i in tqdm(range(cluster_embeddings.shape[0])):
+      km = KMeans(2**bits)
+      km.fit(embeddings[i, :].reshape(-1, 1))
+      cluster_embeddings[i, :] = km.cluster_centers_[km.predict(embeddings[i,:].reshape(-1, 1))].flatten()
+      
+    assert np.unique(cluster_embeddings[32]).shape[0] <= 2**bits
+    return cluster_embeddings
+  else:
+    cluster_cls_embeddings = embeddings.copy()
+    km1 = KMeans(2**bits)
+    km1.fit(embeddings)
+    tier1 = km1.predict(embeddings)
+
+    tier2 = [0]*2**bits
+    block_sizes = [0]*2**bits
+    for block_label in tqdm(range(2**bits)):
+      mask = block_label == tier1
+      indices = np.arange(cluster_cls_embeddings.shape[0])[mask]
+      block = cluster_cls_embeddings[mask]
+      
+      km2 = KMeans(2**bits)
+      km2.fit(block.flatten().reshape(-1, 1))
+      tier2[block_label] = km2
+      block_sizes[block_label] = block.shape[0]
+      
+      for i in indices:
+        cluster_cls_embeddings[i, :] = km2.cluster_centers_[km2.predict(
+                                                      cluster_cls_embeddings[i,:].reshape(-1, 1))].flatten()
+        
+    assert np.unique(cluster_cls_embeddings[320]).shape[0] <= 2**bits # could be less since it is block based 
+    return cluster_cls_embeddings
+  
+
+
 class QCodebookEmbedding(Embedding):
     """
     Post training quantization
