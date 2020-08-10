@@ -84,15 +84,18 @@ def create_in_out_table(km, quantizer):
 def codebook_embeddings(embeddings, bits, quantizer, tier=2):
   from tqdm import tqdm
   if tier == 1:
+    print('Tier 1 clustering...')
     cluster_embeddings = np.zeros(embeddings.shape)
     for i in tqdm(range(cluster_embeddings.shape[0])):
       km = KMeans(2**bits)
       km.fit(embeddings[i, :].reshape(-1, 1))
+      km.cluster_centers_ = quantizer(km.cluster_centers_).numpy()
       cluster_embeddings[i, :] = km.cluster_centers_[km.predict(embeddings[i,:].reshape(-1, 1))].flatten()
       
     assert np.unique(cluster_embeddings[32]).shape[0] <= 2**bits
-    return cluster_embeddings
+    return km_models, cluster_embeddings
   else:
+    print('Tier 2 clustering...')
     cluster_cls_embeddings = embeddings.copy()
     km1 = KMeans(2**bits)
     km1.fit(embeddings)
@@ -107,6 +110,7 @@ def codebook_embeddings(embeddings, bits, quantizer, tier=2):
       
       km2 = KMeans(2**bits)
       km2.fit(block.flatten().reshape(-1, 1))
+      km2.cluster_centers_ = quantizer(km2.cluster_centers_).numpy()
       tier2[block_label] = km2
       block_sizes[block_label] = block.shape[0]
       
@@ -115,7 +119,7 @@ def codebook_embeddings(embeddings, bits, quantizer, tier=2):
                                                       cluster_cls_embeddings[i,:].reshape(-1, 1))].flatten()
         
     assert np.unique(cluster_cls_embeddings[320]).shape[0] <= 2**bits # could be less since it is block based 
-    return cluster_cls_embeddings
+    return tier2, cluster_cls_embeddings
   
 
 
