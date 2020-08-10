@@ -26,7 +26,7 @@ from tensorflow.keras.layers import Layer, Embedding, Input
 from tensorflow.keras.models import Model
 from sklearn.cluster import KMeans
 
-from quantizers import get_quantizer
+from .quantizers import get_quantizer
 
 
 
