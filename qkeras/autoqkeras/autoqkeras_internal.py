@@ -71,7 +71,11 @@ from qkeras.utils import model_quantize
 #
 
 REGISTERED_LAYERS = ["Dense", "Conv1D", "Conv2D", "DepthwiseConv2D",
-                     "Activation", "SimpleRNN", "LSTM", "GRU", "Bidirectional"]
+                     "SimpleRNN", "LSTM", "GRU", "Bidirectional"]
+
+Q_LAYERS = list(map(lambda x : 'Q' + x, REGISTERED_LAYERS))
+
+SEQUENCE_LAYERS = ["SimpleRNN", "LSTM", "GRU", "Bidirectional"]
 
 class AutoQKHyperModel(HyperModel):
   """Creates an hypermodel to attempt to quantize a reference model.
@@ -175,13 +179,17 @@ class AutoQKHyperModel(HyperModel):
     for name in REGISTERED_LAYERS:
       if name in self.limit:
         length = len(self.limit[name])
-        if length < 4 and name in ["SimpleRNN", "LSTM", "GRU", "Bidirectional"]:
+        if length < 4 and name in SEQUENCE_LAYERS:
           assert len(default) == 4
           self.limit[name] = self.limit[name] + default[length:]
-        elif length < 3 and name != "Activation":
-          # for Activation we only need one entry. 
+        elif length < 3:
           # No recurrent limit needed for non recurrent layers
           self.limit[name] = self.limit[name] + default[length:2] + default[-1:]
+    
+    if 'Activation' in self.limit:
+      assert len(self.limit['Activation']) == 1
+    else:
+      self.limit['Activation'] = default[-1]
 
   def _n(self, name, s_list):
     """Creates a unique name for the tuner."""
@@ -190,7 +198,9 @@ class AutoQKHyperModel(HyperModel):
   def _get_quantizer(self, hp, head, layer_name, layer_class_name,
                      i_list=None, is_kernel=True, is_linear=False):
     """Gets a quantizer randomly for kernels/bias/activations."""
+
     # first pick up which group we belong to.
+
     if not i_list:
       i_list = []
 
@@ -321,9 +331,7 @@ class AutoQKHyperModel(HyperModel):
     kernel_quantizer_dict = {}
     filter_sweep_enabled = False
     for layer in model.layers:
-      if layer.__class__.__name__ in [
-          "Dense", "Conv1D", "Conv2D", "DepthwiseConv2D",
-          "SimpleRNN", "LSTM", "GRU", "Bidirectional"]:
+      if layer.__class__.__name__ in REGISTERED_LAYERS:
         kernel_quantizer, bits = self._get_quantizer(
             hp, layer.name + "_kernel", layer.name, layer.__class__.__name__,
             is_kernel=True)
@@ -341,7 +349,7 @@ class AutoQKHyperModel(HyperModel):
           ):
             filter_sweep_enabled = True
 
-        if layer.__class__.__name__ in ["SimpleRNN", "LSTM", "GRU", "Bidirectional"]:
+        if layer.__class__.__name__ in SEQUENCE_LAYERS:
           recurrent_quantizer, _ = self._get_quantizer(
             hp, layer.name + "_recurrent", layer.name, layer.__class__.__name__,
             is_kernel=True)
@@ -365,9 +373,7 @@ class AutoQKHyperModel(HyperModel):
 
       layer_d = {}
 
-      if layer.__class__.__name__ in [
-          "QDense", "QConv1D", "QConv2D", "QDepthwiseConv2D",
-          "QSimpleRNN", "QLSTM", "QGRU", "QBidirectional"]:
+      if layer.__class__.__name__ in Q_LAYERS:
         weights = layer.get_weights()[0]
         if (
             layer.get_quantizers()[0] and
@@ -378,9 +384,7 @@ class AutoQKHyperModel(HyperModel):
           bits = 8
         fanin.append(np.prod(weights.shape[:-1]) * (8. - bits) / 8.)
         
-      if layer.__class__.__name__ in [
-          "Dense", "Conv1D", "Conv2D", "DepthwiseConv2D",
-          "SimpleRNN", "LSTM", "GRU", "Bidirectional"]:
+      if layer.__class__.__name__ in REGISTERED_LAYERS:
         # difference between depthwise and the rest is just the name
         # of the kernel.
         if layer.__class__.__name__ == "DepthwiseConv2D":
@@ -422,7 +426,7 @@ class AutoQKHyperModel(HyperModel):
 
         layer_d[kernel_name] = kernel_quantizer
 
-        if layer.__class__.__name__ in ["SimpleRNN", "LSTM", "GRU", "Bidirectional"]:
+        if layer.__class__.__name__ in SEQUENCE_LAYERS:
           layer_d['recurrent_quantizer'] = recurrent_quantizer
 
         # if we use bias, sample quantizer.
