@@ -296,7 +296,7 @@ def model_quantize(model,
   config = jm["config"]
   layers = config["layers"]
 
-  def quantize_rnn(layer):
+  def quantize_rnn(layer, quantizer_config):
     q_name = "Q" + layer["class_name"]
     # needs to add kernel, recurrent bias quantizers
     kernel_quantizer = get_config(
@@ -414,18 +414,18 @@ def model_quantize(model,
         quantize_activation(layer_config, activation_bits)
 
     elif layer["class_name"] in ["SimpleRNN", "LSTM", "GRU"]:
-      quantize_rnn(layer)
+      quantize_rnn(layer, quantizer_config)
 
     elif layer['class_name'] == 'Bidirectional':
-      quantizer_config[layer_config['layer']['config']['name']] = get_config(quantizer_config, 
-                                                                        layer, "QBidirectional")
-      quantize_rnn(layer['config']['layer'])
-      del quantizer_config[layer_config['layer']['config']['name']]
+      forward_layer_quantizer_config = { 
+        layer_config['layer']['config']['name'] : get_config(quantizer_config, 
+                                                              layer, "QBidirectional") }
+      quantize_rnn(layer['config']['layer'], forward_layer_quantizer_config)
       if "backward_layer" in layer_config:
-        quantizer_config[layer_config['backward_layer']['config']['name']] = get_config(quantizer_config, 
-                                                                          layer, "QBidirectional")
-        quantize_rnn(layer['config']['backward_layer'])
-        del quantizer_config[layer_config['backward_layer']['config']['name']]
+        backward_layer_quantizer_config = { 
+          layer_config['backward_layer']['config']['name'] : get_config(quantizer_config, 
+                                                                layer, "QBidirectional") }
+        quantize_rnn(layer['config']['backward_layer'], backward_layer_quantizer_config)
       layer["class_name"] = "QBidirectional"
 
     elif layer["class_name"] == "Activation":
