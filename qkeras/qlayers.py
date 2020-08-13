@@ -173,6 +173,9 @@ class QActivation(Layer, PrunableLayer):
     base_config = super(QActivation, self).get_config()
     return dict(list(base_config.items()) + list(config.items()))
 
+  def get_quantization_config(self):
+    return str(self.activation)
+
   def compute_output_shape(self, input_shape):
     return input_shape
 
@@ -371,6 +374,17 @@ class QDense(Dense, PrunableLayer):
     }
     base_config = super(QDense, self).get_config()
     return dict(list(base_config.items()) + list(config.items()))
+
+  def get_quantization_config(self):
+    return {
+        "kernel_quantizer":
+            str(self.kernel_quantizer_internal),
+        "bias_quantizer":
+            str(self.bias_quantizer_internal),
+        "activation":
+            str(self.activation),
+        "units" : str(self.units)
+    }
 
   def get_quantizers(self):
     return self.quantizers

@@ -310,8 +310,6 @@ def model_quantize(model,
     if kernel_quantizer is None:
       return
 
-    layer["class_name"] = q_name
-
     layer["config"]["kernel_quantizer"] = kernel_quantizer
     layer["config"]["recurrent_quantizer"] = recurrent_quantizer
     layer["config"]["bias_quantizer"] = bias_quantizer
@@ -330,6 +328,7 @@ def model_quantize(model,
           quantizer_config, layer, q_name, "recurrent_activation_quantizer")
       if recurrent_activation:
         layer["config"]["recurrent_activation"] = recurrent_activation
+    layer["class_name"] = q_name
 
   for layer in layers:
     layer_config = layer["config"]
@@ -423,7 +422,7 @@ def model_quantize(model,
       quantize_rnn(layer['config']['layer'])
       del quantizer_config[layer_config['layer']['config']['name']]
       if "backward_layer" in layer_config:
-        quantizer_config[layer_config['layer']['config']['name']] = get_config(quantizer_config, 
+        quantizer_config[layer_config['backward_layer']['config']['name']] = get_config(quantizer_config, 
                                                                           layer, "QBidirectional")
         quantize_rnn(layer['config']['backward_layer'])
         del quantizer_config[layer_config['backward_layer']['config']['name']]
