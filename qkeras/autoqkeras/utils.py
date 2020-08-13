@@ -42,6 +42,8 @@ def print_qmodel_summary(q_model):
       for q in range(len(quantizers)):
         if quantizers[q] is not None:
           print("{} ".format(str(quantizers[q])), end="")
+      if hasattr(layer, "recurrent_activation"):
+        print("recurrent act={}".format(layer.recurrent_activation), end="")
       if (
           layer.activation is not None and
           not (

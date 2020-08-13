@@ -218,13 +218,6 @@ class AutoQKHyperModel(HyperModel):
       index = 0
       q_list = list(kq.keys())
       q_dict = kq
-    elif "recurrent" in head: # limit is same as kernel
-      # recurrent kernel quantizers
-      field_name = "recurrent_kernel"
-      kq = self.quantization_config["recurrent_kernel"]
-      index = 2
-      q_list = list(kq.keys())
-      q_dict = kq
     elif "bias" in head:
       # bias quantizers
       field_name = "bias"
@@ -232,6 +225,20 @@ class AutoQKHyperModel(HyperModel):
       index = 1
       q_list = list(bq.keys())
       q_dict = bq
+    elif "recurrent_kernel" in head: # limit is same as kernel
+      # recurrent kernel quantizers
+      field_name = "recurrent_kernel"
+      kq = self.quantization_config["recurrent_kernel"]
+      index = 2
+      q_list = list(kq.keys())
+      q_dict = kq
+    elif "recurrent_activation" in head: # limit is same as kernel
+      # recurrent activation quantizers
+      field_name = "recurrent_activation"
+      raq = self.quantization_config["recurrent_activation"]
+      index = -1
+      q_list = list(raq.keys())
+      q_dict = raq
     else:
       # activation quantizers
       field_name = "activation"
@@ -351,7 +358,7 @@ class AutoQKHyperModel(HyperModel):
 
         if layer.__class__.__name__ in SEQUENCE_LAYERS:
           recurrent_quantizer, _ = self._get_quantizer(
-            hp, layer.name + "_recurrent", layer.name, layer.__class__.__name__,
+            hp, layer.name + "_recurrent_kernel", layer.name, layer.__class__.__name__,
             is_kernel=True)
 
     if self.tune_filters == "block" and filter_sweep_enabled:
@@ -428,6 +435,11 @@ class AutoQKHyperModel(HyperModel):
 
         if layer.__class__.__name__ in SEQUENCE_LAYERS:
           layer_d['recurrent_quantizer'] = recurrent_quantizer
+
+        if layer.__class__.__name__ in ["LSTM", "GRU", "Bidirectional"]:
+          layer_d['recurrent_activation'], _  = self._get_quantizer(
+              hp, layer.name + "_recurrent_activation", layer.name,
+              layer.__class__.__name__, is_kernel=False)
 
         # if we use bias, sample quantizer.
         if layer.__class__.__name__ == "Bidirectional":
