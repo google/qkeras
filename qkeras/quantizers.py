@@ -1137,6 +1137,9 @@ class quantized_relu(object):  # pylint: disable=invalid-name
     return x * 2**(-self.bits + self.integer)
 
   def range(self):
+    """ Get range of values that quantized_relu can output """
+    assert self.use_sigmoid == 0 # current unsupported
+    assert self.negative_slope == 0 # # unsupported unsupported
     x = np.asarray(range(2**self.bits))
     return x * 2**(-self.bits + self.integer)
 
