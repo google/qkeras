@@ -68,7 +68,7 @@ def test_quantized_relu_range(bits, integer, expected_values):
              -0.4375, -0.375, -0.3125, -0.25, -0.1875, -0.125, -0.0625]))
     ])
 def test_quantized_bits_range(bits, integer, expected_values):
-  """Test quantized_relu range function."""
+  """Test quantized_bits range function."""
   q = quantized_bits(bits, integer)
   result = q.range()
   assert_allclose(result, expected_values, rtol=1e-05)

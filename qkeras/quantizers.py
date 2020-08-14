@@ -412,7 +412,8 @@ class quantized_bits(object):  # pylint: disable=invalid-name
       return -1.0
 
   def range(self):
-    """ Get the range of values that quantized_bits can represent """
+    """ Returns a list of all values that quantized_bits can represent 
+    ordered by their binary representation ascending  """
     assert self.symmetric == 0
     assert self.keep_negative
     assert self.alpha is None or self.alpha == 1.0
@@ -1128,7 +1129,8 @@ class quantized_relu(object):  # pylint: disable=invalid-name
     return 0.0
 
   def range(self):
-    """ Get range of values that quantized_relu can output """
+    """  Returns a list of all values that quantized_relu can represent 
+    ordered by their binary representation ascending """
     assert self.use_sigmoid == 0 # current unsupported
     assert self.negative_slope == 0 # # unsupported unsupported
     x = np.asarray(range(2**self.bits))
