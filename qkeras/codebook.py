@@ -106,7 +106,6 @@ def create_indirect_indexes(model, compile_config, activation_indexes,
     km.cluster_centers_.sort(axis=0)
     cb_tables[i] = create_in_out_table(km, quantizer)
     
-    
   x = X_test
   for i, model in enumerate(models[:-1]):
     x = model.predict(x)
@@ -119,6 +118,7 @@ def create_indirect_indexes(model, compile_config, activation_indexes,
   print('\nEvaluating...')
   models[-1].evaluate(x, y_test, verbose=2)
   return cb_tables, models, km_models
+
 
 def codebook_embeddings(embeddings, bits, quantizer, rowwise=False):
   """Creates a quantized embedding matrix based on the

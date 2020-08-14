@@ -396,7 +396,6 @@ class quantized_bits(object):  # pylint: disable=invalid-name
   def max(self):
     """Get maximum value that quantized_bits class can represent."""
     unsigned_bits = self.bits - self.keep_negative
-
     if unsigned_bits > 0:
       return max(1.0, np.power(2.0, self.integer))
     else:
@@ -413,6 +412,11 @@ class quantized_bits(object):  # pylint: disable=invalid-name
       return -1.0
 
   def range(self):
+    """ Get the range of values that quantized_bits can represent """
+    assert self.symmetric == 0
+    assert self.keep_negative
+    assert self.alpha is None or self.alpha == 1.0
+
     x = np.asarray(range(2**self.bits), dtype=np.float32)
     p_and_n = np.where(x >= 2**(self.bits-1), 
                       (x-2**(self.bits-1)) - 2**(self.bits-1), 
@@ -1124,6 +1128,9 @@ class quantized_relu(object):  # pylint: disable=invalid-name
     return 0.0
 
   def range(self):
+    """ Get range of values that quantized_relu can output """
+    assert self.use_sigmoid == 0 # current unsupported
+    assert self.negative_slope == 0 # # unsupported unsupported
     x = np.asarray(range(2**self.bits))
     return x * 2**(-self.bits + self.integer)
 
