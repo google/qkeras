@@ -116,7 +116,7 @@ def create_indirect_indexes(model, compile_config, activation_indexes,
   return cb_tables, models, km_models
 
 
-def codebook_embeddings(embeddings, bits, quantizer, rowwise=False):
+def codebook_embeddings(embeddings, bits, quantizer=None, rowwise=False):
   """Creates a quantized embedding matrix based on the
   idea presented by https://arxiv.org/pdf/1911.02079.pdf
 
@@ -140,7 +140,8 @@ def codebook_embeddings(embeddings, bits, quantizer, rowwise=False):
     for i in tqdm(range(quantized_embeddings.shape[0])):
       km = KMeans(n)
       km.fit(embeddings[i, :].reshape(-1, 1))
-      km.cluster_centers_ = quantizer(km.cluster_centers_).numpy()
+      if quantizer:
+        km.cluster_centers_ = quantizer(km.cluster_centers_).numpy()
       km.cluster_centers_.sort(axis=0)
       km_models[i] = km
       quantized_embeddings[i, :] = km.cluster_centers_[km.predict(
@@ -163,7 +164,8 @@ def codebook_embeddings(embeddings, bits, quantizer, rowwise=False):
       block = quantized_embeddings[mask]
       km2 = KMeans(n)
       km2.fit(block.flatten().reshape(-1, 1))
-      km2.cluster_centers_ = quantizer(km2.cluster_centers_).numpy()
+      if quantizer:
+        km2.cluster_centers_ = quantizer(km2.cluster_centers_).numpy()
       km2.cluster_centers_.sort(axis=0)
       km_models[block_label] = km2
       block_sizes[block_label] = block.shape[0]
