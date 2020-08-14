@@ -331,16 +331,28 @@ class QSimpleRNN(RNN, PrunableLayer):
     return self.cell.bias_constraint
 
   @property
-  def kernel_quantizer(self):
+  def kernel_quantizer_internal(self):
     return self.cell.kernel_quantizer_internal
 
   @property
-  def recurrent_quantizer(self):
+  def recurrent_quantizer_internal(self):
     return self.cell.recurrent_quantizer_internal
 
   @property
-  def bias_quantizer(self):
+  def bias_quantizer_internal(self):
     return self.cell.bias_quantizer_internal
+
+  @property
+  def kernel_quantizer(self):
+    return self.cell.kernel_quantizer
+
+  @property
+  def recurrent_quantizer(self):
+    return self.cell.recurrent_quantizer
+
+  @property
+  def bias_quantizer(self):
+    return self.cell.bias_quantizer
 
   @property
   def dropout(self):
@@ -379,11 +391,11 @@ class QSimpleRNN(RNN, PrunableLayer):
         'bias_constraint':
             constraints.serialize(self.bias_constraint),
         "kernel_quantizer":
-            constraints.serialize(self.kernel_quantizer),
+            constraints.serialize(self.kernel_quantizer_internal),
         "recurrent_quantizer":
-            constraints.serialize(self.recurrent_quantizer),
+            constraints.serialize(self.recurrent_quantizer_internal),
         "bias_quantizer":
-            constraints.serialize(self.bias_quantizer),
+            constraints.serialize(self.bias_quantizer_internal),
         'dropout':
             self.dropout,
         'recurrent_dropout':
@@ -543,6 +555,10 @@ class QLSTMCell(LSTMCell):
       quantized_recurrent = self.recurrent_quantizer_internal(self.recurrent_kernel)
     else:
       quantized_recurrent = self.recurrent_kernel
+    if self.bias_quantizer:
+      quantized_bias = self.bias_quantizer_internal(self.bias)
+    else:
+      quantized_bias = self.bias
 
     if self.implementation == 1:
       if 0 < self.dropout < 1.:
@@ -562,10 +578,6 @@ class QLSTMCell(LSTMCell):
       x_c = K.dot(inputs_c, k_c)
       x_o = K.dot(inputs_o, k_o)
       if self.use_bias:
-        if self.bias_quantizer:
-          quantized_bias = self.bias_quantizer_internal(self.bias)
-        else:
-          quantized_bias = self.bias
         b_i, b_f, b_c, b_o = array_ops.split(
             quantized_bias, num_or_size_splits=4, axis=0)
         x_i = K.bias_add(x_i, b_i)
@@ -775,16 +787,28 @@ class QLSTM(RNN, PrunableLayer):
     return self.cell.bias_constraint
 
   @property
-  def kernel_quantizer(self):
+  def kernel_quantizer_internal(self):
     return self.cell.kernel_quantizer_internal
 
   @property
-  def recurrent_quantizer(self):
+  def recurrent_quantizer_internal(self):
     return self.cell.recurrent_quantizer_internal
 
   @property
-  def bias_quantizer(self):
+  def bias_quantizer_internal(self):
     return self.cell.bias_quantizer_internal
+
+  @property
+  def kernel_quantizer(self):
+    return self.cell.kernel_quantizer
+
+  @property
+  def recurrent_quantizer(self):
+    return self.cell.recurrent_quantizer
+
+  @property
+  def bias_quantizer(self):
+    return self.cell.bias_quantizer
 
   @property
   def dropout(self):
@@ -831,11 +855,11 @@ class QLSTM(RNN, PrunableLayer):
         'bias_constraint':
             constraints.serialize(self.bias_constraint),
         "kernel_quantizer":
-            constraints.serialize(self.kernel_quantizer),
+            constraints.serialize(self.kernel_quantizer_internal),
         "recurrent_quantizer":
-            constraints.serialize(self.recurrent_quantizer),
+            constraints.serialize(self.recurrent_quantizer_internal),
         "bias_quantizer":
-            constraints.serialize(self.bias_quantizer),
+            constraints.serialize(self.bias_quantizer_internal),
         'dropout':
             self.dropout,
         'recurrent_dropout':
@@ -1243,16 +1267,28 @@ class QGRU(RNN, PrunableLayer):
     return self.cell.bias_constraint
 
   @property
-  def kernel_quantizer(self):
+  def kernel_quantizer_internal(self):
     return self.cell.kernel_quantizer_internal
 
   @property
-  def recurrent_quantizer(self):
+  def recurrent_quantizer_internal(self):
     return self.cell.recurrent_quantizer_internal
 
   @property
-  def bias_quantizer(self):
+  def bias_quantizer_internal(self):
     return self.cell.bias_quantizer_internal
+
+  @property
+  def kernel_quantizer(self):
+    return self.cell.kernel_quantizer
+
+  @property
+  def recurrent_quantizer(self):
+    return self.cell.recurrent_quantizer
+
+  @property
+  def bias_quantizer(self):
+    return self.cell.bias_quantizer
 
   @property
   def dropout(self):
@@ -1301,11 +1337,11 @@ class QGRU(RNN, PrunableLayer):
         'bias_constraint':
             constraints.serialize(self.bias_constraint),
         "kernel_quantizer":
-            constraints.serialize(self.kernel_quantizer),
+            constraints.serialize(self.kernel_quantizer_internal),
         "recurrent_quantizer":
-            constraints.serialize(self.recurrent_quantizer),
+            constraints.serialize(self.recurrent_quantizer_internal),
         "bias_quantizer":
-            constraints.serialize(self.bias_quantizer),
+            constraints.serialize(self.bias_quantizer_internal),
         'dropout':
             self.dropout,
         'recurrent_dropout':
@@ -1342,3 +1378,7 @@ class QBidirectional(Bidirectional):
     Returns quantizers in the order they were created.
     """
     return self.forward_layer.get_quantizers() + self.backward_layer.get_quantizers()
+
+  @property
+  def activation(self):
+    return self.layer.activation

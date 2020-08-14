@@ -244,6 +244,17 @@ def model_quantize(model,
     "QBatchNormalization": {}
   }
 
+  In the case of "QBidirectional", we can follow the same form as above. 
+  The specified configuration will be used for both forward and backwards 
+  layer.
+  {
+    "Bidirectional" : {
+        "kernel_quantizer" : "quantizer string",
+        "bias_quantizer" : "quantizer string",
+        "recurrent_quantizer" : "quantizer string"
+    }
+  }
+
   In the case of "QActivation", we can modify only certain types of
   activations, for example, a "relu". In this case we represent the
   activation name by a dictionary, or we can modify all activations,
@@ -301,24 +312,24 @@ def model_quantize(model,
 
     layer["class_name"] = q_name
 
-    layer_config["kernel_quantizer"] = kernel_quantizer
-    layer_config["recurrent_quantizer"] = recurrent_quantizer
-    layer_config["bias_quantizer"] = bias_quantizer
+    layer["config"]["kernel_quantizer"] = kernel_quantizer
+    layer["config"]["recurrent_quantizer"] = recurrent_quantizer
+    layer["config"]["bias_quantizer"] = bias_quantizer
 
     # if activation is present, add activation here
     activation = get_config(
         quantizer_config, layer, q_name, "activation_quantizer")
     if activation:
-      layer_config["activation"] = activation
+      layer["config"]["activation"] = activation
     else:
-      quantize_activation(layer_config, activation_bits)
+      quantize_activation(layer["config"], activation_bits)
 
     # if recurrent activation is present, add activation here
     if layer["class_name"] in ["LSTM", "GRU"]:
       recurrent_activation = get_config(
           quantizer_config, layer, q_name, "recurrent_activation_quantizer")
       if recurrent_activation:
-        layer_config["recurrent_activation"] = recurrent_activation
+        layer["config"]["recurrent_activation"] = recurrent_activation
 
   for layer in layers:
     layer_config = layer["config"]
@@ -406,10 +417,17 @@ def model_quantize(model,
     elif layer["class_name"] in ["SimpleRNN", "LSTM", "GRU"]:
       quantize_rnn(layer)
 
-    elif layer['class_name'] == 'QBidirectional':
-      quantize_rnn(layer['layer'])
-      if "backward_layer" in layer:
-        quantize_rnn(layer['backward_layer'])
+    elif layer['class_name'] == 'Bidirectional':
+      quantizer_config[layer_config['layer']['config']['name']] = get_config(quantizer_config, 
+                                                                        layer, "QBidirectional")
+      quantize_rnn(layer['config']['layer'])
+      del quantizer_config[layer_config['layer']['config']['name']]
+      if "backward_layer" in layer_config:
+        quantizer_config[layer_config['layer']['config']['name']] = get_config(quantizer_config, 
+                                                                          layer, "QBidirectional")
+        quantize_rnn(layer['config']['backward_layer'])
+        del quantizer_config[layer_config['backward_layer']['config']['name']]
+      layer["class_name"] = "QBidirectional"
 
     elif layer["class_name"] == "Activation":
       quantizer = get_config(quantizer_config, layer, "QActivation")
