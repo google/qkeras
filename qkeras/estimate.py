@@ -48,6 +48,7 @@ from .quantizers import quantized_bits
 from .quantizers import quantized_relu
 from .quantizers import quantized_tanh
 from .quantizers import quantized_ulaw
+from .utils import get_model_sparsity
 
 
 def analyze_accumulator(model, x, verbose=False):
@@ -521,3 +522,11 @@ def print_qstats(model):
         str(name) + "_weights", str(w_number), str(w_sizes)))
     print("    {:30} : {:5} ({}-bit unit)".format(
         str(name) + "_bias", str(b_number), str(b_sizes)))
+
+  print("")
+  print("Weight sparsity:")
+  total_sparsity, per_layer = get_model_sparsity(model, per_layer=True)
+  for layer in per_layer:
+    print("    {:30} : {:.4f}".format(str(layer[0]), layer[1]))
+  print("    " + ("-"*40))
+  print("    {:30} : {:.4f}".format("Total Sparsity", total_sparsity))

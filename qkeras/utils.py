@@ -661,6 +661,59 @@ def print_model_sparsity(model):
           ])))
   print("\n")
 
+
+def get_model_sparsity(model, per_layer=False, allow_list=None):
+  """Calculates the sparsity of the model's weights and biases.
+
+  Quantizes the model weights using model_save_quantized_weights (but does not
+    save the quantized weights) before calculating the proportion of weights and
+    biases set to zero.
+
+  Arguments:
+      model: The model to use to calculate sparsity. Assumes that this is a
+          QKeras model with trained weights.
+      per_layer: If to return a per-layer breakdown of sparsity
+      allow_list: A list of layer class names that sparsity will be calculated
+        for. If set to None, a default list will be used.
+
+  Returns:
+      A float value representing the proportion of weights and biases set to
+      zero in the quantized model. If per_layer is True, it also returns a
+      per-layer breakdown of model sparsity formatted as a list of tuples in the
+      form (<layer name>, <sparsity proportion>)
+  """
+  # Check if to use a default list of allowed layers to calculate sparsity
+  if allow_list is None:
+    allow_list = [
+        "QDense", "Dense", "QConv1D", "Conv1D", "QConv2D", "Conv2D",
+        "QDepthwiseConv2D", "DepthwiseConv2D", "QSeparableConv2D",
+        "SeparableConv2D", "QOctaveConv2D", "QSimpleRNN", "RNN", "QLSTM", "QGRU"
+    ]
+
+  # Quantize the model weights for a more accurate sparsity calculation
+  model_save_quantized_weights(model)
+
+  # Calculate the sparsity layer by layer
+  layer_sparsity = []
+  all_weights = []
+  for layer in model.layers:
+    if hasattr(layer, "quantizers") and layer.__class__.__name__ in allow_list:
+      layer_weights = []
+      for weight in layer.get_weights():
+        layer_weights.append(weight.ravel())
+        all_weights.append(weight.ravel())
+      layer_weights = np.concatenate(layer_weights)
+      layer_sparsity.append((layer.name, np.mean(layer_weights == 0)))
+
+  # Average the sparsity for the entire model
+  all_weights = np.concatenate(all_weights)
+  total_sparsity = np.mean(all_weights == 0)
+  if per_layer:
+    return (total_sparsity, layer_sparsity)
+  else:
+    return total_sparsity
+
+
 def quantized_model_debug(model, X_test, plot=False):
   """Debugs and plots model weights and activations."""
   outputs = []
