@@ -418,8 +418,8 @@ class quantized_bits(object):  # pylint: disable=invalid-name
     assert self.alpha is None or self.alpha == 1.0
 
     x = np.asarray(range(2**self.bits), dtype=np.float32)
-    p_and_n = np.where(x >= 2**(self.bits-1), 
-                      (x-2**(self.bits-1)) - 2**(self.bits-1), 
+    p_and_n = np.where(x >= 2**(self.bits-1),
+                      (x-2**(self.bits-1)) - 2**(self.bits-1),
                       x)
     return p_and_n * 2**(-self.bits + self.integer + 1)
 
