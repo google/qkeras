@@ -129,8 +129,8 @@ def weight_compression(weights, bits, axis=0, quantizer=None):
     quantizer: quantizer function that will be applied to codebook values
 
   Returns:
-    km_models: list of fitted KMeans algorithms
-    quantized_embeddings: Numpy array MxN
+    index_table: array of indices that maps to codebook values for all weights
+    codebook_table: array of codebook values
   """
   assert bits <= 8
   n = 2**bits
@@ -167,8 +167,11 @@ def two_tier_embedding_compression(embeddings, bits, quantizer=None):
     quantizer: quantizer function that will be applied to codebook values
 
   Returns:
-    km_models: list of fitted KMeans algorithms
-    quantized_embeddings: Numpy array MxN
+    index_table: array of indices that maps to codebook values
+    cluster_index_table: array that maps each row to the codebook table 
+      index
+    codebook_table: array of codebook values
+    quantized_embeddings: Numpy array MxN of quantized weights
   """
   assert bits <= 8
   n = 2**bits
