@@ -169,26 +169,6 @@ def test_qrnn(rnn, all_weights_signature, expected_output):
 
 
 @pytest.mark.parametrize(
-  'rnn',
-  [
-    SimpleRNN, LSTM, GRU
-  ])
-def test_network_quantization(rnn):
-  model = Sequential([rnn(16)])
-  jm = copy.deepcopy(json.loads(model.to_json()))
-  config = jm["config"]
-  layers = config["layers"]
-  d = {
-      f"Q{layers[0]['class_name']}": {
-          "kernel_quantizer": "binary",
-          "recurrent_quantizer": "binary",
-          "bias_quantizer": "binary"
-      }}
-  qmodel = model_quantize(model, d, 4)
-  assert str(qmodel.layers[0].activation) == "quantized_tanh(4,0)"
-
-
-@pytest.mark.parametrize(
   'rnn, all_weights_signature, expected_output',
   [
     (
@@ -304,6 +284,115 @@ def test_qbidirectional(rnn, all_weights_signature, expected_output):
   inputs = 2 * np.random.rand(10, 2, 4)
   actual_output = model.predict(inputs).astype(np.float16)
   assert_allclose(actual_output, expected_output, rtol=1e-4)
+
+
+def create_network_rnn(rnn):
+  xi = Input((16, 1,))
+  x = rnn(8)(xi)
+  return Model(inputs=xi, outputs=x)
+
+
+@pytest.mark.parametrize(
+  'rnn',
+  [
+    SimpleRNN,
+    LSTM,
+    GRU
+  ]
+)
+def test_rnn_conversion(rnn):
+  m = create_network_rnn(rnn)
+  name = 'Q' + m.layers[1].__class__.__name__
+  d = {
+    name : {
+      'kernel_quantizer' : 'binary',
+      'recurrent_quantizer' : 'binary',
+      'bias_quantizer' : 'binary',
+      'activation_quantizer' : 'binary',
+    }
+  }
+  if name != 'QSimpleRNN':
+    d[name]['recurrent_activation_quantizer'] = 'binary'
+
+  qq = model_quantize(m, d, 4)
+  assert str(qq.layers[1].kernel_quantizer) == 'binary'
+  assert str(qq.layers[1].recurrent_quantizer) == 'binary'
+  assert str(qq.layers[1].bias_quantizer) == 'binary'
+  assert str(qq.layers[1].activation) == 'binary()'
+  if name != 'QSimpleRNN':
+    assert str(qq.layers[1].recurrent_activation) == 'binary()'
+
+
+def create_network_birnn(rnn):
+  xi = Input((16, 1,))
+  x = Bidirectional(rnn(8))(xi)
+  return Model(inputs=xi, outputs=x)
+
+
+@pytest.mark.parametrize(
+  'rnn',
+  [
+    SimpleRNN,
+    LSTM,
+    GRU
+  ]
+)
+def test_birnn_conversion(rnn):
+  m = create_network_birnn(rnn)
+  name = 'Q' + m.layers[1].layer.__class__.__name__
+  d = {
+    'QBidirectional' : {
+      'kernel_quantizer' : 'binary',
+      'recurrent_quantizer' : 'binary',
+      'bias_quantizer' : 'binary',
+      'activation_quantizer' : 'binary',
+    }
+  }
+  if name != 'QSimpleRNN':
+    d['QBidirectional']['recurrent_activation_quantizer'] = 'binary'
+
+  qq = model_quantize(m, d, 4)
+  layer = qq.layers[1].layer
+  assert str(layer.kernel_quantizer) == 'binary'
+  assert str(layer.recurrent_quantizer) == 'binary'
+  assert str(layer.bias_quantizer) == 'binary'
+  assert str(layer.activation) == 'binary()'
+  if name != 'QSimpleRNN':
+    assert str(layer.recurrent_activation) == 'binary()'
+  backward_layer = qq.layers[1].backward_layer
+  # backwards weight quantizers are dict because of contraints.serialize
+  assert str(backward_layer.kernel_quantizer['class_name']) == 'binary'
+  assert str(backward_layer.recurrent_quantizer['class_name']) == 'binary'
+  assert str(backward_layer.bias_quantizer['class_name']) == 'binary'
+  assert str(backward_layer.activation) == 'binary()'
+  if name != 'QSimpleRNN':
+    assert str(backward_layer.recurrent_activation) == 'binary()'
+
+
+def test_birnn_subrnn():
+  model = Sequential([Bidirectional(LSTM(16)), LSTM(8)])
+  d = {
+    'QLSTM' : {
+      'activation_quantizer' : 'ternary',
+      'recurrent_activation_quantizer' : 'ternary',
+      'kernel_quantizer' : 'ternary',
+      'recurrent_quantizer' : 'ternary',
+      'bias_quantizer' : 'ternary',
+    },
+    "QBidirectional": {
+        'activation_quantizer' : 'binary',
+        'recurrent_activation_quantizer' : 'binary',
+        'kernel_quantizer' : 'binary',
+        'recurrent_quantizer' : 'binary',
+        'bias_quantizer' : 'binary',
+    }
+  }
+  qmodel = model_quantize(model, d, 4)
+  layer = qmodel.layers[1]
+  assert str(layer.kernel_quantizer) == 'ternary'
+  assert str(layer.recurrent_quantizer) == 'ternary'
+  assert str(layer.bias_quantizer) == 'ternary'
+  assert str(layer.activation) == 'ternary()'
 
 
 if __name__ == '__main__':

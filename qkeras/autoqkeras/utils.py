@@ -20,6 +20,8 @@
 import json
 
 
+Q_SEQUENCE_LAYERS = ["QSimpleRNN", "QLSTM", "QGRU", "QBidirectional"]
+
 def print_qmodel_summary(q_model):
   """Prints quantized model summary."""
 
@@ -40,6 +42,8 @@ def print_qmodel_summary(q_model):
       for q in range(len(quantizers)):
         if quantizers[q] is not None:
           print("{} ".format(str(quantizers[q])), end="")
+      if hasattr(layer, "recurrent_activation"):
+        print("recurrent act={}".format(layer.recurrent_activation), end="")
       if (
           layer.activation is not None and
           not (
@@ -55,30 +59,11 @@ def print_qmodel_summary(q_model):
 def get_quantization_dictionary(q_model):
   """Returns quantization dictionary."""
 
-  q_dict = {"QBatchNormalization": {}}
+  q_dict = {}
   for layer in q_model.layers:
-    if layer.__class__.__name__ == "QActivation":
-      q_dict[layer.name] = str(layer.activation)
-    elif (
-        hasattr(layer, "get_quantizers") and
-        layer.__class__.__name__ != "QBatchNormalization"
-    ):
-      q_dict[layer.name] = {}
-      if "Dense" in layer.__class__.__name__:
-        q_dict[layer.name]["units"] = layer.units
-      elif layer.__class__.__name__ in [
-          "Conv2D", "QConv2D", "Conv1D", "QConv1D"]:
-        q_dict[layer.name]["filters"] = layer.filters
-      quantizers = layer.get_quantizers()
-      field_names = ["kernel_quantizer", "bias_quantizer"]
-      for q in range(len(quantizers)):
-        if quantizers[q] is not None:
-          q_dict[layer.name][field_names[q]] = str(quantizers[q])
-      if (
-          layer.activation is not None and
-          hasattr(layer.activation, "bits")
-      ):
-        q_dict[layer.name]["activation"] = str(layer.activation)
+    if hasattr(layer, "get_quantization_config"):
+      q_dict[layer.name] = layer.get_quantization_config()
+
   return q_dict
 
 

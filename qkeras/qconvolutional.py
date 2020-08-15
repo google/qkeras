@@ -166,6 +166,17 @@ class QConv1D(Conv1D, PrunableLayer):
     base_config = super(QConv1D, self).get_config()
     return dict(list(base_config.items()) + list(config.items()))
 
+  def get_quantization_config(self):
+    return {
+        "kernel_quantizer":
+            str(self.kernel_quantizer_internal),
+        "bias_quantizer":
+            str(self.bias_quantizer_internal),
+        "activation":
+            str(self.activation),
+        "filters" : str(self.filters)
+    }
+
   def get_quantizers(self):
     return self.quantizers
 
@@ -306,6 +317,17 @@ class QConv2D(Conv2D, PrunableLayer):
     }
     base_config = super(QConv2D, self).get_config()
     return dict(list(base_config.items()) + list(config.items()))
+
+  def get_quantization_config(self):
+    return {
+        "kernel_quantizer":
+            str(self.kernel_quantizer_internal),
+        "bias_quantizer":
+            str(self.bias_quantizer_internal),
+        "activation":
+            str(self.activation),
+        "filters" : str(self.filters)
+    }
 
   def get_quantizers(self):
     return self.quantizers
@@ -492,6 +514,17 @@ class QDepthwiseConv2D(DepthwiseConv2D, PrunableLayer):
     config["depthwise_range"] = self.depthwise_range
     config["bias_range"] = self.bias_range
     return config
+
+  def get_quantization_config(self):
+    return {
+        "depthwise_quantizer_internal":
+            str(self.depthwise_quantizer_internal),
+        "bias_quantizer":
+            str(self.bias_quantizer_internal),
+        "activation":
+            str(self.activation),
+        "filters" : str(self.filters)
+    }
 
   def get_quantizers(self):
     return self.quantizers

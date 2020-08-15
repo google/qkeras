@@ -405,6 +405,18 @@ class QSimpleRNN(RNN, PrunableLayer):
     del base_config['cell']
     return dict(list(base_config.items()) + list(config.items()))
 
+  def get_quantization_config(self):
+    return {
+        "kernel_quantizer":
+            str(self.kernel_quantizer_internal),
+        "recurrent_quantizer":
+            str(self.recurrent_quantizer_internal),
+        "bias_quantizer":
+            str(self.bias_quantizer_internal),
+        "activation":
+            str(self.activation)
+    }
+
   @classmethod
   def from_config(cls, config):
     if 'implementation' in config:
@@ -870,6 +882,20 @@ class QLSTM(RNN, PrunableLayer):
     base_config = super(QLSTM, self).get_config()
     del base_config['cell']
     return dict(list(base_config.items()) + list(config.items()))
+
+  def get_quantization_config(self):
+    return {
+        "kernel_quantizer":
+            str(self.kernel_quantizer_internal),
+        "recurrent_quantizer":
+            str(self.recurrent_quantizer_internal),
+        "bias_quantizer":
+            str(self.bias_quantizer_internal),
+        "activation":
+            str(self.activation),
+        "recurrent_activation":
+            str(self.recurrent_activation),
+    }
 
   @classmethod
   def from_config(cls, config):
@@ -1355,6 +1381,20 @@ class QGRU(RNN, PrunableLayer):
     del base_config['cell']
     return dict(list(base_config.items()) + list(config.items()))
 
+  def get_quantization_config(self):
+    return {
+        "kernel_quantizer":
+            str(self.kernel_quantizer_internal),
+        "recurrent_quantizer":
+            str(self.recurrent_quantizer_internal),
+        "bias_quantizer":
+            str(self.bias_quantizer_internal),
+        "activation":
+            str(self.activation),
+        "recurrent_activation":
+            str(self.recurrent_activation),
+    }
+
   @classmethod
   def from_config(cls, config):
     if 'implementation' in config and config['implementation'] == 0:
@@ -1382,3 +1422,9 @@ class QBidirectional(Bidirectional):
   @property
   def activation(self):
     return self.layer.activation
+
+  def get_quantization_config(self):
+    return {
+      "layer" : self.layer.get_quantization_config(),
+      "backward_layer" : self.backward_layer.get_quantization_config()
+    }
