@@ -1,9 +1,30 @@
 # QKeras
 
-[github.com/google/qkeras](https://github.com/google/qkeras) 
+[github.com/google/qkeras](https://github.com/google/qkeras)
 
 [![Build Status](https://travis-ci.org/google/qkeras.svg?branch=master)](https://travis-ci.org/google/qkeras)
 
+QKeras 0.8 highlights:
+
+- Automatic quantization using QKeras;
+
+- Stochastic behavior (including stochastic rouding) is disabled during
+inference;
+
+- LeakyReLU for quantized_relu;
+
+- Qtools for estimating effort to perform inference;
+
+  * Qtools will estimate the sizes and types of operations to perform inference,
+    with its data sizes compatible with high-level synthesis datatypes. For
+    example, quantized_bits and quantized_relu bits and int_bits from Qtools
+    will match exactly ac_fixed datatypes (if you rely on QKeras alone, the
+    correct datatype should be ac_fixed\<bits, int_bits+is_negative,
+    is_negative\>, where is_negative has to be inferred from the other
+    parameters of the quantizer.
+
+
+## Introduction
 
 QKeras is a quantization extension to Keras that provides drop-in
 replacement for some of the Keras layers, especially the ones that
@@ -39,6 +60,10 @@ In order to successfully quantize a model, users need to replace
 variable creating layers (Dense, Conv2D, etc) by their counterparts
 (QDense, QConv2D, etc), and any layers that perform math operations
 need to be quantized afterwards.
+
+## Publications
+
+http://arxiv.org/abs/2006.10159
 
 ## Layers Implemented in QKeras
 
@@ -103,7 +128,7 @@ interface has not been fully tested yet.
 
 - binary(alpha=1.0)(x)
 
-- quantized_relu(bits=8, integer=0, use_sigmoid=0)(x)
+- quantized_relu(bits=8, integer=0, use_sigmoid=0, negative_slope=0.0)(x)
 
 - quantized_ulaw(bits=8, integer=0, symmetric=0, u=255.0)(x)
 
@@ -132,8 +157,9 @@ Every time we use a quantization for weights and bias that can
 generate numbers outside the range [-1.0, 1.0], we need to adjust the
 *_range to the number. For example, if we have a
 quantized_bits(bits=6, integer=2) in a weight of a layer, we need to
-set the weight range to 2**2. Similarly, for quantization functions
-that accept an alpha parameter, we need to specify a range of alpha,
+set the weight range to 2**2, which is equivalent to Catapult HLS
+ac_fixed<6, 3, true>. Similarly, for quantization functions that accept an 
+alpha parameter, we need to specify a range of alpha,
 and for po2 type of quantizers, we need to specify the range of
 max_value.
 
@@ -186,6 +212,68 @@ x = Activation("softmax")(x)
 The last QActivation is advisable if you want to compare results later on. 
 Please find more cases under the directory examples.
 
+
+## QTools
+The purpose of QTools is to assist hardware implementation of the quantized
+model and model energy consumption estimation. QTools has two functions: data
+type map generation and energy consumption estimation.
+
+- Data Type Map Generation:
+QTools automatically generate the data type map for weights, bias, multiplier,
+adder, etc. of each layer. The data type map includes operation type,
+variable size, quantizer type and bits, etc. Input of the QTools is:
+1) a given quantized model;
+2) a list of input quantizers
+for the model. Output of QTools json file that list the data type map of each
+layer (stored in qtools_instance._output_dict)
+Output methods include: qtools_stats_to_json, which is to output the data type
+map to a json file; qtools_stats_print which is to print out the data type map.
+
+- Energy Consumption Estimation:
+Another function of QTools is to estimate the model energy consumption in
+Pico Joules (pJ). It provides a tool for QKeras users to quickly estimate
+energy consumption for memory access and MAC operations in a quantized model
+derived from QKeras, especially when comparing power consumption of two models
+running on the same device.
+
+As with any high-level model, it should be used with caution when attempting
+to estimate the absolute energy consumption of a model for a given technology,
+or when attempting to compare different technologies.
+
+This tool also provides a measure for model tuning which needs to consider
+both accuracy and model energy consumption. The energy cost provided by this
+tool can be integrated into a total loss function which combines energy
+cost and accuracy.
+
+- Energy Model:
+The best work referenced by the literature on energy consumption was first
+computed by Horowitz M.: “1.1 computing’s energy problem (
+and what we can do about it)”; IEEE International Solid-State Circuits
+Conference Digest of Technical Papers (ISSCC), 2014
+
+In this work, the author attempted to estimate the energy
+consumption for accelerators, and for 45 nm process, the data points he
+presented has since been used whenever someone wants to compare accelerator
+performance. QTools energy consumption on a 45nm process is based on the
+data published in this work.
+
+- Examples:
+Example of how to generate data type map can be found in qkeras/qtools/
+examples/example_generate_json.py. Example of how to generate energy consumption
+estimation can be found in qkeras/qtools/examples/example_get_energy.py
+
+
+## AutoQKeras
+
+AutoQKeras allows the automatic quantization and rebalancing of deep neural
+networks by treating quantization and rebalancing of an existing deep neural
+network as a hyperparameter search in Keras-Tuner using random search,
+hyperband or gaussian processes.
+
+In order to contain the explosion of hyperparameters, users can group tasks by
+patterns, and perform distribute training using available resources.
+
+Extensive documentation is present in notebook/AutoQKeras.ipynb.
 
 
 ## Related Work

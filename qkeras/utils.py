@@ -18,9 +18,16 @@ from __future__ import division
 from __future__ import print_function
 import copy
 import json
-import six
+import tempfile
 import types
 
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import numpy as np
+
+import os
+import six
 import tensorflow as tf
 import tensorflow.keras.backend as K
 
@@ -28,14 +35,10 @@ from tensorflow.keras import initializers
 
 from tensorflow.keras.models import Model
 from tensorflow.keras.models import model_from_json
-from tensorflow.keras.layers import Conv1D
 
 from tensorflow_model_optimization.python.core.sparsity.keras import pruning_wrapper
 from tensorflow_model_optimization.python.core.sparsity.keras import prune_registry
 from tensorflow_model_optimization.python.core.sparsity.keras import prunable_layer
-
-import numpy as np
-import matplotlib.pyplot as plt
 
 from .qlayers import Clip
 from .qlayers import QActivation
@@ -44,6 +47,13 @@ from .qlayers import QDense
 from .qlayers import QInitializer
 from .qconvolutional import QConv1D
 from .qconvolutional import QConv2D
+from .qrecurrent import QSimpleRNN
+from .qrecurrent import QSimpleRNNCell
+from .qrecurrent import QLSTM
+from .qrecurrent import QLSTMCell
+from .qrecurrent import QGRU
+from .qrecurrent import QGRUCell
+from .qrecurrent import QBidirectional
 from .qconvolutional import QDepthwiseConv2D
 from .qnormalization import QBatchNormalization
 from .quantizers import binary
@@ -60,6 +70,15 @@ from .quantizers import stochastic_ternary
 from .quantizers import ternary
 from .safe_eval import safe_eval
 
+
+REGISTERED_LAYERS = [
+    "QActivation", "Activation",
+    "QDense", "QConv1D", "QConv2D", "QDepthwiseConv2D",
+    "QSimpleRNN", "QLSTM", "QGRU", "QBidirectional",
+    "QBatchNormalization"
+]
+
+
 #
 # Model utilities: before saving the weights, we want to apply the quantizers
 #
@@ -67,7 +86,7 @@ def model_save_quantized_weights(model, filename=None):
   """Quantizes model for inference and save it.
 
   Takes a model with weights, apply quantization function to weights and
-  returns a dictionarty with quantized weights.
+  returns a dictionary with quantized weights.
 
   User should be aware that "po2" quantization functions cannot really
   be quantized in meaningful way in Keras. So, in order to preserve
@@ -220,7 +239,7 @@ def model_quantize(model,
     "QConv2D": {
         "kernel_quantizer": "quantizer string",
         "bias_quantizer": "quantizer_string"
-    }
+    },
 
     "QBatchNormalization": {}
   }
@@ -265,6 +284,41 @@ def model_quantize(model,
   custom_objects = copy.deepcopy(custom_objects)
   config = jm["config"]
   layers = config["layers"]
+
+  def quantize_rnn(layer):
+    q_name = "Q" + layer["class_name"]
+    # needs to add kernel, recurrent bias quantizers
+    kernel_quantizer = get_config(
+        quantizer_config, layer, q_name, "kernel_quantizer")
+    recurrent_quantizer = get_config(
+        quantizer_config, layer, q_name, "recurrent_quantizer")
+    bias_quantizer = get_config(
+        quantizer_config, layer, q_name, "bias_quantizer")
+
+    # this is to avoid unwanted transformations
+    if kernel_quantizer is None:
+      return
+
+    layer["class_name"] = q_name
+
+    layer_config["kernel_quantizer"] = kernel_quantizer
+    layer_config["recurrent_quantizer"] = recurrent_quantizer
+    layer_config["bias_quantizer"] = bias_quantizer
+
+    # if activation is present, add activation here
+    activation = get_config(
+        quantizer_config, layer, q_name, "activation_quantizer")
+    if activation:
+      layer_config["activation"] = activation
+    else:
+      quantize_activation(layer_config, activation_bits)
+
+    # if recurrent activation is present, add activation here
+    if layer["class_name"] in ["LSTM", "GRU"]:
+      recurrent_activation = get_config(
+          quantizer_config, layer, q_name, "recurrent_activation_quantizer")
+      if recurrent_activation:
+        layer_config["recurrent_activation"] = recurrent_activation
 
   for layer in layers:
     layer_config = layer["config"]
@@ -349,6 +403,14 @@ def model_quantize(model,
       else:
         quantize_activation(layer_config, activation_bits)
 
+    elif layer["class_name"] in ["SimpleRNN", "LSTM", "GRU"]:
+      quantize_rnn(layer)
+
+    elif layer['class_name'] == 'QBidirectional':
+      quantize_rnn(layer['layer'])
+      if "backward_layer" in layer:
+        quantize_rnn(layer['backward_layer'])
+
     elif layer["class_name"] == "Activation":
       quantizer = get_config(quantizer_config, layer, "QActivation")
       # this is to avoid softmax from quantizing in autoq
@@ -369,6 +431,59 @@ def model_quantize(model,
           layer_config["activation"] = quantizer
         else:
           quantize_activation(layer_config, activation_bits)
+
+    # we have to do this because of other instances of ReLU
+    elif layer["class_name"] in ["ReLU", "relu", "LeakyReLU"]:
+
+      quantizer = get_config(quantizer_config, layer, "QActivation")
+      # this is to avoid unwanted transformations
+      if quantizer is None:
+        continue
+
+      if layer["class_name"] == "LeakyReLU":
+        negative_slope = layer["config"]["alpha"]
+      elif layer["class_name"] == "relu":
+        max_value = layer["config"]["max_value"]
+        negative_slope = layer["config"]["alpha"]
+        threshold = layer["config"]["threshold"]
+      else: # ReLU from mobilenet
+        max_value = layer["config"]["max_value"]
+        negative_slope = layer["config"]["negative_slope"]
+        threshold = layer["config"]["threshold"]
+
+      if negative_slope > 0:
+        q_name = "leakyrelu"
+      else:
+        q_name = "relu"
+
+      # if quantizer exists in dictionary related to this name,
+      # use it, otherwise, use normal transformations
+
+      if not isinstance(quantizer, dict) or quantizer.get(q_name, None):
+        # only change activation layer if we will use a quantized activation
+
+        layer["class_name"] = "QActivation"
+
+        # remove relu specific configurations
+        # remember that quantized relu's are always upper bounded
+
+        if layer["class_name"] == "LeakyReLU":
+          del layer["config"]["alpha"]
+        elif layer["class_name"] == "relu":
+          del layer["config"]["max_value"]
+          del layer["config"]["alpha"]
+          del layer["config"]["threshold"]
+        else: # ReLU from mobilenet
+          del layer["config"]["max_value"]
+          del layer["config"]["negative_slope"]
+          del layer["config"]["threshold"]
+
+        if isinstance(quantizer, dict):
+          quantizer = quantizer[q_name]
+        if quantizer:
+          layer["config"]["activation"] = quantizer
+        else:
+          quantize_activation(layer["config"], activation_bits)
 
     elif layer["class_name"] == "BatchNormalization":
       # we will assume at least QBatchNormalization or
@@ -416,12 +531,18 @@ def model_quantize(model,
 
 
 def _add_supported_quantized_objects(custom_objects):
-
-  # Map all the quantized objects
+  """Map all the quantized objects."""
   custom_objects["QInitializer"] = QInitializer
   custom_objects["QDense"] = QDense
   custom_objects["QConv1D"] = QConv1D
   custom_objects["QConv2D"] = QConv2D
+  custom_objects["QSimpleRNNCell"] = QSimpleRNNCell
+  custom_objects["QSimpleRNN"] = QSimpleRNN
+  custom_objects["QLSTMCell"] = QLSTMCell
+  custom_objects["QLSTM"] = QLSTM
+  custom_objects["QGRUCell"] = QGRUCell
+  custom_objects["QGRU"] = QGRU
+  custom_objects["QBidirectional"] = QBidirectional
   custom_objects["QDepthwiseConv2D"] = QDepthwiseConv2D
   custom_objects["QActivation"] = QActivation
   custom_objects["QBatchNormalization"] = QBatchNormalization
@@ -480,28 +601,24 @@ def quantized_model_from_json(json_string, custom_objects=None):
 
 
 def load_qmodel(filepath, custom_objects=None, compile=True):
-  """
-  Load quantized model from Keras's model.save() h5 file.
+  """Loads quantized model from Keras's model.save() h5 file.
 
-  # Arguments:
-        filepath: one of the following:
-                  - string, path to the saved model
-                  - h5py.File or h5py.Group object from which to load the model
-                  - any file-like object implementing the method `read` that returns
-                  `bytes` data (e.g. `io.BytesIO`) that represents a valid h5py file image.
-        custom_objects: Optional dictionary mapping names
-                  (strings) to custom classes or functions to be
-                  considered during deserialization.
-        compile: Boolean, whether to compile the model
-                  after loading.
+  Arguments:
+      filepath: one of the following:
+          - string, path to the saved model
+          - h5py.File or h5py.Group object from which to load the model
+          - any file-like object implementing the method `read` that returns
+          `bytes` data (e.g. `io.BytesIO`) that represents a valid h5py file
+          image.
+      custom_objects: Optional dictionary mapping names (strings) to custom
+          classes or functions to be considered during deserialization.
+      compile: Boolean, whether to compile the model after loading.
 
-  # Returns
-        A Keras model instance. If an optimizer was found
-        as part of the saved model, the model is already
-        compiled. Otherwise, the model is uncompiled and
-        a warning will be displayed. When `compile` is set
-        to False, the compilation is omitted without any
-        warning.
+  Returns:
+      A Keras model instance. If an optimizer was found as part of the saved
+      model, the model is already compiled. Otherwise, the model is uncompiled
+      and a warning will be displayed. When `compile` is set to False, the
+      compilation is omitted without any warning.
   """
 
   if not custom_objects:
@@ -544,17 +661,13 @@ def print_model_sparsity(model):
           ])))
   print("\n")
 
-
 def quantized_model_debug(model, X_test, plot=False):
   """Debugs and plots model weights and activations."""
   outputs = []
   output_names = []
 
   for layer in model.layers:
-    if layer.__class__.__name__ in [
-        "QActivation", "QBatchNormalization", "Activation", "QDense",
-        "QConv2D", "QDepthwiseConv2D"
-    ]:
+    if layer.__class__.__name__ in REGISTERED_LAYERS:
       output_names.append(layer.name)
       outputs.append(layer.output)
 
@@ -571,10 +684,16 @@ def quantized_model_debug(model, X_test, plot=False):
       alpha = get_weight_scale(layer.activation, p)
     else:
       alpha = 1.0
-    print("{:30} {: 8.4f} {: 8.4f}".format(n, np.min(p / alpha), np.max(p / alpha)), end="")
+    print(
+        "{:30} {: 8.4f} {: 8.4f}".format(n, np.min(p / alpha),
+                                         np.max(p / alpha)),
+        end="")
     if alpha != 1.0:
       print(" a[{: 8.4f} {:8.4f}]".format(np.min(alpha), np.max(alpha)))
-    if plot and layer.__class__.__name__ in ["QConv2D", "QDense", "QActivation"]:
+    if plot and layer.__class__.__name__ in [
+      "QConv1D", "QConv2D", "QDense", "QActivation", 
+      "QSimpleRNN", "QLSTM", "QGRU", "QBidirectional"
+    ]:
       plt.hist(p.flatten(), bins=25)
       plt.title(layer.name + "(output)")
       plt.show()
@@ -583,15 +702,12 @@ def quantized_model_debug(model, X_test, plot=False):
       if hasattr(layer, "get_quantizers") and layer.get_quantizers()[i]:
         weights = K.eval(layer.get_quantizers()[i](K.constant(weights)))
         if i == 0 and layer.__class__.__name__ in [
-            "QConv1D", "QConv2D", "QDense"]:
+            "QConv1D", "QConv2D", "QDense", "QSimpleRNN", "QLSTM", "QGRU"
+        ]:
           alpha = get_weight_scale(layer.get_quantizers()[i], weights)
           # if alpha is 0, let's remove all weights.
           alpha_mask = (alpha == 0.0)
-          weights = np.where(
-            alpha_mask,
-            weights * alpha,
-            weights / alpha
-          )
+          weights = np.where(alpha_mask, weights * alpha, weights / alpha)
           if plot:
             plt.hist(weights.flatten(), bins=25)
             plt.title(layer.name + "(weights)")
@@ -602,3 +718,45 @@ def quantized_model_debug(model, X_test, plot=False):
       print(" a({: 10.6f} {: 10.6f})".format(
           np.min(alpha), np.max(alpha)), end="")
     print("")
+
+
+def quantized_model_dump(model,
+                         x_test,
+                         output_dir=None,
+                         layers_to_dump=[]):
+  """Dumps tensors of target layers to binary files.
+
+  Arguments:
+    model: QKeras model object.
+    x_test: numpy type, test tensors to generate output tensors.
+    output_dir: a string for the directory to hold binary data.
+    layers_to_dump: a list of string, specified layers by layer
+      customized name.
+  """
+  outputs = []
+  y_names = []
+
+  if not output_dir:
+    with tempfile.TemporaryDirectory() as output_dir:
+      print("temp dir", output_dir)
+
+  if not os.path.exists(output_dir):
+    os.makedirs(output_dir)
+    print("create dir", output_dir)
+
+  for layer in model.layers:
+    if layer.__class__.__name__ in ["InputLayer"] + REGISTERED_LAYERS:
+      if not layers_to_dump or layer.name in layers_to_dump:
+        y_names.append(layer.name)
+        outputs.append(layer.output)
+
+  # Gather the tensor outputs from specified layers at layers_to_dump
+  model_debug = Model(inputs=model.inputs, outputs=outputs)
+  y_pred = model_debug.predict(x_test)
+
+  # dump tensors to files
+  for name, tensor_data in zip(y_names, y_pred):
+    filename = os.path.join(output_dir, name + ".bin")
+    print("writing the layer output tensor to ", filename)
+    with open(filename, "w") as fid:
+      tensor_data.astype(np.float32).tofile(fid)

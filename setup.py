@@ -35,7 +35,7 @@ setuptools.setup(
     packages=setuptools.find_packages(),
     scripts=[],
     url="",
-    license="LICENSE",
+    license="Apache v.2.0",
     description="Quantization package for Keras",
     long_description=long_description,
     install_requires=[
@@ -45,6 +45,7 @@ setuptools.setup(
         "setuptools>=41.0.0",
         "tensorflow-model-optimization>=0.2.1",
         "networkx>=2.1",
+        "keras-tuner>=1.0.1",
     ],
     setup_requires=[
         "pytest-runner",

@@ -21,13 +21,17 @@ from __future__ import print_function
 
 from collections import defaultdict
 
+from tensorflow.keras.datasets import mnist
 from tensorflow.keras.layers import *
 from tensorflow.keras.models import Model
 
-from qkeras.utils import model_quantize
 from qkeras.estimate import print_qstats
+from qkeras.utils import model_quantize
+from qkeras.utils import quantized_model_dump
 
-x = x_in = Input((32, 32, 3), name="input")
+x0 = x_in0 = Input((28, 28, 1), name="input0")
+x1 = x_in1 = Input((28, 28, 1), name="input1")
+x = Concatenate(name="concat")([x0, x1])
 x = Conv2D(128, (3, 3), strides=1, name="conv2d_0_m")(x)
 x = Activation("relu", name="act0_m")(x)
 x = MaxPooling2D(2, 2, name="mp_0")(x)
@@ -41,7 +45,7 @@ x = Flatten()(x)
 x = Dense(10, name="dense")(x)
 x = Activation("softmax", name="softmax")(x)
 
-model = Model(inputs=[x_in], outputs=[x])
+model = Model(inputs=[x_in0, x_in1], outputs=[x])
 model.summary()
 
 q_dict = {
@@ -72,3 +76,12 @@ qmodel = model_quantize(model, q_dict, 4)
 qmodel.summary()
 
 print_qstats(qmodel)
+
+(x_train, y_train), (x_test, y_test) = mnist.load_data()
+
+x_test_arr = [x_test[0:10,:], x_test[0:10,:]]
+
+quantized_model_dump(
+    qmodel, x_test_arr,
+    layers_to_dump=["input0", "input1", "act2_m", "act1_m", "act0_m"])
+

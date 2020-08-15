@@ -51,6 +51,7 @@ from qkeras import extract_model_operations
 #   qbatchnorm test
 
 def test_qnetwork():
+  K.set_learning_phase(1)
   x = x_in = Input((28, 28, 1), name='input')
   x = QSeparableConv2D(
       32, (2, 2),

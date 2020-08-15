@@ -29,7 +29,7 @@ from tensorflow.keras import initializers
 from tensorflow.keras import regularizers
 from tensorflow.keras.layers import BatchNormalization
 from tensorflow.python.framework import ops
-from tensorflow.python.keras.utils import tf_utils
+from tensorflow.python.framework import smart_cond as tf_utils
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import nn
@@ -220,7 +220,7 @@ class QBatchNormalization(BatchNormalization, PrunableLayer):
     scale, offset = _broadcast(quantized_gamma), _broadcast(quantized_beta)
 
     # Determine a boolean value for `training`: could be True, False, or None.
-    training_value = tf_utils.constant_value(training)
+    training_value = tf_utils.smart_constant_value(training)
     if training_value == False:  # pylint: disable=singleton-comparison,g-explicit-bool-comparison
       quantized_mean, quantized_variance = (quantized_moving_mean,
                                             quantized_moving_variance)
@@ -236,9 +236,8 @@ class QBatchNormalization(BatchNormalization, PrunableLayer):
       moving_mean = self.moving_mean
       moving_variance = self.moving_variance
 
-      mean = tf_utils.smart_cond(training,
-                                 lambda: mean,
-                                 lambda: ops.convert_to_tensor(moving_mean))
+      mean = tf_utils.smart_cond(
+          training, lambda: mean, lambda: ops.convert_to_tensor(moving_mean))
       variance = tf_utils.smart_cond(
           training,
           lambda: variance,
@@ -327,7 +326,7 @@ class QBatchNormalization(BatchNormalization, PrunableLayer):
         'beta_range': self.beta_range,
         'gamma_range': self.gamma_range,
     }
-    base_config = super(BatchNormalization, self).get_config()
+    base_config = super(QBatchNormalization, self).get_config()
     return dict(list(base_config.items()) + list(config.items()))
 
   def compute_output_shape(self, input_shape):
