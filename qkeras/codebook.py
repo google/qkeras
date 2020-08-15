@@ -44,7 +44,7 @@ def create_in_out_table(km, quantizer):
   """
   in_table = km.cluster_centers_.flatten()
   out_table = km.predict(quantizer.range().reshape(-1, 1).astype(np.float32)).ravel()
-  return [in_table, out_table]
+  return in_table, out_table
 
 
 def activation_compression(model, compile_config, activation_indexes,

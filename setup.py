@@ -46,6 +46,8 @@ setuptools.setup(
         "tensorflow-model-optimization>=0.2.1",
         "networkx>=2.1",
         "keras-tuner>=1.0.1",
+        "scikit-learn==0.23.1",
+        "tqdm==4.48.0"
     ],
     setup_requires=[
         "pytest-runner",
