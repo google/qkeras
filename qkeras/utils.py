@@ -334,36 +334,10 @@ def model_quantize(model,
   for layer in layers:
     layer_config = layer["config"]
 
-    # Dense becomes QDense
+    # Dense becomes QDense, Conv1D becomes QConv1D etc
     # Activation converts activation functions
 
-    if layer["class_name"] == "Dense":
-      # needs to add kernel/bias quantizers
-      kernel_quantizer = get_config(
-          quantizer_config, layer, "QDense", "kernel_quantizer")
-      bias_quantizer = get_config(
-          quantizer_config, layer, "QDense", "bias_quantizer")
-
-      # this is to avoid unwanted transformations
-      if kernel_quantizer is None:
-        continue
-
-      layer["class_name"] = "QDense"
-
-      layer_config["kernel_quantizer"] = kernel_quantizer
-      layer_config["bias_quantizer"] = bias_quantizer
-
-      # if activation is present, add activation here
-      quantizer = get_config(
-          quantizer_config, layer, "QDense", "activation_quantizer")
-
-      if quantizer:
-        layer_config["activation"] = quantizer
-        custom_objects[quantizer] = safe_eval(quantizer, globals())
-      else:
-        quantize_activation(layer_config, activation_bits)
-
-    elif layer["class_name"] in ["Conv1D", "Conv2D", "Conv2DTranspose"]:
+    if layer["class_name"] in ["Dense", "Conv1D", "Conv2D", "Conv2DTranspose"]:
       q_name = "Q" + layer["class_name"]
       # needs to add kernel/bias quantizers
       kernel_quantizer = get_config(
