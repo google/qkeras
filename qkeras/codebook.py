@@ -25,6 +25,7 @@ import tensorflow.keras.backend as K
 from tensorflow.keras.layers import Layer, Embedding, Input
 from tensorflow.keras.models import Model
 from sklearn.cluster import KMeans
+from tqdm import tqdm
 
 from .quantizers import get_quantizer
 
@@ -42,13 +43,13 @@ def create_in_out_table(km, quantizer):
     out_table: conversion of n-bit output activations to compressed table indexes
   """
   in_table = km.cluster_centers_.flatten()
-  out_table = km.predict(quantizer.range().reshape(-1, 1).astype(np.float32)).flatten()
+  out_table = km.predict(quantizer.range().reshape(-1, 1).astype(np.float32)).ravel()
   return [in_table, out_table]
 
 
-def create_indirect_indexes(model, compile_config, activation_indexes,
+def activation_compression(model, compile_config, activation_indexes,
                             bits, X_train, y_train, X_test, y_test, sample_size=1.0):
-  """This model applies clustering based non-uniform quantization inspired by
+  """This function applies clustering based non-uniform quantization inspired by
   https://arxiv.org/pdf/1911.02079.pdf
 
   model: Keras model
@@ -94,7 +95,7 @@ def create_indirect_indexes(model, compile_config, activation_indexes,
     km = km_models[i]
     temp = x.flatten().reshape(-1, 1)
     if sample_size < 1.0:
-      idxs = np.random.choice(x.shape[0], size=int(0.1 * x.shape[0]))
+      idxs = np.random.choice(x.shape[0], size=int(sample_size * x.shape[0]))
       temp = temp[idxs]
     km.fit(temp)
     quantizer = getattr(model.layers[-1], 'quantizer',
@@ -116,61 +117,89 @@ def create_indirect_indexes(model, compile_config, activation_indexes,
   return cb_tables, models, km_models
 
 
-def codebook_embeddings(embeddings, bits, quantizer=None, rowwise=False):
-  """Creates a quantized embedding matrix based on the
-  idea presented by https://arxiv.org/pdf/1911.02079.pdf
+def weight_compression(weights, bits, axis=0, quantizer=None):
+  """ Creates an in, out table that maps weight values to their codebook values.
+  Based on the idea presented by https://arxiv.org/pdf/1911.02079.pdf
 
   Arguments:
-    embeddings: Numpy array MxN
+    weights: Numpy array
     bits: Number of bits to compress weights to. This will
       results in 2**bits codebook values
+    axis: axis to apply quantization by
     quantizer: quantizer function that will be applied to codebook values
-    rowwise: if true, rowwise clustering is applied. Otherwise Two-tier clustering
 
   Returns:
     km_models: list of fitted KMeans algorithms
     quantized_embeddings: Numpy array MxN
   """
-  from tqdm import tqdm
+  assert bits <= 8
   n = 2**bits
-  if rowwise:
-    print('Rowwise clustering quantization...')
-    quantized_embeddings = np.zeros(embeddings.shape)
-    km_models = [None] * embeddings.shape[0]
-    for i in tqdm(range(quantized_embeddings.shape[0])):
-      km = KMeans(n)
-      km.fit(embeddings[i, :].reshape(-1, 1))
-      if quantizer:
-        km.cluster_centers_ = quantizer(km.cluster_centers_).numpy()
-      km.cluster_centers_.sort(axis=0)
-      km_models[i] = km
-      quantized_embeddings[i, :] = km.cluster_centers_[km.predict(
-                                    embeddings[i, :].reshape(-1, 1))].flatten()
-    assert np.unique(quantized_embeddings[32]).shape[0] <= n
-    return km_models, quantized_embeddings
+  index_table = []
+  codebook_table = np.zeros((weights.shape[axis], n))
+  km_models = [None] * weights.shape[axis]
 
-  else:
-    print('Two-tier clustering quantization...')
-    quantized_embeddings = embeddings.copy()
-    km1 = KMeans(n)
-    km1.fit(embeddings)
-    tier1 = km1.predict(embeddings)
+  for i, w in tqdm(enumerate(np.split(weights, weights.shape[axis], axis))):
+    original_shape = w.shape
+    w = w.ravel()
+    km = KMeans(n)
+    km.fit(w.reshape(-1, 1))
+    if quantizer:
+      km.cluster_centers_ = quantizer(km.cluster_centers_).numpy()
+    km.cluster_centers_.sort(axis=0)
 
-    km_models = [0] * n
-    block_sizes = [0] * n
-    for block_label in tqdm(range(n)):
-      mask = block_label == tier1
-      indices = np.arange(quantized_embeddings.shape[0])[mask]
-      block = quantized_embeddings[mask]
-      km2 = KMeans(n)
-      km2.fit(block.flatten().reshape(-1, 1))
-      if quantizer:
-        km2.cluster_centers_ = quantizer(km2.cluster_centers_).numpy()
-      km2.cluster_centers_.sort(axis=0)
-      km_models[block_label] = km2
-      block_sizes[block_label] = block.shape[0]
-      for i in indices:
-        quantized_embeddings[i, :] = km2.cluster_centers_[km2.predict(
-                                          quantized_embeddings[i, :].reshape(-1, 1))].flatten()
-    print('block_sizes:', block_sizes)
-    return km_models, quantized_embeddings
+    km_models[i] = km
+    codebook_table[i, :] = km.cluster_centers_.flatten()
+    preds = km.predict(w.reshape(-1, 1))
+    index_table.append(preds.reshape(original_shape))
+  
+  index_table = np.concatenate(index_table, axis)
+  return index_table, codebook_table
+
+
+def two_tier_embedding_compression(embeddings, bits, quantizer=None):
+  """ Creates tables that maps embedding values to their codebook values.
+  Based on the idea presented by https://arxiv.org/pdf/1911.02079.pdf
+
+  Arguments:
+    weights: Numpy array
+    bits: Number of bits to compress weights to. This will
+      results in 2**bits codebook values
+    quantizer: quantizer function that will be applied to codebook values
+
+  Returns:
+    km_models: list of fitted KMeans algorithms
+    quantized_embeddings: Numpy array MxN
+  """
+  assert bits <= 8
+  n = 2**bits
+  quantized_embeddings = embeddings.copy()
+  index_table = np.zeros(embeddings.shape, dtype=np.uint8)
+  cluster_index_table = np.zeros(index_table.shape[0], dtype=np.uint8)
+  codebook_table = np.zeros((n, n))
+
+  km1 = KMeans(n)
+  km1.fit(embeddings)
+  tier1 = km1.predict(embeddings)
+
+  km_models = [0] * n
+  block_sizes = [0] * n
+  for block_label in tqdm(range(n)):
+    mask = block_label == tier1
+    indices = np.arange(embeddings.shape[0])[mask]
+    block = embeddings[mask]
+    km2 = KMeans(n)
+    km2.fit(block.flatten().reshape(-1, 1))
+    if quantizer:
+      km2.cluster_centers_ = quantizer(km2.cluster_centers_).numpy()
+    km2.cluster_centers_.sort(axis=0)
+
+    km_models[block_label] = km2
+    codebook_table[block_label, :] = km2.cluster_centers_.flatten()
+    cluster_index_table[indices] = block_label
+    block_sizes[block_label] = block.shape[0]
+    for i in indices:
+      preds = km2.predict(embeddings[i, :].reshape(-1, 1))
+      index_table[indices, :] = preds
+      quantized_embeddings[i, :] = km2.cluster_centers_[preds].flatten()
+  print('block_sizes:', block_sizes)
+  return index_table, cluster_index_table, codebook_table, quantized_embeddings
