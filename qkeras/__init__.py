@@ -17,6 +17,8 @@
 
 # We use wildcard import for convenience at this moment, which will be later
 # refactored and removed.
+import tensorflow as tf
+
 from .b2t import *  # pylint: disable=wildcard-import
 from .estimate import *  # pylint: disable=wildcard-import
 from .qlayers import *  # pylint: disable=wildcard-import
@@ -29,5 +31,7 @@ from .qpooling import *  # pylint: disable=wildcard-import
 from .safe_eval import *  # pylint: disable=wildcard-import
 #from .qtools.run_qtools import QTools
 #from .qtools.settings import cfg
+
+assert tf.executing_eagerly(), "QKeras requires TF with eager execution mode on"
 
 __version__ = "0.8.0"
