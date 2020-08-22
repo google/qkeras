@@ -18,16 +18,11 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import warnings
 import numpy as np
-import tensorflow as tf
-import tensorflow.keras.backend as K
-from tensorflow.keras.layers import Layer, Embedding, Input
+from tensorflow.keras.layers import Input
 from tensorflow.keras.models import Model
 from sklearn.cluster import KMeans
 from tqdm import tqdm
-
-from .quantizers import get_quantizer
 
 
 def create_in_out_table(km, quantizer):
@@ -40,15 +35,17 @@ def create_in_out_table(km, quantizer):
 
   Returns
     in_table: conversion of compressed table indexes to n-bit numbers
-    out_table: conversion of n-bit output activations to compressed table indexes
+    out_table: conversion of n-bit output activations to compressed table
+      indexes
   """
   in_table = km.cluster_centers_.flatten()
-  out_table = km.predict(quantizer.range().reshape(-1, 1).astype(np.float32)).ravel()
+  qrange = quantizer.range().reshape(-1, 1).astype(np.float32)
+  out_table = km.predict(qrange).ravel()
   return in_table, out_table
 
 
-def activation_compression(model, compile_config, activation_indexes,
-                            bits, X_train, y_train, X_test, y_test, sample_size=1.0):
+def activation_compression(model, compile_config, activation_indexes, bits,
+                           X_train, y_train, X_test, y_test, sample_size=1.0):
   """This function applies clustering based non-uniform quantization inspired by
   https://arxiv.org/pdf/1911.02079.pdf
 
@@ -99,7 +96,7 @@ def activation_compression(model, compile_config, activation_indexes,
       temp = temp[idxs]
     km.fit(temp)
     quantizer = getattr(model.layers[-1], 'quantizer',
-                    getattr(model.layers[-1], 'activation'))
+                        getattr(model.layers[-1], 'activation'))
     km.cluster_centers_ = quantizer(km.cluster_centers_).numpy()
     km.cluster_centers_.sort(axis=0)
     cb_tables[i] = create_in_out_table(km, quantizer)
@@ -107,7 +104,8 @@ def activation_compression(model, compile_config, activation_indexes,
   for i, model in enumerate(models[:-1]):
     x = model.predict(x)
     km = km_models[i]
-    x = km.cluster_centers_[km.predict(x.flatten().reshape(-1, 1))].reshape(x.shape)
+    preds = km.predict(x.flatten().reshape(-1, 1))
+    x = km.cluster_centers_[preds].reshape(x.shape)
     n_unique = np.unique(x.flatten()).shape[0]
     print(f"Number of unique activations: {n_unique}")
     assert n_unique <= 2**bits
@@ -118,7 +116,7 @@ def activation_compression(model, compile_config, activation_indexes,
 
 
 def weight_compression(weights, bits, axis=0, quantizer=None):
-  """ Creates an in, out table that maps weight values to their codebook values.
+  """Creates an in, out table that maps weight values to their codebook values.
   Based on the idea presented by https://arxiv.org/pdf/1911.02079.pdf
 
   Arguments:
@@ -151,7 +149,7 @@ def weight_compression(weights, bits, axis=0, quantizer=None):
     codebook_table[i, :] = km.cluster_centers_.flatten()
     preds = km.predict(w.reshape(-1, 1))
     index_table.append(preds.reshape(original_shape))
-  
+
   index_table = np.concatenate(index_table, axis)
   return index_table, codebook_table
 
@@ -168,7 +166,7 @@ def two_tier_embedding_compression(embeddings, bits, quantizer=None):
 
   Returns:
     index_table: array of indices that maps to codebook values
-    cluster_index_table: array that maps each row to the codebook table 
+    cluster_index_table: array that maps each row to the codebook table
       index
     codebook_table: array of codebook values
     quantized_embeddings: Numpy array MxN of quantized weights
