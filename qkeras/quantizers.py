@@ -301,12 +301,12 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
   Symmetric and keep_negative allow us to generate numbers that are symmetric
   (same number of negative and positive representations), and numbers that
   are positive.
-  
+
   Note:
-    the behavior of quantized_bits is different than Catapult HLS ac_fixed 
-    or Vivado HLS ap_fixed. For ac_fixed<word_length, integer_lenth, signed>, 
-    when signed = true, it is equavlent to 
-    quantized_bits(word_length, integer_length-1, keep_negative=1)
+    the behavior of quantized_bits is different than Catapult HLS ac_fixed
+    or Vivado HLS ap_fixed. For ac_fixed<word_length, integer_lenth, signed>,
+    when signed = true, it is equavlent to
+    quantized_bits(word_length, integer_length-1, keep_negative=True)
 
   Attributes:
     bits: number of bits to perform quantization.
@@ -321,13 +321,13 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
   Returns:
     Function that computes fixed-point quantization with bits.
   """
-  def __init__(self, bits=8, integer=0, symmetric=0, keep_negative=1,
+  def __init__(self, bits=8, integer=0, symmetric=0, keep_negative=True,
                alpha=None, use_stochastic_rounding=False):
     super(quantized_bits, self).__init__()
     self.bits = bits
     self.integer = integer
     self.symmetric = symmetric
-    self.keep_negative = (keep_negative > 0)
+    self.keep_negative = keep_negative
     self.alpha = alpha
     self.use_stochastic_rounding = use_stochastic_rounding
     # "auto*" |-> symmetric
@@ -338,7 +338,7 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
   def __str__(self):
     flags = [str(self.bits), str(self.integer), str(int(self.symmetric))]
     if not self.keep_negative:
-      flags.append("keep_negative=" + str(int(self.keep_negative)))
+      flags.append("keep_negative=False")
     if self.alpha:
       alpha = str(self.alpha)
       if isinstance(self.alpha, six.string_types):
@@ -407,7 +407,7 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
       p = x * m / m_i
       xq = m_i * tf.keras.backend.clip(
           _round_through(p, self.use_stochastic_rounding, precision=1.0),
-          self.keep_negative * (-m + self.symmetric), m - 1) / m
+          self.keep_negative  * (-m + self.symmetric), m - 1) / m
     else:
       xq = tf.sign(x)
       xq += (1.0 - tf.abs(xq))
@@ -1674,12 +1674,12 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
       x = K.relu(x, self.negative_slope)
     else:
       x = tf.where(
-          x <= self.max_value, 
-          K.relu(x, self.negative_slope), 
+          x <= self.max_value,
+          K.relu(x, self.negative_slope),
           tf.ones_like(x) * self.max_value)
 
     x_pos_clipped = _clip_power_of_two(
-        K.relu(x_original), 
+        K.relu(x_original),
         self._min_exp, self._max_exp,
         self.max_value,
         self.quadratic_approximation,
@@ -1693,7 +1693,7 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
         self.use_stochastic_rounding)
 
     return x + tf.stop_gradient(
-        -x + tf.where(tf.logical_or(x_original >= 0.0, self.negative_slope == 0.0), 
+        -x + tf.where(tf.logical_or(x_original >= 0.0, self.negative_slope == 0.0),
         pow(2.0, x_pos_clipped), -pow(2.0, x_neg_clipped)))
 
   def max(self):
