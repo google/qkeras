@@ -61,8 +61,8 @@ x_test = x_test.astype("float32")
 x_train = x_train[..., np.newaxis]
 x_test = x_test[..., np.newaxis]
 
-x_train /= 255.0
-x_test /= 255.0
+x_train /= 256.0
+x_test /= 256.0
 
 print(x_train.shape[0], "train samples")
 print(x_test.shape[0], "test samples")
