@@ -299,7 +299,7 @@ def energy_estimate(model, layer_map, weights_on_memory,
     # MAC energy calculation
     elif layer.__class__.__name__ in ["QConv2D", "QConv1D", "QDepthwiseConv2D",
                                       "QDense", "Conv2D", "Conv1D",
-                                      "DepthwideConv2D", "Dense"]:
+                                      "DepthwiseConv2D", "Dense"]:
       multiplier = layer_item.multiplier
       accumulator = layer_item.accumulator
 
