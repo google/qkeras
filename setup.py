@@ -28,8 +28,8 @@ with io.open("README.md", "r", encoding="utf8") as fh:
 setuptools.setup(
     name="QKeras",
     version="0.8.0",
-    author="Claudionor N. Coelho",
-    author_email="nunescoelho@google.com",
+    author="QKeras Team",
+    author_email="qkeras-team@google.com",
     maintainer="Hao Zhuang",
     maintainer_email="hzhuang@google.com",
     packages=setuptools.find_packages(),
