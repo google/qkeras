@@ -70,14 +70,18 @@ from .quantizers import stochastic_ternary
 from .quantizers import ternary
 from .safe_eval import safe_eval
 
-
 REGISTERED_LAYERS = [
-    "QActivation", "Activation",
-    "QDense", "QConv1D", "QConv2D", "QDepthwiseConv2D",
-    "QSimpleRNN", "QLSTM", "QGRU", "QBidirectional",
-    "QBatchNormalization"
+    "QActivation",
+    "QDense",
+    "QConv1D",
+    "QConv2D",
+    "QDepthwiseConv2D",
+    "QSimpleRNN",
+    "QLSTM",
+    "QGRU",
+    "QBidirectional",
+    "QBatchNormalization",
 ]
-
 
 #
 # Model utilities: before saving the weights, we want to apply the quantizers
@@ -417,13 +421,13 @@ def model_quantize(model,
       quantize_rnn(layer, quantizer_config)
 
     elif layer['class_name'] == 'Bidirectional':
-      forward_layer_quantizer_config = { 
-        layer_config['layer']['config']['name'] : get_config(quantizer_config, 
+      forward_layer_quantizer_config = {
+        layer_config['layer']['config']['name'] : get_config(quantizer_config,
                                                               layer, "QBidirectional") }
       quantize_rnn(layer['config']['layer'], forward_layer_quantizer_config)
       if "backward_layer" in layer_config:
-        backward_layer_quantizer_config = { 
-          layer_config['backward_layer']['config']['name'] : get_config(quantizer_config, 
+        backward_layer_quantizer_config = {
+          layer_config['backward_layer']['config']['name'] : get_config(quantizer_config,
                                                                 layer, "QBidirectional") }
         quantize_rnn(layer['config']['backward_layer'], backward_layer_quantizer_config)
       layer["class_name"] = "QBidirectional"
@@ -761,7 +765,7 @@ def quantized_model_debug(model, X_test, plot=False):
     if alpha != 1.0:
       print(" a[{: 8.4f} {:8.4f}]".format(np.min(alpha), np.max(alpha)))
     if plot and layer.__class__.__name__ in [
-      "QConv1D", "QConv2D", "QDense", "QActivation", 
+      "QConv1D", "QConv2D", "QDense", "QActivation",
       "QSimpleRNN", "QLSTM", "QGRU", "QBidirectional"
     ]:
       plt.hist(p.flatten(), bins=25)
@@ -815,10 +819,9 @@ def quantized_model_dump(model,
     print("create dir", output_dir)
 
   for layer in model.layers:
-    if layer.__class__.__name__ in ["InputLayer"] + REGISTERED_LAYERS:
-      if not layers_to_dump or layer.name in layers_to_dump:
-        y_names.append(layer.name)
-        outputs.append(layer.output)
+    if not layers_to_dump or layer.name in layers_to_dump:
+      y_names.append(layer.name)
+      outputs.append(layer.output)
 
   # Gather the tensor outputs from specified layers at layers_to_dump
   model_debug = Model(inputs=model.inputs, outputs=outputs)
