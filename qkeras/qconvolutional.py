@@ -654,7 +654,7 @@ class QDepthwiseConv2D(DepthwiseConv2D, PrunableLayer):
         dilation_rate=self.dilation_rate,
         data_format=self.data_format)
 
-    if self.bias:
+    if self.use_bias:
       if self.bias_quantizer:
         quantized_bias = self.bias_quantizer_internal(self.bias)
       else:
