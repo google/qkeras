@@ -185,11 +185,6 @@ class AutoQKHyperModel(HyperModel):
         elif length < 3:
           # No recurrent limit needed for non recurrent layers
           self.limit[name] = self.limit[name] + default[length:2] + default[-1:]
-    
-    if 'Activation' in self.limit:
-      assert len(self.limit['Activation']) == 1
-    else:
-      self.limit['Activation'] = default[-1]
 
   def _n(self, name, s_list):
     """Creates a unique name for the tuner."""
