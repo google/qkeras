@@ -685,7 +685,8 @@ def get_model_sparsity(model, per_layer=False, allow_list=None):
     allow_list = [
         "QDense", "Dense", "QConv1D", "Conv1D", "QConv2D", "Conv2D",
         "QDepthwiseConv2D", "DepthwiseConv2D", "QSeparableConv2D",
-        "SeparableConv2D", "QOctaveConv2D", "QSimpleRNN", "RNN", "QLSTM", "QGRU",
+        "SeparableConv2D", "QOctaveConv2D", 
+        "QSimpleRNN", "RNN", "QLSTM", "QGRU",
         "QConv2DTranspose", "Conv2DTranspose"
     ]
 
