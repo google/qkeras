@@ -47,6 +47,7 @@ from .qlayers import QDense
 from .qlayers import QInitializer
 from .qconvolutional import QConv1D
 from .qconvolutional import QConv2D
+from .qconvolutional import QConv2DTranspose
 from .qrecurrent import QSimpleRNN
 from .qrecurrent import QSimpleRNNCell
 from .qrecurrent import QLSTM
@@ -76,6 +77,7 @@ REGISTERED_LAYERS = [
     "QConv1D",
     "QConv2D",
     "QDepthwiseConv2D",
+    "QConv2DTranspose",
     "QSimpleRNN",
     "QLSTM",
     "QGRU",
@@ -337,36 +339,10 @@ def model_quantize(model,
   for layer in layers:
     layer_config = layer["config"]
 
-    # Dense becomes QDense
+    # Dense becomes QDense, Conv1D becomes QConv1D etc
     # Activation converts activation functions
 
-    if layer["class_name"] == "Dense":
-      # needs to add kernel/bias quantizers
-      kernel_quantizer = get_config(
-          quantizer_config, layer, "QDense", "kernel_quantizer")
-      bias_quantizer = get_config(
-          quantizer_config, layer, "QDense", "bias_quantizer")
-
-      # this is to avoid unwanted transformations
-      if kernel_quantizer is None:
-        continue
-
-      layer["class_name"] = "QDense"
-
-      layer_config["kernel_quantizer"] = kernel_quantizer
-      layer_config["bias_quantizer"] = bias_quantizer
-
-      # if activation is present, add activation here
-      quantizer = get_config(
-          quantizer_config, layer, "QDense", "activation_quantizer")
-
-      if quantizer:
-        layer_config["activation"] = quantizer
-        custom_objects[quantizer] = safe_eval(quantizer, globals())
-      else:
-        quantize_activation(layer_config, activation_bits)
-
-    elif layer["class_name"] in ["Conv1D", "Conv2D"]:
+    if layer["class_name"] in ["Dense", "Conv1D", "Conv2D", "Conv2DTranspose"]:
       q_name = "Q" + layer["class_name"]
       # needs to add kernel/bias quantizers
       kernel_quantizer = get_config(
@@ -557,6 +533,7 @@ def _add_supported_quantized_objects(custom_objects):
   custom_objects["QDense"] = QDense
   custom_objects["QConv1D"] = QConv1D
   custom_objects["QConv2D"] = QConv2D
+  custom_objects["QConv2DTranspose"] = QConv2DTranspose
   custom_objects["QSimpleRNNCell"] = QSimpleRNNCell
   custom_objects["QSimpleRNN"] = QSimpleRNN
   custom_objects["QLSTMCell"] = QLSTMCell
@@ -708,7 +685,9 @@ def get_model_sparsity(model, per_layer=False, allow_list=None):
     allow_list = [
         "QDense", "Dense", "QConv1D", "Conv1D", "QConv2D", "Conv2D",
         "QDepthwiseConv2D", "DepthwiseConv2D", "QSeparableConv2D",
-        "SeparableConv2D", "QOctaveConv2D", "QSimpleRNN", "RNN", "QLSTM", "QGRU"
+        "SeparableConv2D", "QOctaveConv2D", 
+        "QSimpleRNN", "RNN", "QLSTM", "QGRU",
+        "QConv2DTranspose", "Conv2DTranspose"
     ]
 
   # Quantize the model weights for a more accurate sparsity calculation
@@ -765,7 +744,7 @@ def quantized_model_debug(model, X_test, plot=False):
     if alpha != 1.0:
       print(" a[{: 8.4f} {:8.4f}]".format(np.min(alpha), np.max(alpha)))
     if plot and layer.__class__.__name__ in [
-      "QConv1D", "QConv2D", "QDense", "QActivation",
+      "QConv1D", "QConv2D", "QConv2DTranspose", "QDense", "QActivation", 
       "QSimpleRNN", "QLSTM", "QGRU", "QBidirectional"
     ]:
       plt.hist(p.flatten(), bins=25)
@@ -776,7 +755,8 @@ def quantized_model_debug(model, X_test, plot=False):
       if hasattr(layer, "get_quantizers") and layer.get_quantizers()[i]:
         weights = K.eval(layer.get_quantizers()[i](K.constant(weights)))
         if i == 0 and layer.__class__.__name__ in [
-            "QConv1D", "QConv2D", "QDense", "QSimpleRNN", "QLSTM", "QGRU"
+            "QConv1D", "QConv2D", "QConv2DTranspose", "QDense",
+            "QSimpleRNN", "QLSTM", "QGRU"
         ]:
           alpha = get_weight_scale(layer.get_quantizers()[i], weights)
           # if alpha is 0, let's remove all weights.

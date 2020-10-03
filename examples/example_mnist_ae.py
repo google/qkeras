@@ -55,8 +55,6 @@ train = 1
 
 RESHAPED = 784
 
-x_test_orig = x_test
-
 x_train = x_train.astype("float32")
 x_test = x_test.astype("float32")
 
@@ -75,88 +73,71 @@ y_train = to_categorical(y_train, NB_CLASSES)
 y_test = to_categorical(y_test, NB_CLASSES)
 
 x = x_in = Input(
-    x_train.shape[1:-1] + (1,), name="input")
+    x_train.shape[1:-1] + (1,))
 x = QConv2D(
-    32, (2, 2), strides=(2,2),
+    32,
+    kernel_size=(3, 3),
     kernel_quantizer=quantized_bits(4,0,1),
-    bias_quantizer=quantized_bits(4,0,1),
-    name="conv2d_0_m")(x)
-x = QActivation("quantized_relu(4,0)", name="act0_m")(x)
+    bias_quantizer=quantized_bits(4,0,1))(x)
+x = QActivation("quantized_relu(4,0)")(x)
 x = QConv2D(
-    64, (3, 3), strides=(2,2),
+    16,
+    kernel_size=(3, 3),
     kernel_quantizer=quantized_bits(4,0,1),
-    bias_quantizer=quantized_bits(4,0,1),
-    name="conv2d_1_m")(x)
-x = QActivation("quantized_relu(4,0)", name="act1_m")(x)
+    bias_quantizer=quantized_bits(4,0,1))(x)
+x = QActivation("quantized_relu(4,0)")(x)
 x = QConv2D(
-    64, (2, 2), strides=(2,2),
+    8,
+    kernel_size=(3, 3),
     kernel_quantizer=quantized_bits(4,0,1),
-    bias_quantizer=quantized_bits(4,0,1),
-    name="conv2d_2_m")(x)
-x = QActivation("quantized_relu(4,0)", name="act2_m")(x)
-x = Flatten()(x)
-x = QDense(NB_CLASSES, kernel_quantizer=quantized_bits(4,0,1),
-           bias_quantizer=quantized_bits(4,0,1),
-           name="dense")(x)
+    bias_quantizer=quantized_bits(4,0,1))(x)
+x = QActivation("quantized_relu(4,0)")(x)
+x = QConv2DTranspose(
+    8,
+    kernel_size=(3, 3),
+    kernel_quantizer=quantized_bits(4,0,1),
+    bias_quantizer=quantized_bits(4,0,1))(x)
+x = QActivation("quantized_relu(4,0)")(x)
+x = QConv2DTranspose(
+    16,
+    kernel_size=(3, 3),
+    kernel_quantizer=quantized_bits(4,0,1),
+    bias_quantizer=quantized_bits(4,0,1))(x)
+x = QActivation("quantized_relu(4,0)")(x)
+x = QConv2DTranspose(
+    32,
+    kernel_size=(3, 3),
+    kernel_quantizer=quantized_bits(4,0,1),
+    bias_quantizer=quantized_bits(4,0,1))(x)
+x = QActivation("quantized_relu(4,0)")(x)
+x = QConv2D(
+    1,
+    kernel_size=(3, 3),
+    padding="same",
+    kernel_quantizer=quantized_bits(4,0,1),
+    bias_quantizer=quantized_bits(4,0,1))(x)
 x_out = x
-x = Activation("softmax", name="softmax")(x)
+x = Activation("sigmoid")(x)
 
 model = Model(inputs=[x_in], outputs=[x])
 mo = Model(inputs=[x_in], outputs=[x_out])
 model.summary()
 
 model.compile(
-    loss="categorical_crossentropy", optimizer=OPTIMIZER, metrics=["accuracy"])
+    loss="binary_crossentropy", optimizer=OPTIMIZER, metrics=["accuracy"])
 
 if train:
 
   history = model.fit(
-      x_train, y_train, batch_size=BATCH_SIZE,
+      x_train, x_train, batch_size=BATCH_SIZE,
       epochs=NB_EPOCH, initial_epoch=1, verbose=VERBOSE,
       validation_split=VALIDATION_SPLIT)
 
-  outputs = []
-  output_names = []
-
-  for layer in model.layers:
-    if layer.__class__.__name__ in ["QActivation", "Activation",
-                                  "QDense", "QConv2D", "QDepthwiseConv2D"]:
-      output_names.append(layer.name)
-      outputs.append(layer.output)
-
-  model_debug = Model(inputs=[x_in], outputs=outputs)
-
-  outputs = model_debug.predict(x_train)
-
-  print("{:30} {: 8.4f} {: 8.4f}".format(
-      "input", np.min(x_train), np.max(x_train)))
-
-  for n, p in zip(output_names, outputs):
-    print("{:30} {: 8.4f} {: 8.4f}".format(n, np.min(p), np.max(p)), end="")
-    layer = model.get_layer(n)
-    for i, weights in enumerate(layer.get_weights()):
-      weights = K.eval(layer.get_quantizers()[i](K.constant(weights)))
-      print(" ({: 8.4f} {: 8.4f})".format(np.min(weights), np.max(weights)),
-            end="")
-      print("")
-
-  p_test = mo.predict(x_test)
-  p_test.tofile("p_test.bin")
-
-  score = model.evaluate(x_test, y_test, verbose=VERBOSE)
-  print("Test score:", score[0])
-  print("Test accuracy:", score[1])
-
-  all_weights = []
-  model_save_quantized_weights(model)
-
-  for layer in model.layers:
-    for w, weights in enumerate(layer.get_weights()):
-      print(layer.name, w)
-      all_weights.append(weights.flatten())
-
-  all_weights = np.concatenate(all_weights).astype(np.float32)
-  print(all_weights.size)
+  # Generate reconstructions
+  num_reco = 8
+  samples = x_test[:num_reco]
+  targets = y_test[:num_reco]
+  reconstructions = model.predict(samples)
 
 
 for layer in model.layers:

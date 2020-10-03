@@ -71,7 +71,8 @@ from qkeras.utils import model_quantize
 #
 
 REGISTERED_LAYERS = ["Dense", "Conv1D", "Conv2D", "DepthwiseConv2D",
-                     "SimpleRNN", "LSTM", "GRU", "Bidirectional"]
+                     "SimpleRNN", "LSTM", "GRU", "Bidirectional",
+                     "Conv2DTranspose"]
 
 Q_LAYERS = list(map(lambda x : 'Q' + x, REGISTERED_LAYERS))
 
@@ -347,7 +348,8 @@ class AutoQKHyperModel(HyperModel):
               not filter_sweep_enabled and self.tune_filters in
               ["layer", "block"]
               and not self.tune_filters_exceptions.search(layer.name) and
-              layer.__class__.__name__ in ["Dense", "Conv1D", "Conv2D"]
+              layer.__class__.__name__ in
+              ["Dense", "Conv1D", "Conv2D", "Conv2DTranspose"]
           ):
             filter_sweep_enabled = True
 
@@ -410,7 +412,7 @@ class AutoQKHyperModel(HyperModel):
         if (
             self.tune_filters in ["layer", "block"] and
             not self.tune_filters_exceptions.search(layer.name) and
-            layer.__class__.__name__ in ["Dense", "Conv1D", "Conv2D"]
+            layer.__class__.__name__ in ["Dense", "Conv1D", "Conv2D", "Conv2DTranspose"]
         ):
           if self.tune_filters == "layer":
             layer_filters = hp.Choice(
@@ -423,7 +425,7 @@ class AutoQKHyperModel(HyperModel):
 
           if layer.__class__.__name__ == "Dense":
             layer.units = max(int(layer.units * layer_filters), 1)
-          elif layer.__class__.__name__ in ["Conv1D", "Conv2D"]:
+          elif layer.__class__.__name__ in ["Conv1D", "Conv2D", "Conv2DTranspose"]:
             layer.filters = max(int(layer.filters * layer_filters), 1)
 
         layer_d[kernel_name] = kernel_quantizer

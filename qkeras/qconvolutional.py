@@ -24,9 +24,13 @@ from tensorflow.keras import regularizers
 from tensorflow.keras.layers import Activation
 from tensorflow.keras.layers import Conv1D
 from tensorflow.keras.layers import Conv2D
+from tensorflow.keras.layers import Conv2DTranspose
 from tensorflow.keras.layers import DepthwiseConv2D
 from tensorflow.keras.layers import Dropout
 from tensorflow.keras.layers import InputSpec
+from tensorflow.python.eager import context
+from tensorflow.python.keras.utils import conv_utils
+from tensorflow.python.ops import array_ops
 from .qlayers import get_auto_range_constraint_initializer
 from .qlayers import QActivation
 from .quantizers import get_quantized_initializer
@@ -328,6 +332,175 @@ class QConv2D(Conv2D, PrunableLayer):
             str(self.activation),
         "filters" : str(self.filters)
     }
+
+  def get_quantizers(self):
+    return self.quantizers
+
+  def get_prunable_weights(self):
+    return [self.kernel]
+
+
+class QConv2DTranspose(Conv2DTranspose, PrunableLayer):
+  """2D convolution layer (e.g. spatial convolution over images)."""
+
+  # most of these parameters follow the implementation of Conv2DTranspose
+  # in Keras, with the exception of kernel_quantizer and bias_quantizer
+  # and kernel_initializer.
+  #
+  # kernel_quantizer: quantizer function/class for kernel
+  # bias_quantizer: quantizer function/class for bias
+  #
+  # we refer the reader to the documentation of Conv2DTranspose in Keras for
+  # the other parameters.
+  #
+
+  def __init__(self,
+               filters,
+               kernel_size,
+               strides=(1, 1),
+               padding='valid',
+               output_padding=None,
+               data_format=None,
+               dilation_rate=(1, 1),
+               activation=None,
+               use_bias=True,
+               kernel_initializer='glorot_uniform',
+               bias_initializer='zeros',
+               kernel_regularizer=None,
+               bias_regularizer=None,
+               activity_regularizer=None,
+               kernel_constraint=None,
+               bias_constraint=None,
+               kernel_quantizer=None,
+               bias_quantizer=None,
+               **kwargs):
+
+    self.kernel_quantizer = kernel_quantizer
+    self.bias_quantizer = bias_quantizer
+
+    self.kernel_quantizer_internal = get_quantizer(self.kernel_quantizer)
+    self.bias_quantizer_internal = get_quantizer(self.bias_quantizer)
+
+    # optimize parameter set to "auto" scaling mode if possible
+    if hasattr(self.kernel_quantizer_internal, "_set_trainable_parameter"):
+      self.kernel_quantizer_internal._set_trainable_parameter()
+
+    self.quantizers = [
+        self.kernel_quantizer_internal, self.bias_quantizer_internal
+    ]
+
+    kernel_constraint, kernel_initializer = (
+        get_auto_range_constraint_initializer(self.kernel_quantizer_internal,
+                                              kernel_constraint,
+                                              kernel_initializer))
+
+    if use_bias:
+      bias_constraint, bias_initializer = (
+          get_auto_range_constraint_initializer(self.bias_quantizer_internal,
+                                                bias_constraint,
+                                                bias_initializer))
+
+    if activation is not None:
+      activation = get_quantizer(activation)
+
+    super(QConv2DTranspose, self).__init__(
+        filters=filters,
+        kernel_size=kernel_size,
+        strides=strides,
+        padding=padding,
+        output_padding=None,
+        data_format=data_format,
+        dilation_rate=dilation_rate,
+        activation=activation,
+        use_bias=use_bias,
+        kernel_initializer=kernel_initializer,
+        bias_initializer=bias_initializer,
+        kernel_regularizer=kernel_regularizer,
+        bias_regularizer=bias_regularizer,
+        activity_regularizer=activity_regularizer,
+        kernel_constraint=kernel_constraint,
+        bias_constraint=bias_constraint,
+        **kwargs)
+
+  def call(self, inputs):
+    inputs_shape = array_ops.shape(inputs)
+    batch_size = inputs_shape[0]
+    if self.data_format == 'channels_first':
+      h_axis, w_axis = 2, 3
+    else:
+      h_axis, w_axis = 1, 2
+
+    height, width = inputs_shape[h_axis], inputs_shape[w_axis]
+    kernel_h, kernel_w = self.kernel_size
+    stride_h, stride_w = self.strides
+
+    if self.output_padding is None:
+      out_pad_h = out_pad_w = None
+    else:
+      out_pad_h, out_pad_w = self.output_padding
+
+    # Infer the dynamic output shape:
+    out_height = conv_utils.deconv_output_length(height,
+                                                 kernel_h,
+                                                 padding=self.padding,
+                                                 output_padding=out_pad_h,
+                                                 stride=stride_h,
+                                                 dilation=self.dilation_rate[0])
+    out_width = conv_utils.deconv_output_length(width,
+                                                kernel_w,
+                                                padding=self.padding,
+                                                output_padding=out_pad_w,
+                                                stride=stride_w,
+                                                dilation=self.dilation_rate[1])
+    if self.data_format == 'channels_first':
+      output_shape = (batch_size, self.filters, out_height, out_width)
+    else:
+      output_shape = (batch_size, out_height, out_width, self.filters)
+
+    if self.kernel_quantizer:
+      quantized_kernel = self.kernel_quantizer_internal(self.kernel)
+    else:
+      quantized_kernel = self.kernel
+
+    output_shape_tensor = array_ops.stack(output_shape)
+    outputs = tf.keras.backend.conv2d_transpose(
+        inputs,
+        quantized_kernel,
+        output_shape_tensor,
+        strides=self.strides,
+        padding=self.padding,
+        data_format=self.data_format,
+        dilation_rate=self.dilation_rate)
+
+    if not context.executing_eagerly():
+      # Infer the static output shape:
+      out_shape = self.compute_output_shape(inputs.shape)
+      outputs.set_shape(out_shape)
+
+    if self.use_bias:
+      if self.bias_quantizer:
+        quantized_bias = self.bias_quantizer_internal(self.bias)
+      else:
+        quantized_bias = self.bias
+
+      outputs = tf.keras.backend.bias_add(
+          outputs,
+          quantized_bias,
+          data_format=self.data_format)
+
+    if self.activation is not None:
+      return self.activation(outputs)
+    return outputs
+
+  def get_config(self):
+    config = {
+        "kernel_quantizer":
+            constraints.serialize(self.kernel_quantizer_internal),
+        "bias_quantizer":
+            constraints.serialize(self.bias_quantizer_internal)
+    }
+    base_config = super(QConv2DTranspose, self).get_config()
+    return dict(list(base_config.items()) + list(config.items()))
 
   def get_quantizers(self):
     return self.quantizers
