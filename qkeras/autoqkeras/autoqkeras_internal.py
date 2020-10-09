@@ -21,6 +21,7 @@ import collections
 import json
 import os
 import re
+import copy
 
 import kerastuner as kt
 from kerastuner import HyperModel
@@ -97,6 +98,8 @@ class AutoQKHyperModel(HyperModel):
        layer_indexes: we only quantize layers whose ids are in layer_indexes.
        learning_rate_optimizer: if true, we optimize learning rate along with
          other parameters.
+       head_name: specify which head to calcuate score/trial-size from in
+         autoqkeras
        quantization_config: dictionary containing configuration of
          quantizers for kernel, bias and activation.
 
@@ -110,7 +113,7 @@ class AutoQKHyperModel(HyperModel):
       transfer_weights=False, frozen_layers=None, activation_bits=4, limit=None,
       tune_filters="none", tune_filters_exceptions=None,
       layer_indexes=None, learning_rate_optimizer=False,
-      quantization_config=None
+      head_name=None, quantization_config=None
   ):
     self.model = model
     self.metrics = metrics
@@ -123,7 +126,7 @@ class AutoQKHyperModel(HyperModel):
     self.transfer_weights = transfer_weights
     self.frozen_layers = frozen_layers if frozen_layers else []
     self.activation_bits = activation_bits
-
+    self.head_name = head_name
     # make sure we have at least 3 elements in list
     # first one for kernel, second one for bias and thid one for activations.
     #
@@ -571,9 +574,23 @@ class AutoQKHyperModel(HyperModel):
 
     # by default, we use the first metric specified by the
     # user to be the target metric.
+    if not self.metrics:
+      score_metric = None
+    elif isinstance(self.metrics, dict):
+      if not self.head_name:
+      # if head_name not provided, find the first metric from the dict
+        score_key = list(self.metrics.keys())[0]
+      else:
+        # find the metric assoicated with the head_name
+        score_key = self.head_name
+      score_metric = self.metrics[score_key]
+      if isinstance(score_metric, list):
+        score_metric = score_metric[0]
+    elif isinstance(self.metrics, list):
+      score_metric = self.metrics[0]
 
     self.score = AutoQKHyperModel.adjusted_score(
-        self, delta, self.metrics[0] if self.metrics else None)
+        self, delta, score_metric)
 
     # some papers suggest that we use learning_rate * sqrt(fanin) / layer
     # we cannot do that right now, but we can definitely do that
@@ -606,13 +623,31 @@ class AutoQKHyperModel(HyperModel):
 
     q_model.summary()
 
+    # extend metrics by including score and trial_size metrics
+    ext_metrics = copy.deepcopy(self.metrics)
+    if isinstance(ext_metrics, dict):
+      # for dictionary, add trial_size_metric and score metric to target output
+      if not self.head_name:
+        # if head_name not provided, find the first metric from the dict
+        score_key = list(ext_metrics.keys())[0]
+      else:
+        # find the metric assoicated with the head_name
+        score_key = self.head_name
+      score_metric = ext_metrics[score_key]
+      if isinstance(score_metric, list):
+        score_metric += [self.trial_size_metric(self.trial_size), self.score]
+      else:
+        score_metric = [score_metric]
+        score_metric += [self.trial_size_metric(self.trial_size), self.score]
+      ext_metrics[score_key] = score_metric
+    else:
+      ext_metrics += [
+          self.trial_size_metric(self.trial_size),
+          self.score]
     q_model.compile(
         optimizer=optimizer,
         loss=self.model.loss,
-        metrics=self.metrics + [
-            self.trial_size_metric(self.trial_size),
-            self.score
-        ]
+        metrics=ext_metrics
     )
     self.q_model = q_model
 
@@ -686,6 +721,8 @@ class AutoQKeras:
          callback.
        quantization_config: file name of dictionary containing configuration of
          quantizers for kernel, bias and activation.
+       head_name: specify which head to calcuate score/trial-size from in
+         autoqkeras
        tuner_kwargs: parameters for kerastuner depending on whether
          mode is random, hyperband or baeysian. Please refer to the
          documentation of kerstuner Tuners.
@@ -697,7 +734,7 @@ class AutoQKeras:
       frozen_layers=None, activation_bits=4, limit=None, tune_filters="none",
       tune_filters_exceptions=None, learning_rate_optimizer=False,
       layer_indexes=None, quantization_config=None, overwrite=True,
-      **tuner_kwargs):
+      head_name=None, **tuner_kwargs):
 
     if not metrics:
       metrics = []
@@ -738,6 +775,10 @@ class AutoQKeras:
 
     self.overwrite = overwrite
 
+    # for multi-head model, we need to specify which head(/output) that
+    # score and trial metric needs to calculate from
+    self.head_name = head_name
+
     # if we have not created it already, create new one.
     if not isinstance(goal, ForgivingFactor):
       target = forgiving_factor[goal["type"]](**goal["params"])
@@ -759,6 +800,7 @@ class AutoQKeras:
         tune_filters_exceptions=tune_filters_exceptions,
         layer_indexes=layer_indexes,
         learning_rate_optimizer=learning_rate_optimizer,
+        head_name=head_name,
         quantization_config=quantization_config
     )
 
@@ -772,24 +814,27 @@ class AutoQKeras:
     output_dir = name
     self.output_dir = output_dir
 
-    # let's ignore mode for now
+    if self.head_name:
+      score_metric = "val_" + self.head_name + "_score"
+    else:
+      score_metric = "val_score"
     assert mode in ["random", "bayesian", "hyperband"]
     if mode == "random":
       self.tuner = RandomSearch(
           self.hypermodel,
-          objective=kt.Objective("val_score", "max"),
+          objective=kt.Objective(score_metric, "max"),
           project_name=output_dir,
           **tuner_kwargs)
     elif mode == "bayesian":
       self.tuner = BayesianOptimization(
           self.hypermodel,
-          objective=kt.Objective("val_score", "max"),
+          objective=kt.Objective(score_metric, "max"),
           project_name=output_dir,
           **tuner_kwargs)
     elif mode == "hyperband":
       self.tuner = Hyperband(
           self.hypermodel,
-          objective=kt.Objective("val_score", "max"),
+          objective=kt.Objective(score_metric, "max"),
           project_name=output_dir,
           **tuner_kwargs)
     else:
@@ -842,9 +887,13 @@ class AutoQKeras:
                 result[key].append(cur_accuracy)
                 result["val_" + key].append(cur_val_accuracy)
 
+    if self.head_name:
+      trial_from_output = self.head_name + "_trial"
+    else:
+      trial_from_output = "trial"
     result["trial_size"] = [
-        state[i]["metrics"]["metrics"]["trial"]["observations"][0]["value"][0]
-        for i in range(len(state)) if trials[i].score is not None
+        state[i]["metrics"]["metrics"][trial_from_output]["observations"][0]
+        ["value"][0] for i in range(len(state)) if trials[i].score is not None
     ]
 
     return result
@@ -914,6 +963,8 @@ class AutoQKerasScheduler:
        quantization_config: file name of dictionary containing configuration of
          quantizers for kernel, bias and activation.
        debug: if True, fit will just print the groups for debugging purposes.
+       head_name: specify which head to calcuate score/trial-size from in
+         autoqkeras
        tuner_kwargs: parameters for kerastuner depending on whether
          mode is random, hyperband or baeysian. Please refer to the
          documentation of kerstuner Tuners.
@@ -925,7 +976,8 @@ class AutoQKerasScheduler:
       activation_bits=4, limit=None, tune_filters="none",
       tune_filters_exceptions=None, layer_indexes=None,
       learning_rate_optimizer=False, blocks=None, schedule_block="sequential",
-      quantization_config=None, overwrite=True, debug=False, **tuner_kwargs):
+      quantization_config=None, overwrite=True, debug=False, head_name=None,
+      **tuner_kwargs):
 
     if not metrics:
       metrics = []
@@ -981,6 +1033,7 @@ class AutoQKerasScheduler:
     self.quantization_config = quantization_config
     self.tuner_kwargs = tuner_kwargs
     self.debug = debug
+    self.head_name = head_name
 
     self.autoqk = None
     self.learning_rate = model.optimizer.lr.numpy()
@@ -1120,6 +1173,7 @@ class AutoQKerasScheduler:
           learning_rate_optimizer=self.learning_rate_optimizer,
           quantization_config=self.quantization_config,
           overwrite=self.overwrite,
+          head_name=self.head_name,
           **self.tuner_kwargs)
 
       self.autoqk.fit(*fit_args, **fit_kwargs)
