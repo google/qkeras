@@ -89,6 +89,14 @@ and regularization effects of stochastic activation functions.)
 
 - QOctaveConv2D
 
+- QSimpleRNN, QSimpleRNNCell
+
+- QLSTM, QLSTMCell
+
+- QGRU, QGRUCell
+
+- QBidirectional
+
 It is worth noting that not all functionality is safe at this time to
 be used with other high-level operations, such as with layer
 wrappers. For example, Bidirectional layer wrappers are used with

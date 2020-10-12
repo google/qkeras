@@ -41,8 +41,13 @@ def dense_model():
   x = x_in = Input((4,), name="input")
   x = Dense(20, name="dense_0")(x)
   x = BatchNormalization(name="bn0")(x)
-  x = Dropout(0.1, name="dp0")(x)
   x = Activation("relu", name="relu_0")(x)
+  x = Dense(40, name="dense_1")(x)
+  x = BatchNormalization(name="bn1")(x)
+  x = Activation("relu", name="relu_1")(x)
+  x = Dense(20, name="dense_2")(x)
+  x = BatchNormalization(name="bn2")(x)
+  x = Activation("relu", name="relu_2")(x)
   x = Dense(3, name="dense")(x)
   x = Activation("softmax", name="softmax")(x)
 
@@ -142,7 +147,7 @@ def test_autoqkeras():
                        validation_split=0.1)
 
   quantized_acc = history.history["acc"][-1]
-  assert quantized_acc >= 0.5
+  assert quantized_acc >= 0.93
 
 if __name__ == "__main__":
   pytest.main([__file__])

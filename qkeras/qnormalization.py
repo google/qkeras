@@ -99,6 +99,8 @@ class QBatchNormalization(BatchNormalization, PrunableLayer):
           6, quadratic_approximation=True)
     if beta_quantizer is None:
       beta_quantizer = quantized_po2(5)
+    if mean_quantizer is None:
+      mean_quantizer = quantized_po2(5)
 
     self.beta_quantizer = beta_quantizer
     self.gamma_quantizer = gamma_quantizer

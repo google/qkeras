@@ -18,6 +18,7 @@
 """Implements utility functions for support of auto-quantization."""
 
 import json
+import tensorflow as tf
 
 
 Q_SEQUENCE_LAYERS = ["QSimpleRNN", "QLSTM", "QGRU", "QBidirectional"]
@@ -53,6 +54,14 @@ def print_qmodel_summary(q_model):
       ):
         print("act={}".format(layer.activation), end="")
       print()
+    elif layer.__class__.__name__ == "QBatchNormalization":
+      print("{:20} QBN, mean={}".format(layer.name,
+          str(tf.keras.backend.eval(layer.moving_mean))), end="")
+      print()
+    elif layer.__class__.__name__ == "BatchNormalization":
+      print("{:20} is normal keras bn layer".format(layer.name), end="")
+      print()
+
   print()
 
 
