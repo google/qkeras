@@ -75,6 +75,7 @@ class QSimpleRNNCell(SimpleRNNCell):
                kernel_quantizer=None,
                recurrent_quantizer=None,
                bias_quantizer=None,
+               state_quantizer=None,
                dropout=0.,
                recurrent_dropout=0.,
                **kwargs):
@@ -82,15 +83,18 @@ class QSimpleRNNCell(SimpleRNNCell):
     self.kernel_quantizer = kernel_quantizer
     self.recurrent_quantizer = recurrent_quantizer
     self.bias_quantizer = bias_quantizer
+    self.state_quantizer = state_quantizer
 
     self.kernel_quantizer_internal = get_quantizer(self.kernel_quantizer)
     self.recurrent_quantizer_internal = get_quantizer(self.recurrent_quantizer)
     self.bias_quantizer_internal = get_quantizer(self.bias_quantizer)
+    self.state_quantizer_internal = get_quantizer(self.state_quantizer)
 
     self.quantizers = [
       self.kernel_quantizer_internal,
       self.recurrent_quantizer_internal,
-      self.bias_quantizer_internal
+      self.bias_quantizer_internal,
+      self.state_quantizer_internal,
     ]
 
     if hasattr(self.kernel_quantizer_internal, "_set_trainable_parameter"):
@@ -142,6 +146,11 @@ class QSimpleRNNCell(SimpleRNNCell):
     rec_dp_mask = self.get_recurrent_dropout_mask_for_cell(
         prev_output, training)
 
+    if self.state_quantizer:
+      quantized_prev_output = self.state_quantizer_internal(prev_output)
+    else:
+      quantized_prev_output = prev_output
+
     if self.kernel_quantizer:
       quantized_kernel = self.kernel_quantizer_internal(self.kernel)
     else:
@@ -161,14 +170,14 @@ class QSimpleRNNCell(SimpleRNNCell):
       h = K.bias_add(h, quantized_bias)
 
     if rec_dp_mask is not None:
-      prev_output = prev_output * rec_dp_mask
+      quantized_prev_output = quantized_prev_output * rec_dp_mask
 
     if self.recurrent_quantizer:
       quantized_recurrent = self.recurrent_quantizer_internal(self.recurrent_kernel)
     else:
       quantized_recurrent = self.recurrent_kernel
 
-    output = h + K.dot(prev_output, quantized_recurrent)
+    output = h + K.dot(quantized_prev_output, quantized_recurrent)
 
     if self.activation is not None:
       output = self.activation(output)
@@ -222,6 +231,7 @@ class QSimpleRNN(RNN, PrunableLayer):
                bias_constraint=None,
                kernel_quantizer=None,
                recurrent_quantizer=None,
+               state_quantizer=None,
                bias_quantizer=None,
                dropout=0.,
                recurrent_dropout=0.,
@@ -253,6 +263,7 @@ class QSimpleRNN(RNN, PrunableLayer):
         bias_constraint=bias_constraint,
         kernel_quantizer=kernel_quantizer,
         recurrent_quantizer=recurrent_quantizer,
+        state_quantizer=state_quantizer,
         bias_quantizer=bias_quantizer,
         dropout=dropout,
         recurrent_dropout=recurrent_dropout,
@@ -339,6 +350,10 @@ class QSimpleRNN(RNN, PrunableLayer):
     return self.cell.recurrent_quantizer_internal
 
   @property
+  def state_quantizer_internal(self):
+    return self.cell.state_quantizer_internal
+
+  @property
   def bias_quantizer_internal(self):
     return self.cell.bias_quantizer_internal
 
@@ -349,6 +364,10 @@ class QSimpleRNN(RNN, PrunableLayer):
   @property
   def recurrent_quantizer(self):
     return self.cell.recurrent_quantizer
+
+  @property
+  def state_quantizer(self):
+    return self.cell.state_quantizer
 
   @property
   def bias_quantizer(self):
@@ -394,6 +413,8 @@ class QSimpleRNN(RNN, PrunableLayer):
             constraints.serialize(self.kernel_quantizer_internal),
         "recurrent_quantizer":
             constraints.serialize(self.recurrent_quantizer_internal),
+        "state_quantizer":
+            constraints.serialize(self.state_quantizer_internal),
         "bias_quantizer":
             constraints.serialize(self.bias_quantizer_internal),
         'dropout':
@@ -411,6 +432,8 @@ class QSimpleRNN(RNN, PrunableLayer):
             str(self.kernel_quantizer_internal),
         "recurrent_quantizer":
             str(self.recurrent_quantizer_internal),
+        "state_quantizer":
+            str(self.state_quantizer_internal),
         "bias_quantizer":
             str(self.bias_quantizer_internal),
         "activation":
