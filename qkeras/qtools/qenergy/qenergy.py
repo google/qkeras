@@ -296,6 +296,16 @@ def energy_estimate(model, layer_map, weights_on_memory,
       energy_op = (number_of_inputs - 1) * operation_count * gate_factor * OP[
           q][mode](b)
 
+    # AveragePooling and GlobalAveragePooling
+    elif layer.__class__.__name__ in [
+        "AveragePooling2D", "AvgPool2D", "GlobalAvgPool2D",
+        "GlobalAveragePooling2D"]:
+      # accumulation operation energy
+      accumulator = layer_item.accumulator
+      add_energy = OP[get_op_type(accumulator.output)]["add"](
+          accumulator.output.bits)
+      energy_op = operation_count * add_energy
+
     # MAC energy calculation
     elif layer.__class__.__name__ in ["QConv2D", "QConv1D", "QDepthwiseConv2D",
                                       "QDense", "Conv2D", "Conv1D",

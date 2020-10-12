@@ -81,6 +81,7 @@ class FixedPointAccumulator(IAccumulator):
       self,
       kernel_shape,
       multiplier: multiplier_impl.IMultiplier,
+      use_bias=True
   ):
     super().__init__()
 
@@ -97,7 +98,7 @@ class FixedPointAccumulator(IAccumulator):
     kernel_add_ops = np.prod(kernel_shape_excluding_output_dim)
 
     # bias are associate with filters; each filter adds 1 bias
-    bias_add = 1
+    bias_add = 1 if use_bias else 0
 
     add_ops = kernel_add_ops + bias_add
     self.log_add_ops = int(np.ceil(np.log2(add_ops)))
@@ -127,8 +128,9 @@ class Po2Accumulator(FixedPointAccumulator):
       self,
       kernel_shape,
       multiplier: multiplier_impl.IMultiplier,
+      use_bias=True
   ):
-    super().__init__(kernel_shape, multiplier)
+    super().__init__(kernel_shape, multiplier, use_bias)
 
     assert multiplier.output.is_po2
     # convert multiplier output from po2 to quantized_bits

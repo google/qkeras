@@ -29,7 +29,8 @@ class AccumulatorFactory:
 
   def make_accumulator(
       self, kernel_shape,
-      multiplier: multiplier_impl.IMultiplier
+      multiplier: multiplier_impl.IMultiplier,
+      use_bias=True
   ) -> accumulator_impl.IAccumulator:
     """Create an accumulator instance."""
 
@@ -44,11 +45,11 @@ class AccumulatorFactory:
     # in multiplier, po2 needs to be converted to FixedPoint
     elif multiplier.output.is_po2:
       accumulator = accumulator_impl.Po2Accumulator(
-          kernel_shape, multiplier)
+          kernel_shape, multiplier, use_bias)
 
     # fixed point
     else:
       accumulator = accumulator_impl.FixedPointAccumulator(
-          kernel_shape, multiplier)
+          kernel_shape, multiplier, use_bias)
 
     return accumulator

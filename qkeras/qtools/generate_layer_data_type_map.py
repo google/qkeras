@@ -228,7 +228,7 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
           operation_count
       )
 
-    # pooling/reshape/flatten/UpSampling1D/2D/3D
+    # MaxPooling/reshape/flatten/UpSampling1D/2D/3D
     elif (qtools_util.is_shape_alternation_layers(layer) or
           "UpSampling" in layer.__class__.__name__):
       input_quantizer = input_quantizer_list[0]
@@ -251,6 +251,59 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
           output_quantizer,
           output_shapes,
 
+          operation_count
+      )
+
+    # AveragePooling and GlobalAveragePooling
+    elif layer.__class__.__name__ in [
+        "AveragePooling2D", "AvgPool2D", "GlobalAvgPool2D",
+        "GlobalAveragePooling2D"]:
+      (input_quantizer, _) = input_qe_list[0]
+
+      # This is a hack. We don't want to implement a new accumulator class
+      # just for averagpooling. So we re-use accumulator type in conv/dense
+      # layers which need multiplier and kernel as input parameters.
+      # In order to do so, we fake a multiplier which treat the pool_size as
+      # the kernel. since kernel needs 4 dimension, k_h, k_w, C_in, C_out,
+      # we set the last two dimension as [1, 1]
+      if layer.__class__.__name__ in ["AveragePooling2D", "AvgPool2D"]:
+        pool_size = tuple(list(layer.pool_size) + [1, 1])
+      else:
+        pool_size = tuple(list(input_shape)[1:-1] + [1, 1])
+
+      multiplier_factory = quantized_operators.MultiplierFactory()
+      fake_multiplier = multiplier_factory.make_multiplier(
+          input_quantizer, input_quantizer)
+      fake_multiplier.output = input_quantizer
+      accumulator_factory = quantized_operators.AccumulatorFactory()
+      accumulator = accumulator_factory.make_accumulator(
+          pool_size, fake_multiplier, use_bias=False)
+
+      if debug:
+        print("accumulator:", accumulator.output.bits)
+
+      if for_reference:
+        accumulator.output = quantizer_factory.make_default_quantizer(
+            mode=cfg.default_interm_quantizer)
+
+        if keras_accumulator:
+          accumulator.output = quantizer_factory.make_default_quantizer(
+              mode=keras_accumulator)
+
+      layer_quantizer = accumulator.output
+      output_quantizer = update_output_quantizer_in_graph(
+          graph, node_id, quantizer_factory, layer_quantizer, for_reference)
+
+      layer_data_type_map[layer] = LayerDataType(
+          input_quantizer_list,
+          None,
+          accumulator,
+          None,
+          None,
+          None,
+          None,
+          output_quantizer,
+          output_shapes,
           operation_count
       )
 
@@ -512,7 +565,6 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
 
       # if layer.use_bias:
       #  bias = weights[1]
-
       accumulator_factory = quantized_operators.AccumulatorFactory()
       accumulator = accumulator_factory.make_accumulator(
           kernel.shape, multiplier)
