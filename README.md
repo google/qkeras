@@ -75,8 +75,12 @@ http://arxiv.org/abs/2006.10159
 
 - QDepthwiseConv2D
 
+- QSeparableConv1D
+
 - QSeparableConv2D (depthwise + pointwise expanded, extended from
 MobileNet SeparableConv2D implementation)
+
+- QConv2DTranspose
 
 - QActivation
 
