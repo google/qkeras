@@ -265,6 +265,19 @@ def multiply_qmodel():
   return model
 
 
+def pooling_qmodel():
+
+  # Average pooling and global average pooling operation for spatial data.
+  x = input1 = keras.layers.Input((16, 16, 3), name="input")
+  x = keras.layers.AveragePooling2D(pool_size=(2, 2), padding="valid",
+                                    name="avg_pooling")(x)
+  x = keras.layers.GlobalAveragePooling2D(name="global_avg_pooling")(x)
+
+  model = keras.Model(inputs=[input1], outputs=[x])
+
+  return model
+
+
 def maximum_qmodel(quantizer1, quantizer2, quantizer3):
 
   # element-wise maximum/minimum/average of a list of inputs.
@@ -555,6 +568,22 @@ def test_merge_layers():
   assert merge_quantizer["bits"] == 15
   assert merge_quantizer["int_bits"] == 4
   assert merge_quantizer["is_signed"] == 1
+
+
+def test_pooling():
+  input_quantizers = [quantizers.quantized_bits(8, 0, 1)]
+  model = pooling_qmodel()
+  dtype_dict = run(model, input_quantizers)
+
+  accumulator = dtype_dict["avg_pooling"]["accumulator"]
+  assert accumulator["quantizer_type"] == "quantized_bits"
+  assert accumulator["bits"] == 10
+  assert accumulator["int_bits"] == 3
+
+  accumulator = dtype_dict["global_avg_pooling"]["accumulator"]
+  assert accumulator["quantizer_type"] == "quantized_bits"
+  assert accumulator["bits"] == 16
+  assert accumulator["int_bits"] == 9
 
 
 def test_qenergy():

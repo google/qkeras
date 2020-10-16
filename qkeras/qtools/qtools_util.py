@@ -28,7 +28,7 @@ import tensorflow.keras.backend as K
 def is_shape_alternation_layers(layer):
   lname = layer.__class__.__name__
   if lname:
-    return "Pooling" in lname or "Reshape" in lname or "Flatten" in lname
+    return "MaxPool" in lname or "Reshape" in lname or "Flatten" in lname
   return False
 
 
@@ -109,6 +109,23 @@ def get_operation_count(layer, input_shape):
 
   if is_merge_layers(layer) or is_shape_alternation_layers(layer):
     operation_count = np.prod(input_shape[1:])
+
+  elif layer.__class__.__name__ in [
+      "AveragePooling2D", "AvgPool2D", "GlobalAvgPool2D",
+      "GlobalAveragePooling2D"
+  ]:
+
+    if hasattr(layer, "pool_size"):
+      pool_size = layer.pool_size
+    else:
+      pool_size = input_shape[1:-1]
+    add_ops = np.prod(pool_size)
+
+    output_shape = layer.compute_output_shape(input_shape)
+    channels_o = output_shape[-1]
+
+    # total number of add ops
+    operation_count = channels_o * add_ops
 
   elif "UpSampling" in layer.__class__.__name__:
     # UpSampling1D/2D/3D
