@@ -37,6 +37,7 @@ from qkeras import QDense
 from qkeras import QConv1D
 from qkeras import QConv2D
 from qkeras import QConv2DTranspose
+from qkeras import QSeparableConv1D
 from qkeras import QSeparableConv2D
 from qkeras import quantized_bits
 from qkeras import quantized_relu
@@ -59,7 +60,7 @@ def test_qnetwork():
       strides=(2, 2),
       depthwise_quantizer=binary(alpha=1.0),
       pointwise_quantizer=quantized_bits(4, 0, 1, alpha=1.0),
-      depthwise_activation=quantized_bits(6, 2, 1, alpha=1.0),
+      activation=quantized_bits(6, 2, 1, alpha=1.0),
       bias_quantizer=quantized_bits(4, 0, 1),
       name='conv2d_0_m')(
           x)
@@ -102,9 +103,10 @@ def test_qnetwork():
     all_weights = []
     for i, weights in enumerate(layer.get_weights()):
       input_size = np.prod(layer.input.shape.as_list()[1:])
-      if input_size is None:
-        input_size = 576 * 10  # to avoid learning sizes
+      if (len(layer.get_weights()) == 3 and i > 0): # pointwise kernel and bias
+        input_size = input_size // np.prod(layer.kernel_size)
       shape = weights.shape
+      print(shape)
       assert input_size > 0, 'input size for {} {}'.format(layer.name, i)
       # he normal initialization with a scale factor of 2.0
       all_weights.append(
@@ -136,19 +138,19 @@ def test_qnetwork():
       [[0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
         0.e+00, 1.e+00, 0.e+00, 0.e+00, 0.e+00],
       [0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
+       0.e+00, 1.e+00, 0.e+00, 0.e+00, 7.6e-06],
+      [0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
+       0.e+00, 0.e+00, 0.e+00, 0.e+00, 1.e+00],
+      [0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
        0.e+00, 1.e+00, 0.e+00, 0.e+00, 0.e+00],
       [0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
-       0.e+00, 0.e+00, 0.e+00, 6.e-08, 1.e+00],
-      [0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
-       0.e+00, 1.e+00, 0.e+00, 0.e+00, 0.e+00],
-      [ 0.e+00 ,0.e+00, 0.e+00, 0.e+00, 0.e+00,
        0.e+00, 1.e+00, 0.e+00, 0.e+00, 0.e+00],
       [0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
-       0.e+00, 0.e+00, 0.e+00, 5.e-07, 1.e+00],
+       0.e+00, 0.e+00, 0.e+00, 0.e+00, 1.e+00],
       [0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
-       0.e+00 ,1.e+00, 0.e+00, 0.e+00, 0.e+00],
+       0.e+00, 1.e+00, 0.e+00, 0.e+00, 0.e+00],
       [0.e+00, 1.e+00, 0.e+00, 0.e+00, 0.e+00,
-       0.e+00 ,0.e+00, 0.e+00, 0.e+00, 0.e+00],
+       0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00],
       [0.e+00, 0.e+00, 0.e+00, 0.e+00, 1.e+00,
        0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00],
       [0.e+00, 0.e+00, 0.e+00, 0.e+00, 0.e+00,
@@ -157,23 +159,37 @@ def test_qnetwork():
   actual_output = model.predict(inputs).astype(np.float16)
   assert_allclose(actual_output, expected_output, rtol=1e-4)
 
-
-def test_qconv1d():
+@pytest.mark.parametrize("layer_cls", ["QConv1D", "QSeparableConv1D"])
+def test_qconv1d(layer_cls):
   np.random.seed(33)
-  x = Input((4, 4,))
-  y = QConv1D(
+  if layer_cls == "QConv1D":
+    x = Input((4, 4,))
+    y = QConv1D(
       2, 1,
       kernel_quantizer=quantized_bits(6, 2, 1, alpha=1.0),
       bias_quantizer=quantized_bits(4, 0, 1),
       name='qconv1d')(
           x)
-  model = Model(inputs=x, outputs=y)
+    model = Model(inputs=x, outputs=y)
+  else:
+    x = Input((4, 4,))
+    y = QSeparableConv1D(
+      2, 2,
+      depthwise_quantizer=quantized_bits(6, 2, 1, alpha=1.0),
+      pointwise_quantizer=quantized_bits(4, 0, 1, alpha=1.0),
+      bias_quantizer=quantized_bits(4, 0, 1),
+      name='qsepconv1d')(
+          x)
+    model = Model(inputs=x, outputs=y)
 
   # Extract model operations
   model_ops = extract_model_operations(model)
 
-  # Assertion about the number of operations for this Conv1D layer
-  assert model_ops['qconv1d']['number_of_operations'] == 32
+  # Assertion about the number of operations for this (Separable)Conv1D layer
+  if layer_cls == "QConv1D":
+    assert model_ops['qconv1d']['number_of_operations'] == 32
+  else:
+    assert model_ops['qsepconv1d']['number_of_operations'] == 30
 
   # Print qstats to make sure it works with Conv1D layer
   print_qstats(model)
@@ -212,11 +228,16 @@ def test_qconv1d():
 
   inputs = np.random.rand(2, 4, 4)
   p = model.predict(inputs).astype(np.float16)
-  y = np.array([[[-2.441, 3.816], [-3.807, -1.426], [-2.684, -1.317],
-                 [-1.659, 0.9834]],
-                [[-4.99, 1.139], [-2.559, -1.216], [-2.285, 1.905],
-                 [-2.652, -0.467]]]).astype(np.float16)
-  assert np.all(p == y)
+  if layer_cls == "QConv1D":
+    y = np.array([[[-2.441, 3.816], [-3.807, -1.426], [-2.684, -1.317],
+                   [-1.659, 0.9834]],
+                  [[-4.99, 1.139], [-2.559, -1.216], [-2.285, 1.905],
+                   [-2.652, -0.467]]]).astype(np.float16)
+  else:
+    y = np.array([[[-2.275,   -3.178], [-0.4358, -3.262], [ 1.987,  0.3987]],
+                  [[-0.01251, -0.376], [ 0.3928, -1.328], [-1.243, -2.43  ]]]
+                ).astype(np.float16)
+  assert_allclose(p, y, rtol=1e-4)
 
 def test_qconv2dtranspose():
   x = Input((4, 4, 1,))
