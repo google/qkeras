@@ -55,6 +55,8 @@ from .qrecurrent import QLSTMCell
 from .qrecurrent import QGRU
 from .qrecurrent import QGRUCell
 from .qrecurrent import QBidirectional
+from .qconvolutional import QSeparableConv1D
+from .qconvolutional import QSeparableConv2D
 from .qconvolutional import QDepthwiseConv2D
 from .qnormalization import QBatchNormalization
 from .quantizers import binary
@@ -76,6 +78,8 @@ REGISTERED_LAYERS = [
     "QDense",
     "QConv1D",
     "QConv2D",
+    "QSeparableConv1D",
+    "QSeparableConv2D",
     "QDepthwiseConv2D",
     "QConv2DTranspose",
     "QSimpleRNN",
@@ -342,7 +346,10 @@ def model_quantize(model,
     # Dense becomes QDense, Conv1D becomes QConv1D etc
     # Activation converts activation functions
 
-    if layer["class_name"] in ["Dense", "Conv1D", "Conv2D", "Conv2DTranspose"]:
+    if layer["class_name"] in [
+      "Dense", "Conv1D", "Conv2D", "Conv2DTranspose",
+      "SeparableConv1D", "SeparableConv2D"
+    ]:
       q_name = "Q" + layer["class_name"]
       # needs to add kernel/bias quantizers
       kernel_quantizer = get_config(
@@ -542,6 +549,8 @@ def _add_supported_quantized_objects(custom_objects):
   custom_objects["QGRU"] = QGRU
   custom_objects["QBidirectional"] = QBidirectional
   custom_objects["QDepthwiseConv2D"] = QDepthwiseConv2D
+  custom_objects["QSeparableConv1D"] = QSeparableConv1D
+  custom_objects["QSeparableConv2D"] = QSeparableConv2D
   custom_objects["QActivation"] = QActivation
   custom_objects["QBatchNormalization"] = QBatchNormalization
   custom_objects["Clip"] = Clip
@@ -684,8 +693,9 @@ def get_model_sparsity(model, per_layer=False, allow_list=None):
   if allow_list is None:
     allow_list = [
         "QDense", "Dense", "QConv1D", "Conv1D", "QConv2D", "Conv2D",
-        "QDepthwiseConv2D", "DepthwiseConv2D", "QSeparableConv2D",
-        "SeparableConv2D", "QOctaveConv2D", 
+        "QDepthwiseConv2D", "DepthwiseConv2D",
+        "QSeparableConv1D", "SeparableConv1D",
+        "QSeparableConv2D", "SeparableConv2D", "QOctaveConv2D", 
         "QSimpleRNN", "RNN", "QLSTM", "QGRU",
         "QConv2DTranspose", "Conv2DTranspose"
     ]
@@ -745,7 +755,8 @@ def quantized_model_debug(model, X_test, plot=False):
       print(" a[{: 8.4f} {:8.4f}]".format(np.min(alpha), np.max(alpha)))
     if plot and layer.__class__.__name__ in [
       "QConv1D", "QConv2D", "QConv2DTranspose", "QDense", "QActivation", 
-      "QSimpleRNN", "QLSTM", "QGRU", "QBidirectional"
+      "QSimpleRNN", "QLSTM", "QGRU", "QBidirectional",
+      "QSeparableConv1D", "QSeparableConv2D"
     ]:
       plt.hist(p.flatten(), bins=25)
       plt.title(layer.name + "(output)")
@@ -756,7 +767,8 @@ def quantized_model_debug(model, X_test, plot=False):
         weights = K.eval(layer.get_quantizers()[i](K.constant(weights)))
         if i == 0 and layer.__class__.__name__ in [
             "QConv1D", "QConv2D", "QConv2DTranspose", "QDense",
-            "QSimpleRNN", "QLSTM", "QGRU"
+            "QSimpleRNN", "QLSTM", "QGRU",
+            "QSeparableConv1D", "QSeparableConv2D"
         ]:
           alpha = get_weight_scale(layer.get_quantizers()[i], weights)
           # if alpha is 0, let's remove all weights.

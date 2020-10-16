@@ -378,7 +378,8 @@ def extract_model_operations(model):
     cache_o[layer.output.experimental_ref()] = output_shape
 
     if layer.__class__.__name__ not in ["QDense", "QConv2D", "QConv1D",
-                                        "QDepthwiseConv2D"]:
+                                        "QDepthwiseConv2D", "QSeparableConv1D",
+                                        "QSeparableConv2D"]:
       continue
 
     if layer.__class__.__name__ in ["QConv2D"]:
@@ -450,6 +451,62 @@ def extract_model_operations(model):
       weight_type = get_quant_mode(weight_quant)
       bias_type = get_quant_mode(bias_quant)
 
+    elif layer.__class__.__name__ in ["QSeparableConv1D"]:
+
+      _, _, channels_i = input_shape
+
+      _, time_o, channels_o = output_shape
+
+      weight_1 = layer.get_weights()[0]
+
+      kernel_length, _, _ = weight_1.shape
+
+      number_of_operations = (
+          kernel_length * time_o * channels_i + 
+          time_o * channels_o)
+
+      number_of_weights = [
+        kernel_length * channels_i, 
+        channels_o * channels_i]
+
+      number_of_bias = 0
+      if len(layer.get_weights()) > 2:
+        number_of_bias = layer.get_weights()[2].shape[0]
+
+      depthwise_quant, pointwise_quant, bias_quant = layer.get_quantizers()
+      depthwise_type = get_quant_mode(depthwise_quant)
+      pointwise_type = get_quant_mode(pointwise_quant)
+      weight_type = [depthwise_type, pointwise_type]
+      bias_type = get_quant_mode(bias_quant)
+
+    elif layer.__class__.__name__ in ["QSeparableConv2D"]:
+
+      _, _, _, channels_i = input_shape
+
+      _, height_o, width_o, channels_o = output_shape
+
+      weight_1 = layer.get_weights()[0]
+
+      kernel_h, kernel_w, _, _ = weight_1.shape
+
+      number_of_operations = (
+          kernel_h * kernel_w * height_o * width_o * channels_i + 
+          height_o * width_o * channels_o)
+
+      number_of_weights = [
+        kernel_h * kernel_w * channels_i,
+        channels_o * channels_i]
+
+      number_of_bias = 0
+      if len(layer.get_weights()) > 2:
+        number_of_bias = layer.get_weights()[2].shape[0]
+
+      depthwise_quant, pointwise_quant, bias_quant = layer.get_quantizers()
+      depthwise_type = get_quant_mode(depthwise_quant)
+      pointwise_type = get_quant_mode(pointwise_quant)
+      weight_type = [depthwise_type, pointwise_type]
+      bias_type = get_quant_mode(bias_quant)
+
     elif layer.__class__.__name__ in ["QDense"]:
 
       _, size_i = input_shape
@@ -514,12 +571,19 @@ def print_qstats(model):
   print("")
   print("Weight profiling:")
   for name in sorted(model_ops):
-    w_mode, w_sizes, w_signs = model_ops[name]["type_of_weights"]
-    b_mode, b_sizes, b_signs = model_ops[name]["type_of_bias"]
-    w_number = model_ops[name]["number_of_weights"]
+    weight_type = model_ops[name]["type_of_weights"]
+    n_weights = model_ops[name]["number_of_weights"]
+    if isinstance(weight_type, list):
+      for i, (w_type, w_number) in enumerate(zip(weight_type, n_weights)):
+        _, w_sizes, _ = w_type
+        print("    {:30} : {:5} ({}-bit unit)".format(
+            str(name) + "_weights_" + str(i), str(w_number), str(w_sizes)))
+    else:
+      _, w_sizes, _ = weight_type
+      print("    {:30} : {:5} ({}-bit unit)".format(
+          str(name) + "_weights", str(n_weights), str(w_sizes)))
+    _, b_sizes, _ = model_ops[name]["type_of_bias"]
     b_number = model_ops[name]["number_of_bias"]
-    print("    {:30} : {:5} ({}-bit unit)".format(
-        str(name) + "_weights", str(w_number), str(w_sizes)))
     print("    {:30} : {:5} ({}-bit unit)".format(
         str(name) + "_bias", str(b_number), str(b_sizes)))
 
