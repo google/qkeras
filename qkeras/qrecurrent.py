@@ -76,6 +76,7 @@ class QSimpleRNNCell(SimpleRNNCell):
                recurrent_quantizer=None,
                bias_quantizer=None,
                state_quantizer=None,
+               carry_quantizer=None,
                dropout=0.,
                recurrent_dropout=0.,
                **kwargs):
@@ -84,17 +85,20 @@ class QSimpleRNNCell(SimpleRNNCell):
     self.recurrent_quantizer = recurrent_quantizer
     self.bias_quantizer = bias_quantizer
     self.state_quantizer = state_quantizer
+    self.carry_quantizer = carry_quantizer
 
     self.kernel_quantizer_internal = get_quantizer(self.kernel_quantizer)
     self.recurrent_quantizer_internal = get_quantizer(self.recurrent_quantizer)
     self.bias_quantizer_internal = get_quantizer(self.bias_quantizer)
     self.state_quantizer_internal = get_quantizer(self.state_quantizer)
+    self.carry_quantizer_internal = get_quantizer(self.carry_quantizer)
 
     self.quantizers = [
       self.kernel_quantizer_internal,
       self.recurrent_quantizer_internal,
       self.bias_quantizer_internal,
       self.state_quantizer_internal,
+      self.carry_quantizer_internal
     ]
 
     if hasattr(self.kernel_quantizer_internal, "_set_trainable_parameter"):
@@ -177,7 +181,14 @@ class QSimpleRNNCell(SimpleRNNCell):
     else:
       quantized_recurrent = self.recurrent_kernel
 
-    output = h + K.dot(quantized_prev_output, quantized_recurrent)
+    c = K.dot(quantized_prev_output, quantized_recurrent)
+
+    if self.carry_quantizer:
+      quantized_c = self.carry_quantizer_internal(c)
+    else:
+      quantized_c = c
+
+    output = h + quantized_c
 
     if self.activation is not None:
       output = self.activation(output)
@@ -232,6 +243,7 @@ class QSimpleRNN(RNN, PrunableLayer):
                kernel_quantizer=None,
                recurrent_quantizer=None,
                state_quantizer=None,
+               carry_quantizer=None,
                bias_quantizer=None,
                dropout=0.,
                recurrent_dropout=0.,
@@ -264,6 +276,7 @@ class QSimpleRNN(RNN, PrunableLayer):
         kernel_quantizer=kernel_quantizer,
         recurrent_quantizer=recurrent_quantizer,
         state_quantizer=state_quantizer,
+        carry_quantizer=state_quantizer,
         bias_quantizer=bias_quantizer,
         dropout=dropout,
         recurrent_dropout=recurrent_dropout,
@@ -354,6 +367,10 @@ class QSimpleRNN(RNN, PrunableLayer):
     return self.cell.state_quantizer_internal
 
   @property
+  def carry_quantizer_internal(self):
+    return self.cell.carry_quantizer_internal
+
+  @property
   def bias_quantizer_internal(self):
     return self.cell.bias_quantizer_internal
 
@@ -368,6 +385,10 @@ class QSimpleRNN(RNN, PrunableLayer):
   @property
   def state_quantizer(self):
     return self.cell.state_quantizer
+
+  @property
+  def carry_quantizer(self):
+    return self.cell.carry_quantizer
 
   @property
   def bias_quantizer(self):
@@ -415,6 +436,8 @@ class QSimpleRNN(RNN, PrunableLayer):
             constraints.serialize(self.recurrent_quantizer_internal),
         "state_quantizer":
             constraints.serialize(self.state_quantizer_internal),
+        "carry_quantizer":
+            constraints.serialize(self.carry_quantizer_internal),
         "bias_quantizer":
             constraints.serialize(self.bias_quantizer_internal),
         'dropout':
@@ -434,6 +457,8 @@ class QSimpleRNN(RNN, PrunableLayer):
             str(self.recurrent_quantizer_internal),
         "state_quantizer":
             str(self.state_quantizer_internal),
+        "carry_quantizer":
+            str(self.carry_quantizer_internal),
         "bias_quantizer":
             str(self.bias_quantizer_internal),
         "activation":
