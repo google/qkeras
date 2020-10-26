@@ -509,6 +509,8 @@ class QLSTMCell(LSTMCell):
                kernel_quantizer=None,
                recurrent_quantizer=None,
                bias_quantizer=None,
+               state_quantizer=None,
+               carry_quantizer=None,
                dropout=0.,
                recurrent_dropout=0.,
                implementation=1,
@@ -516,15 +518,22 @@ class QLSTMCell(LSTMCell):
     self.kernel_quantizer = kernel_quantizer
     self.recurrent_quantizer = recurrent_quantizer
     self.bias_quantizer = bias_quantizer
+    self.state_quantizer = state_quantizer
+    self.carry_quantizer = carry_quantizer
 
     self.kernel_quantizer_internal = get_quantizer(self.kernel_quantizer)
     self.recurrent_quantizer_internal = get_quantizer(self.recurrent_quantizer)
     self.bias_quantizer_internal = get_quantizer(self.bias_quantizer)
+    self.state_quantizer_internal = get_quantizer(self.state_quantizer)
+    self.carry_quantizer_internal = get_quantizer(self.carry_quantizer)
 
     self.quantizers = [
       self.kernel_quantizer_internal,
       self.recurrent_quantizer_internal,
-      self.bias_quantizer_internal
+      self.bias_quantizer_internal,
+      self.bias_quantizer_internal,
+      self.state_quantizer_internal,
+      self.carry_quantizer_internal
     ]
 
     if hasattr(self.kernel_quantizer_internal, "_set_trainable_parameter"):
@@ -603,9 +612,19 @@ class QLSTMCell(LSTMCell):
     h_tm1 = states[0]  # previous memory state
     c_tm1 = states[1]  # previous carry state
 
+    if self.state_quantizer:
+      quantized_h_tm1 = self.state_quantizer_internal(h_tm1)
+    else:
+      quantized_h_tm1 = h_tm1
+
+    if self.carry_quantizer:
+      quantized_c_tm1 = self.carry_quantizer_internal(c_tm1)
+    else:
+      quantized_c_tm1 = c_tm1
+
     dp_mask = self.get_dropout_mask_for_cell(inputs, training, count=4)
     rec_dp_mask = self.get_recurrent_dropout_mask_for_cell(
-        h_tm1, training, count=4)
+        quantized_h_tm1, training, count=4)
 
     if self.kernel_quantizer:
       quantized_kernel = self.kernel_quantizer_internal(self.kernel)
@@ -646,28 +665,28 @@ class QLSTMCell(LSTMCell):
         x_o = K.bias_add(x_o, b_o)
 
       if 0 < self.recurrent_dropout < 1.:
-        h_tm1_i = h_tm1 * rec_dp_mask[0]
-        h_tm1_f = h_tm1 * rec_dp_mask[1]
-        h_tm1_c = h_tm1 * rec_dp_mask[2]
-        h_tm1_o = h_tm1 * rec_dp_mask[3]
+        h_tm1_i = quantized_h_tm1 * rec_dp_mask[0]
+        h_tm1_f = quantized_h_tm1 * rec_dp_mask[1]
+        h_tm1_c = quantized_h_tm1 * rec_dp_mask[2]
+        h_tm1_o = quantized_h_tm1 * rec_dp_mask[3]
       else:
-        h_tm1_i = h_tm1
-        h_tm1_f = h_tm1
-        h_tm1_c = h_tm1
-        h_tm1_o = h_tm1
+        h_tm1_i = quantized_h_tm1
+        h_tm1_f = quantized_h_tm1
+        h_tm1_c = quantized_h_tm1
+        h_tm1_o = quantized_h_tm1
       x = (x_i, x_f, x_c, x_o)
       h_tm1 = (h_tm1_i, h_tm1_f, h_tm1_c, h_tm1_o)
-      c, o = self._compute_carry_and_output(x, h_tm1, c_tm1, quantized_recurrent)
+      c, o = self._compute_carry_and_output(x, h_tm1, quantized_c_tm1, quantized_recurrent)
     else:
       if 0. < self.dropout < 1.:
         inputs = inputs * dp_mask[0]
       z = K.dot(inputs, quantized_kernel)
-      z += K.dot(h_tm1, quantized_recurrent)
+      z += K.dot(quantized_h_tm1, quantized_recurrent)
       if self.use_bias:
         z = K.bias_add(z, quantized_bias)
 
       z = array_ops.split(z, num_or_size_splits=4, axis=1)
-      c, o = self._compute_carry_and_output_fused(z, c_tm1)
+      c, o = self._compute_carry_and_output_fused(z, quantized_c_tm1)
 
     h = o * self.activation(c)
     return h, [h, c]
@@ -722,6 +741,8 @@ class QLSTM(RNN, PrunableLayer):
                bias_constraint=None,
                kernel_quantizer=None,
                recurrent_quantizer=None,
+               state_quantizer=None,
+               carry_quantizer=None,
                bias_quantizer=None,
                dropout=0.,
                recurrent_dropout=0.,
@@ -760,6 +781,8 @@ class QLSTM(RNN, PrunableLayer):
         bias_constraint=bias_constraint,
         kernel_quantizer=kernel_quantizer,
         recurrent_quantizer=recurrent_quantizer,
+        state_quantizer=state_quantizer,
+        carry_quantizer=state_quantizer,
         bias_quantizer=bias_quantizer,
         dropout=dropout,
         recurrent_dropout=recurrent_dropout,
@@ -855,6 +878,14 @@ class QLSTM(RNN, PrunableLayer):
     return self.cell.recurrent_quantizer_internal
 
   @property
+  def state_quantizer_internal(self):
+    return self.cell.state_quantizer_internal
+
+  @property
+  def carry_quantizer_internal(self):
+    return self.cell.carry_quantizer_internal
+
+  @property
   def bias_quantizer_internal(self):
     return self.cell.bias_quantizer_internal
 
@@ -865,6 +896,14 @@ class QLSTM(RNN, PrunableLayer):
   @property
   def recurrent_quantizer(self):
     return self.cell.recurrent_quantizer
+
+  @property
+  def state_quantizer(self):
+    return self.cell.state_quantizer
+
+  @property
+  def carry_quantizer(self):
+    return self.cell.carry_quantizer
 
   @property
   def bias_quantizer(self):
@@ -918,6 +957,10 @@ class QLSTM(RNN, PrunableLayer):
             constraints.serialize(self.kernel_quantizer_internal),
         "recurrent_quantizer":
             constraints.serialize(self.recurrent_quantizer_internal),
+        "state_quantizer":
+            constraints.serialize(self.state_quantizer_internal),
+        "carry_quantizer":
+            constraints.serialize(self.carry_quantizer_internal),
         "bias_quantizer":
             constraints.serialize(self.bias_quantizer_internal),
         'dropout':
@@ -937,6 +980,10 @@ class QLSTM(RNN, PrunableLayer):
             str(self.kernel_quantizer_internal),
         "recurrent_quantizer":
             str(self.recurrent_quantizer_internal),
+        "state_quantizer":
+            str(self.state_quantizer_internal),
+        "carry_quantizer":
+            str(self.carry_quantizer_internal),
         "bias_quantizer":
             str(self.bias_quantizer_internal),
         "activation":
