@@ -730,7 +730,8 @@ class AutoQKeras:
 
   def __init__(
       self, model, metrics=None, custom_objects=None, goal=None,
-      output_dir="result", mode="random", transfer_weights=False,
+      output_dir="result", mode="random", custom_tuner=None,
+      custom_tuner_config=None, transfer_weights=False,
       frozen_layers=None, activation_bits=4, limit=None, tune_filters="none",
       tune_filters_exceptions=None, learning_rate_optimizer=False,
       layer_indexes=None, quantization_config=None, overwrite=True,
@@ -819,7 +820,14 @@ class AutoQKeras:
     else:
       score_metric = "val_score"
     assert mode in ["random", "bayesian", "hyperband"]
-    if mode == "random":
+    if custom_tuner is not None:
+      self.tuner = custom_tuner(
+          self.hypermodel,
+          custom_tuner_config=custom_tuner_config,
+          objective=kt.Objective(score_metric, "max"),
+          project_name=output_dir,
+          **tuner_kwargs)
+    elif mode == "random":
       self.tuner = RandomSearch(
           self.hypermodel,
           objective=kt.Objective(score_metric, "max"),
