@@ -52,6 +52,76 @@ def get_weight_scale(quantizer, x=None):
   return 1.0
 
 
+def _get_integer_bits(min_value,
+                      max_value,
+                      bits=8,
+                      symmetric=False,
+                      keep_negative=False,
+                      is_clipping=True):
+  """Estimates the integer bit(number of bits to the left of the binary point)
+  satisfying the input argument constraints.
+
+  Args:
+    min_value: A tensor object. Its elements are in float representing the
+      minimum values of ranges.
+    max_value: A tensor object. Its elements are in float representing the
+      maximum values of ranges.
+    bits: number of bits to perform quantization.
+    symmetric: boolean type. if true, it enforces negative and positive ranges
+      to be symmetric.
+    keep_negative: boolean type. if true, we do not clip negative numbers.
+    is_clipping: boolean type. if true, the min_value and max_value are clipped
+      to nearest powers-of-2.
+
+  Returns:
+    integer_bits : number of bits to the left of the binary point.
+  """
+  if not keep_negative and K.min(max_value) < 0:
+    raise ValueError("max_value should be non-negative for unsigned numbers.")
+
+  if not keep_negative:
+    # Make min_value >= 0
+    min_value = K.maximum(min_value, 0)
+
+  # The number of bits excluding the sign bit
+  unsigned_bits = bits - keep_negative
+
+  # log2 of absolute min_value and max_value
+  min_value_log2 = K.log(K.abs(min_value)) / np.log(2.0)
+  max_value_log2 = K.log(K.abs(max_value)) / np.log(2.0)
+
+  # Estimate integer_bits
+  if is_clipping:
+    min_int_bits = tf.math.round(
+        tf.where(min_value_log2 > 0, min_value_log2, 0))
+    max_int_bits = tf.math.round(
+        tf.where(max_value_log2 > 0, max_value_log2, 0))
+  else:
+    min_int_bits = tf.math.ceil(tf.where(min_value_log2 > 0, min_value_log2, 0))
+    max_int_bits = tf.math.ceil(tf.where(max_value_log2 > 0, max_value_log2, 0))
+    # Checks max_value is bounded by the maximum positive value of
+    # pow(2,integer_bits) - pow(2,-fractional_bits).
+    max_value_po2 = pow(2.0, max_int_bits) - pow(
+        2.0, K.minimum(max_int_bits - unsigned_bits, 0))
+    max_int_bits = tf.where(max_value <= max_value_po2, max_int_bits,
+                            max_int_bits + 1)
+    if symmetric:
+      # Checks min_value is bounded by the minimum negative value of
+      # - pow(2,integer_bits) + pow(2,-fractional_bits).
+      min_value_po2 = -pow(2.0, min_int_bits) + pow(
+          2.0, K.minimum(min_int_bits - unsigned_bits, 0))
+      min_int_bits = tf.where(min_value_po2 <= min_value, min_int_bits,
+                              min_int_bits + 1)
+
+  # To cover both negative and positive ranges with integer_bits.
+  # (For keep_negative=False, min_int_bits is 0.)
+  integer_bits = K.maximum(min_int_bits, max_int_bits)
+  # It assumes that integer_bits cannot be greater than unsigned_bits
+  integer_bits = K.minimum(unsigned_bits, integer_bits)
+
+  return integer_bits
+
+
 def _get_scale(alpha, x, q):
   """Gets scaling factor for scaling the tensor per channel.
 

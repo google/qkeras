@@ -20,11 +20,13 @@ from __future__ import print_function
 import numpy as np
 import logging
 from numpy.testing import assert_allclose
+from numpy.testing import assert_equal
 import pytest
 from tensorflow.keras import backend as K
 from qkeras import binary
 from qkeras import get_weight_scale
 from qkeras import ternary
+from qkeras.quantizers import _get_integer_bits
 
 
 # expected value if input is uniform distribution is:
@@ -121,6 +123,110 @@ def test_ternary_auto_po2():
     result = get_weight_scale(quantizer, q)
 
     assert_allclose(result, expected, rtol=0.0001)
+
+
+def test_get_integer_bits():
+  """Test automated integer bit (po2 scale) estimator."""
+
+  bits = 4
+  min_value = np.array([
+      -4.0, -4.0, -4.0, -4.0, 1.0, -3.0, -10.0, -16, -25, 0, 0, 0, 0.1, 0.0,
+      -1.0, 0.0, 0.0, 0.0, 0, 0, 0
+  ])
+  max_value = np.array([
+      3.5, 3.51, 3.75, 3.751, 2.0, 4.0, 5.0, 8, 0, 0, 0.1, 0.999, 0.5, 0.8751,
+      0.9375, 0.93751, 1.875, 1.8751, 9, 11, 12
+  ])
+
+  # unsigned number (keep_negative=False) without clippling.
+  symmetric = False  # symmetric is irrelevant.
+  keep_negative = False
+  is_clipping = False
+  integer_bits = _get_integer_bits(
+      min_value=min_value,
+      max_value=max_value,
+      bits=bits,
+      symmetric=symmetric,
+      keep_negative=keep_negative,
+      is_clipping=is_clipping)
+  assert_equal(
+      integer_bits,
+      np.array([2, 2, 2, 3, 2, 3, 3, 4, 0, 0, 0, 1, 0, 0, 0, 1, 1, 2, 4, 4, 4]))
+
+  # unsigned number (keep_negative=False) with clippling.
+  symmetric = False  # symmetric is irrelevant.
+  keep_negative = False
+  is_clipping = True
+  integer_bits = _get_integer_bits(
+      min_value=min_value,
+      max_value=max_value,
+      bits=bits,
+      symmetric=symmetric,
+      keep_negative=keep_negative,
+      is_clipping=is_clipping)
+  assert_equal(
+      integer_bits,
+      np.array([2, 2, 2, 2, 1, 2, 2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 3, 3, 4]))
+
+  # signed number (keep_negative=True) non-symmetric without clippling
+  symmetric = False
+  keep_negative = True
+  is_clipping = False
+  integer_bits = _get_integer_bits(
+      min_value=min_value,
+      max_value=max_value,
+      bits=bits,
+      symmetric=symmetric,
+      keep_negative=keep_negative,
+      is_clipping=is_clipping)
+  assert_equal(
+      integer_bits,
+      np.array([2, 3, 3, 3, 2, 3, 3, 3, 3, 0, 0, 1, 0, 1, 1, 1, 2, 2, 3, 3, 3]))
+
+  # signed number (keep_negative=True) non-symmetric with clippling
+  symmetric = False
+  keep_negative = True
+  is_clipping = True
+  integer_bits = _get_integer_bits(
+      min_value=min_value,
+      max_value=max_value,
+      bits=bits,
+      symmetric=symmetric,
+      keep_negative=keep_negative,
+      is_clipping=is_clipping)
+  assert_equal(
+      integer_bits,
+      np.array([2, 2, 2, 2, 1, 2, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 1, 1, 3, 3, 3]))
+
+  # signed number (keep_negative=True) symmetric without clippling
+  symmetric = True
+  keep_negative = True
+  is_clipping = False
+  integer_bits = _get_integer_bits(
+      min_value=min_value,
+      max_value=max_value,
+      bits=bits,
+      symmetric=symmetric,
+      keep_negative=keep_negative,
+      is_clipping=is_clipping)
+  assert_equal(
+      integer_bits,
+      np.array([3, 3, 3, 3, 2, 3, 3, 3, 3, 0, 0, 1, 0, 1, 1, 1, 2, 2, 3, 3, 3]))
+
+  # signed number (keep_negative=True) symmetric with clippling
+  symmetric = True
+  keep_negative = True
+  is_clipping = True
+  integer_bits = _get_integer_bits(
+      min_value=min_value,
+      max_value=max_value,
+      bits=bits,
+      symmetric=symmetric,
+      keep_negative=keep_negative,
+      is_clipping=is_clipping)
+  assert_equal(
+      integer_bits,
+      np.array([2, 2, 2, 2, 1, 2, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 1, 1, 3, 3, 3]))
 
 
 if __name__ == "__main__":
