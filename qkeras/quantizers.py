@@ -419,8 +419,15 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
                    str(int(self.use_stochastic_rounding)))
     return "quantized_bits(" + ",".join(flags) + ")"
 
-  def __call__(self, x):
+  def __call__(self, x, qnoise_factor=1.0):
     """Computes fixedpoint quantization of x."""
+    # qnoise_factor: a scalar from 0 to 1 that represents the level of
+    # quantization noise to add. This controls the amount of the quantization
+    # noise to add to the outputs by changing the weighted sum of
+    # (1 - qnoise_factor)*unquantized_x + qnoise_factor*quantized_x.
+
+    x = K.cast_to_floatx(x)
+
     # quantized_bits with "1" bit becomes a binary implementation.
     unsigned_bits = self.bits - self.keep_negative
     m = pow(2, unsigned_bits)
@@ -468,7 +475,7 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
       x = m_i * x
       xq = m_i * z / m
       self.scale = scale
-      return x + tf.stop_gradient(-x + scale * xq)
+      return x + tf.stop_gradient(qnoise_factor * (-x + scale * xq))
     else:
       scale = self.alpha
 
@@ -485,7 +492,7 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
         xq = (xq + 1.0) / 2.0
 
     self.scale = scale
-    return x + tf.stop_gradient(-x + scale * xq)
+    return x + tf.stop_gradient(qnoise_factor * (-x + scale * xq))
 
   def _set_trainable_parameter(self):
     if self.alpha is None:
@@ -1216,22 +1223,41 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
     use_sigmoid: if true, we apply sigmoid to input to normalize it.
     negative_slope: slope when activation < 0, needs to be power of 2.
     use_stochastic_rounding: if true, we perform stochastic rounding.
+    relu_upper_bound: A float representing an upper bound of the unquantized
+      relu. If None, we apply relu without the upper bound when
+      "is_quantized_clip" is set to false (true by default).
+      Note: The quantized relu uses the quantization parameters (bits and
+      integer) to upper bound. So it is important to set relu_upper_bound
+      appropriately to the quantization parameters. "is_quantized_clip"
+      has precedence over "relu_upper_bound" for backward compatibility.
+    is_quantized_clip: A boolean representing whether the inputs are clipped to
+      the maximum value represented by the quantization parameters. This
+      parameter is deprecated, and the default is set to True for backwards
+      compatibility. Users are encouraged to use "relu_upper_bound" instead.
 
   Returns:
     Function that performs relu + quantization to bits >= 0.
   """
 
-  def __init__(self, bits=8, integer=0, use_sigmoid=0,
-               negative_slope=0, use_stochastic_rounding=False):
+  def __init__(self,
+               bits=8,
+               integer=0,
+               use_sigmoid=0,
+               negative_slope=0.0,
+               use_stochastic_rounding=False,
+               relu_upper_bound=None,
+               is_quantized_clip=True):
     super(quantized_relu, self).__init__()
     self.bits = bits
     self.integer = integer
     self.use_sigmoid = use_sigmoid
     self.negative_slope = negative_slope
     self.use_stochastic_rounding = use_stochastic_rounding
+    self.relu_upper_bound = relu_upper_bound
+    self.is_quantized_clip = is_quantized_clip
 
     assert negative_slope >= 0.0
-    if negative_slope != 0:
+    if negative_slope != 0.0:
       assert np.mod(np.log2(negative_slope), 1) == 0
 
   def __str__(self):
@@ -1244,12 +1270,30 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
       flags.append(str(int(self.use_stochastic_rounding)))
     return "quantized_relu(" + ",".join(flags) + ")"
 
-  def __call__(self, x):
-    non_sign_bits = self.bits - (self.negative_slope != 0)
+  def __call__(self, x, qnoise_factor=1.0):
+    # qnoise_factor: a scalar from 0 to 1 that represents the level of
+    # quantization noise to add. This controls the amount of the quantization
+    # noise to add to the outputs by changing the weighted sum of
+    # (1 - qnoise_factor)*unquantized_relu + qnoise_factor*quantized_relu.
+
+    non_sign_bits = self.bits - (self.negative_slope != 0.0)
+    x = K.cast_to_floatx(x)
     m = K.cast_to_floatx(pow(2, non_sign_bits))
     m_i = K.cast_to_floatx(pow(2, self.integer))
-    x_uq = tf.where(
-        x <= m_i, K.relu(x, alpha=self.negative_slope), tf.ones_like(x) * m_i)
+
+    # is_quantized_clip has precedence over relu_upper_bound for backward
+    # compatibility.
+    if self.is_quantized_clip:
+      m_f = K.cast_to_floatx(
+          pow(tf.constant(2., tf.float32), self.integer - non_sign_bits))
+      x_u = tf.where(x <= m_i - m_f, K.relu(x, alpha=self.negative_slope),
+                     tf.ones_like(x) * (m_i - m_f))
+    elif self.relu_upper_bound is not None:
+      x_u = tf.where(x <= self.relu_upper_bound,
+                     K.relu(x, alpha=self.negative_slope),
+                     tf.ones_like(x) * self.relu_upper_bound)
+    else:
+      x_u = K.relu(x, alpha=self.negative_slope)
 
     if self.use_sigmoid:
       p = _sigmoid(x / m_i) * m
@@ -1260,8 +1304,8 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
         neg_factor = 1 / (self.negative_slope * m)
         xq = xq + m_i * self.negative_slope * tf.keras.backend.clip(
             2.0 * (_round_through(p * self.negative_slope,
-            self.use_stochastic_rounding) * neg_factor) - 1.0,
-            -1.0, 0.0)
+                                  self.use_stochastic_rounding) * neg_factor) -
+            1.0, -1.0, 0.0)
     else:
       p = x * m / m_i
       xq = m_i * tf.keras.backend.clip(
@@ -1269,10 +1313,12 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
           1.0 - 1.0 / m)
       if self.negative_slope > 0:
         neg_factor = 1 / (self.negative_slope * m)
-        xq = xq + m_i * self.negative_slope * (tf.keras.backend.clip(
-            _round_through(p * self.negative_slope,
-                           self.use_stochastic_rounding) * neg_factor, -1.0, 0.0))
-    return x_uq + tf.stop_gradient(-x_uq + xq)
+        xq = xq + m_i * self.negative_slope * (
+            tf.keras.backend.clip(
+                _round_through(p * self.negative_slope,
+                               self.use_stochastic_rounding) * neg_factor, -1.0,
+                0.0))
+    return x_u + tf.stop_gradient(qnoise_factor * (-x_u + xq))
 
   def max(self):
     """Get the maximum value that quantized_relu can represent."""
@@ -1320,7 +1366,8 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
         "integer": self.integer,
         "use_sigmoid": self.use_sigmoid,
         "negative_slope": self.negative_slope,
-        "use_stochastic_rounding": self.use_stochastic_rounding
+        "use_stochastic_rounding": self.use_stochastic_rounding,
+        "relu_upper_bound": self.relu_upper_bound
     }
     return config
 
