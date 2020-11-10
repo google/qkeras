@@ -38,6 +38,7 @@ from tensorflow.keras.layers import InputLayer
 from tensorflow.keras.models import Model
 
 from .qlayers import QActivation
+from .qlayers import QAdaptiveActivation
 from .qlayers import QDense
 from .qconvolutional import QConv1D
 from .qconvolutional import QConv2D
@@ -320,7 +321,7 @@ def create_activation_cache(model):
 
   for l in model.layers:
     output_cache[l.output.experimental_ref()] = l
-    if isinstance(l, QActivation):
+    if isinstance(l, QActivation) or isinstance(l, QAdaptiveActivation) :
       output_cache[l.output.experimental_ref()] = l.quantizer
     elif isinstance(l, InputLayer):
       # assume the input is 8-bit positive value

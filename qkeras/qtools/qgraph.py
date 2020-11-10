@@ -321,7 +321,8 @@ def GraphPropagateActivationsToEdges(graph, debug=False):
           print("  q_activation_class_name:", q_activation_class_name)
 
         # if current layer is QA
-        if graph.nodes[u]["type"][0] in ["QActivation"]:
+        if (graph.nodes[u]["type"][0] in ["QActivation"] or
+            graph.nodes[u]["type"][0] in ["QAdaptiveActivation"]):
           result = layer.quantizer
 
         # if current layer is not QA layer but has QA specified within

@@ -76,12 +76,10 @@ def _get_integer_bits(min_value,
   Returns:
     integer_bits : number of bits to the left of the binary point.
   """
-  if not keep_negative and K.min(max_value) < 0:
-    raise ValueError("max_value should be non-negative for unsigned numbers.")
-
+  # Max the min and max values positive if only using positive values
   if not keep_negative:
-    # Make min_value >= 0
     min_value = K.maximum(min_value, 0)
+    max_value = K.maximum(max_value, 0)
 
   # The number of bits excluding the sign bit
   unsigned_bits = bits - keep_negative
@@ -115,7 +113,7 @@ def _get_integer_bits(min_value,
 
   # To cover both negative and positive ranges with integer_bits.
   # (For keep_negative=False, min_int_bits is 0.)
-  integer_bits = K.maximum(min_int_bits, max_int_bits)
+  integer_bits = tf.cast(K.maximum(min_int_bits, max_int_bits), dtype=tf.int32)
   # It assumes that integer_bits cannot be greater than unsigned_bits
   integer_bits = K.minimum(unsigned_bits, integer_bits)
 
@@ -430,8 +428,8 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
 
     # quantized_bits with "1" bit becomes a binary implementation.
     unsigned_bits = self.bits - self.keep_negative
-    m = pow(2, unsigned_bits)
-    m_i = pow(2, self.integer)
+    m = K.cast_to_floatx(pow(2, unsigned_bits))
+    m_i = K.cast_to_floatx(K.pow(2, self.integer))
 
     if self.alpha is None:
       scale = 1.0
@@ -518,7 +516,7 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
       return -1.0
 
   def range(self):
-    """ Returns a list of all values that quantized_bits can represent 
+    """ Returns a list of all values that quantized_bits can represent
     ordered by their binary representation ascending  """
     assert self.symmetric == 0
     assert self.keep_negative
@@ -537,7 +535,7 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
   def get_config(self):
     config = {
         "bits": self.bits,
-        "integer": self.integer,
+        "integer": np.array(self.integer),  # Converts tf.Variables
         "symmetric": self.symmetric,
         "alpha": self.alpha,
         "keep_negative": self.keep_negative,
@@ -1341,7 +1339,7 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
       return -1.0
 
   def range(self):
-    """  Returns a list of all values that quantized_relu can represent 
+    """  Returns a list of all values that quantized_relu can represent
     ordered by their binary representation ascending """
     assert self.use_sigmoid == 0 # current unsupported
     assert self.negative_slope == 0 # # unsupported unsupported
@@ -1349,7 +1347,7 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
     return x * 2**(-self.bits + self.integer)
 
   def range(self):
-    """  Returns a list of all values that quantized_relu can represent 
+    """  Returns a list of all values that quantized_relu can represent
     ordered by their binary representation ascending """
     assert self.use_sigmoid == 0 # current unsupported
     assert self.negative_slope == 0 # # unsupported unsupported
@@ -1363,7 +1361,7 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
   def get_config(self):
     config = {
         "bits": self.bits,
-        "integer": self.integer,
+        "integer": np.array(self.integer),  # Converts tf.Variables
         "use_sigmoid": self.use_sigmoid,
         "negative_slope": self.negative_slope,
         "use_stochastic_rounding": self.use_stochastic_rounding,

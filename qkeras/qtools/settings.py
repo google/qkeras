@@ -48,6 +48,7 @@ class ConfigClass:
     self.include_energy = {}
     self.include_energy["default"] = ["inputs", "parameters", "op_cost"]
     self.include_energy["QActivation"] = ["outputs"]
+    self.include_energy["QAdaptiveActivation"] = ["outputs"]
     self.include_energy["Activation"] = ["outputs"]
     self.include_energy["QBatchNormalization"] = ["parameters"]
     self.include_energy["BatchNormalization"] = ["parameters"]

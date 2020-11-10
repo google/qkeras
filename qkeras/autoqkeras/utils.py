@@ -27,7 +27,8 @@ def print_qmodel_summary(q_model):
   """Prints quantized model summary."""
 
   for layer in q_model.layers:
-    if layer.__class__.__name__ == "QActivation":
+    if (layer.__class__.__name__ == "QActivation" or
+        layer.__class__.__name__ == "QAdaptiveActivation"):
       print("{:20} {}".format(layer.name, str(layer.activation)))
     elif (
         hasattr(layer, "get_quantizers") and

@@ -42,6 +42,7 @@ from tensorflow_model_optimization.python.core.sparsity.keras import prunable_la
 
 from .qlayers import Clip
 from .qlayers import QActivation
+from .qlayers import QAdaptiveActivation
 from .qpooling import QAveragePooling2D
 from .qlayers import QDense
 from .qlayers import QInitializer
@@ -73,6 +74,7 @@ from .safe_eval import safe_eval
 
 REGISTERED_LAYERS = [
     "QActivation",
+    "QAdaptiveActivation",
     "QDense",
     "QConv1D",
     "QConv2D",
@@ -543,6 +545,7 @@ def _add_supported_quantized_objects(custom_objects):
   custom_objects["QBidirectional"] = QBidirectional
   custom_objects["QDepthwiseConv2D"] = QDepthwiseConv2D
   custom_objects["QActivation"] = QActivation
+  custom_objects["QAdaptiveActivation"] = QAdaptiveActivation
   custom_objects["QBatchNormalization"] = QBatchNormalization
   custom_objects["Clip"] = Clip
   custom_objects["quantized_bits"] = quantized_bits
@@ -733,7 +736,8 @@ def quantized_model_debug(model, X_test, plot=False):
 
   for n, p in zip(output_names, y_pred):
     layer = model.get_layer(n)
-    if layer.__class__.__name__ == "QActivation":
+    if (layer.__class__.__name__ in "QActivation" or
+        layer.__class__.__name__ in "QAdaptiveActivation"):
       alpha = get_weight_scale(layer.activation, p)
     else:
       alpha = 1.0
@@ -744,8 +748,8 @@ def quantized_model_debug(model, X_test, plot=False):
     if alpha != 1.0:
       print(" a[{: 8.4f} {:8.4f}]".format(np.min(alpha), np.max(alpha)))
     if plot and layer.__class__.__name__ in [
-      "QConv1D", "QConv2D", "QConv2DTranspose", "QDense", "QActivation", 
-      "QSimpleRNN", "QLSTM", "QGRU", "QBidirectional"
+      "QConv1D", "QConv2D", "QConv2DTranspose", "QDense", "QActivation",
+      "QAdaptiveActivation", "QSimpleRNN", "QLSTM", "QGRU", "QBidirectional"
     ]:
       plt.hist(p.flatten(), bins=25)
       plt.title(layer.name + "(output)")

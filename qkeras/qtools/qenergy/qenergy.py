@@ -256,7 +256,7 @@ def energy_estimate(model, layer_map, weights_on_memory,
         activations_on_memory, min_sram_size, rd_wr_on_io,
         output_quantizer.bits)
     # QActivation Layer
-    if layer.__class__.__name__ in ["QActivation", "Activation"]:
+    if layer.__class__.__name__ in ["QActivation", "QAdaptiveActivation", "Activation"]:
       pass
 
     # QBN Layer

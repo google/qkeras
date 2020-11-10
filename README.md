@@ -80,6 +80,8 @@ MobileNet SeparableConv2D implementation)
 
 - QActivation
 
+- QAdaptiveActivation [EXPERIMENTAL]
+
 - QAveragePooling2D (in fact, an AveragePooling2D stacked with a 
 QActivation layer for quantization of the result)
 

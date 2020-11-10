@@ -308,7 +308,7 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
       )
 
     # if Quantized Activation layer
-    elif node_type in ["QActivation", "Activation"]:
+    elif node_type in ["QActivation", "QAdaptiveActivation", "Activation"]:
 
       if for_reference or not hasattr(layer, "quantizer"):
         # Keras activation layer -> use default_interm_quantizer
