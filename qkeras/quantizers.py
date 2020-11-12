@@ -22,6 +22,7 @@ import warnings
 
 import numpy as np
 import six
+import re
 from six.moves import range
 import tensorflow.compat.v2 as tf
 from tensorflow.keras import initializers
@@ -404,7 +405,11 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
     self.scale = None
 
   def __str__(self):
-    flags = [str(self.bits), str(self.integer), str(int(self.symmetric))]
+    # Convert Tensors to printable strings by converting to a numpy array and
+    # then using regex to remove brackets when there is only one integer bit
+    integer_bits = re.sub(r"\[(\d)\]", r"\g<1>", str(np.array(self.integer)))
+
+    flags = [str(self.bits), integer_bits, str(int(self.symmetric))]
     if not self.keep_negative:
       flags.append("keep_negative=False")
     if self.alpha:
@@ -1259,7 +1264,11 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
       assert np.mod(np.log2(negative_slope), 1) == 0
 
   def __str__(self):
-    flags = [str(self.bits), str(self.integer)]
+    # Convert Tensors to printable strings by converting to a numpy array and
+    # then using regex to remove brackets when there is only one integer bit
+    integer_bits = re.sub(r"\[(\d)\]", r"\g<1>", str(np.array(self.integer)))
+
+    flags = [str(self.bits), integer_bits]
     if self.use_sigmoid or self.use_stochastic_rounding:
       flags.append(str(int(self.use_sigmoid)))
     if self.negative_slope:

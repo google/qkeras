@@ -199,7 +199,7 @@ class QAdaptiveActivation(Layer, PrunableLayer):
   """
 
   def __init__(self,
-               quantizer_type,
+               activation,
                total_bits,
                current_step=None,
                symmetric=True,
@@ -214,8 +214,8 @@ class QAdaptiveActivation(Layer, PrunableLayer):
     """Initializes this QAdaptiveActivation layer.
 
     Args:
-      quantizer_type: The quantizer type to use for the activation layer. Should
-        be a string with no params
+      activation: Str. The activation quantizer type to use for this activation
+        layer, such as 'quantized_relu'. Should be a string with no params.
       total_bits: Int. The total bits that can be used by the quantizer
       current_step: tf.Variable specifying the current step in training.
         You can find this by passing model.optimizer.iterations
@@ -244,7 +244,7 @@ class QAdaptiveActivation(Layer, PrunableLayer):
         type quantized_relu. Set to 0.0 to use normal relu.
       relu_upper_bound: Float. The upper bound to use if the activation is set
         to relu. Set to None to not artificially set an upper bound. Pease note
-        that this param is ignored if the quantizer_type is not quantized_relu
+        that this param is ignored if the activation is not quantized_relu
       **kwargs: Args passed to the Layer class.
     """
     super(QAdaptiveActivation, self).__init__(**kwargs)
@@ -282,18 +282,18 @@ class QAdaptiveActivation(Layer, PrunableLayer):
 
     # Verify quantizer type is correct
     self.supported_quantizers = ["quantized_bits", "quantized_relu"]
-    if quantizer_type not in self.supported_quantizers:
-      raise ValueError(("Invalid quantizer_type {}. Quantizer type should NOT "
+    if activation not in self.supported_quantizers:
+      raise ValueError(("Invalid activation {}. Activation quantizer may NOT "
                         "contain any parameters (they will be set automatically"
                         " by this layer), and only the quantizer types {} are "
-                        "supported.").format(quantizer_type,
+                        "supported.").format(activation,
                                              self.supported_quantizers))
 
     # Get the quantizer associated with the activation
     try:
-      self.quantizer = get_quantizer(quantizer_type)
+      self.quantizer = get_quantizer(activation)
     except KeyError:
-      raise ValueError("Invalid activation '{}'".format(quantizer_type))
+      raise ValueError("Invalid activation '{}'".format(activation))
 
     # Check that the quantizer is supported
     if self.quantizer.__class__.__name__ not in self.supported_quantizers:
@@ -433,13 +433,13 @@ class QAdaptiveActivation(Layer, PrunableLayer):
 
   def get_config(self):
     config = {
-        "quantizer_type": self.quantizer.__class__.__name__,
+        "activation": self.quantizer.__class__.__name__,
         "total_bits": self.total_bits,
         "current_step": self.step.numpy(),
         "symmetric": self.symmetric,
         "quantization_delay": np.array(self.quantization_delay),
         "ema_freeze_delay": np.array(self.ema_freeze_delay),
-        "ema_decay":  np.array(self.ema_decay),
+        "ema_decay": np.array(self.ema_decay),
         "per_channel": self.per_channel,
         "po2_rounding": self.po2_rounding,
         "relu_neg_slope": self.relu_neg_slope
@@ -448,6 +448,7 @@ class QAdaptiveActivation(Layer, PrunableLayer):
     return dict(list(base_config.items()) + list(config.items()))
 
   def get_quantization_config(self):
+    self.quantizer.integer_bits = np.array(self.quantizer)
     return str(self.quantizer)
 
   def compute_output_shape(self, input_shape):

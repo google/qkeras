@@ -52,12 +52,12 @@ def run_qadaptiveactivation_test(input_val, kwargs):
   # Run an unquantized input and train the EMA
   unquantized_out = model(input_val, training=True).numpy()
   assert kwargs['current_step'].numpy() == 0, err
-  if kwargs['quantizer_type'] == 'quantized_relu':
+  if kwargs['activation'] == 'quantized_relu':
     assert np.isclose(unquantized_out, np.maximum(input_val, 0)).all(), err
-  elif kwargs['quantizer_type'] == 'quantized_bits':
+  elif kwargs['activation'] == 'quantized_bits':
     assert np.isclose(unquantized_out, input_val).all(), err
   else:
-    raise ValueError('Invalid quantizer type ', kwargs['quantizer_type'])
+    raise ValueError('Invalid quantizer type ', kwargs['activation'])
 
   # Check EMAs
   if kwargs['per_channel']:
@@ -73,16 +73,16 @@ def run_qadaptiveactivation_test(input_val, kwargs):
 
   # Check quantizer
   quant = model.layers[0].quantizer
-  assert quant.__class__.__name__ == kwargs['quantizer_type'], err
+  assert quant.__class__.__name__ == kwargs['activation'], err
   assert quant.bits == kwargs['total_bits'], err
   assert quant.symmetric == kwargs['symmetric'], err
   keep_negative = None
-  if kwargs['quantizer_type'] == 'quantized_relu':
+  if kwargs['activation'] == 'quantized_relu':
     assert not quant.is_quantized_clip, err
     assert quant.negative_slope == kwargs['relu_neg_slope'], err
     assert quant.relu_upper_bound is None, err
     keep_negative = kwargs['relu_neg_slope'] != 0
-  elif kwargs['quantizer_type'] == 'quantized_bits':
+  elif kwargs['activation'] == 'quantized_bits':
     assert quant.keep_negative, err
     assert quant.alpha == 1.0, err
     keep_negative = True
@@ -122,7 +122,7 @@ def test_qadaptiveact_ema(momentum, ema_freeze_delay, total_steps,
     step = None
   else:
     step = tf.Variable(0, dtype=tf.int64)
-  q_act = QAdaptiveActivation(quantizer_type='quantized_bits',
+  q_act = QAdaptiveActivation(activation='quantized_bits',
                               total_bits=8,
                               current_step=step,
                               quantization_delay=total_steps*2,
@@ -164,7 +164,7 @@ def test_qadaptiveact_ema(momentum, ema_freeze_delay, total_steps,
 def test_qadaptiveactivation():
   """Test a wide variety of inputs to the QAdaptiveActivation layer."""
   test_options = {
-      'quantizer_type': ['quantized_bits', 'quantized_relu'],
+      'activation': ['quantized_bits', 'quantized_relu'],
       'total_bits': [1, 2, 4, 8, 16],
       'symmetric': [True, False],
       'quantization_delay': [1],  # We will only run for one step
