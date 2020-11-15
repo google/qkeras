@@ -28,6 +28,7 @@ import numpy as np
 
 import os
 import six
+import re
 import tensorflow as tf
 import tensorflow.keras.backend as K
 
@@ -42,6 +43,7 @@ from tensorflow_model_optimization.python.core.sparsity.keras import prunable_la
 
 from .qlayers import Clip
 from .qlayers import QActivation
+from .qlayers import QAdaptiveActivation
 from .qpooling import QAveragePooling2D
 from .qlayers import QDense
 from .qlayers import QInitializer
@@ -75,6 +77,7 @@ from .safe_eval import safe_eval
 
 REGISTERED_LAYERS = [
     "QActivation",
+    "QAdaptiveActivation",
     "QDense",
     "QConv1D",
     "QConv2D",
@@ -220,7 +223,8 @@ def model_quantize(model,
                    quantizer_config,
                    activation_bits,
                    custom_objects=None,
-                   transfer_weights=False):
+                   transfer_weights=False,
+                   prefer_qadaptiveactivation=False):
   """Creates a quantized model from non-quantized model.
 
   The quantized model translation is based on json interface of Keras,
@@ -292,6 +296,8 @@ def model_quantize(model,
       translation.
     transfer_weights: if true, weights are to be transfered from model to
       qmodel.
+    prefer_qadaptiveactivation: Bool. If true, try to use QAdaptiveActivation
+      over QActivation whenever possible
 
   Returns:
     qmodel with quantized operations and custom_objects.
@@ -416,7 +422,19 @@ def model_quantize(model,
       layer["class_name"] = "QBidirectional"
 
     elif layer["class_name"] == "Activation":
-      quantizer = get_config(quantizer_config, layer, "QActivation")
+      if prefer_qadaptiveactivation:  # Try to find QAdaptiveActivation first
+        quantizer = get_config(quantizer_config, layer, "QAdaptiveActivation")
+        is_qadaptiveactivation = True
+        if quantizer is None:  # Try QActivation as a backup
+          quantizer = get_config(quantizer_config, layer, "QActivation")
+          is_qadaptiveactivation = False
+      else:  # Try to find QActivation first
+        quantizer = get_config(quantizer_config, layer, "QActivation")
+        is_qadaptiveactivation = False
+        if quantizer is None:  # Try QAdaptiveActivation as a backup
+          quantizer = get_config(quantizer_config, layer, "QAdaptiveActivation")
+          is_qadaptiveactivation = True
+
       # this is to avoid softmax from quantizing in autoq
       if quantizer is None:
         continue
@@ -428,10 +446,16 @@ def model_quantize(model,
           layer_config["activation"], None):
         # only change activation layer if we will use a quantized activation
 
-        layer["class_name"] = "QActivation"
+        layer["class_name"] = ("QAdaptiveActivation" if is_qadaptiveactivation
+                               else "QActivation")
         if isinstance(quantizer, dict):
           quantizer = quantizer[layer_config["activation"]]
         if quantizer:
+          if is_qadaptiveactivation:
+            assert quantizer.find(",") < 0, \
+                "Only integer bits should be defined for QAdaptiveActivation"
+            layer_config["total_bits"] = int(re.sub(r"[^\d]", "", quantizer))
+            quantizer = re.sub(r"\(.*", "", quantizer)  # remove params
           layer_config["activation"] = quantizer
         else:
           quantize_activation(layer_config, activation_bits)
@@ -552,6 +576,7 @@ def _add_supported_quantized_objects(custom_objects):
   custom_objects["QSeparableConv1D"] = QSeparableConv1D
   custom_objects["QSeparableConv2D"] = QSeparableConv2D
   custom_objects["QActivation"] = QActivation
+  custom_objects["QAdaptiveActivation"] = QAdaptiveActivation
   custom_objects["QBatchNormalization"] = QBatchNormalization
   custom_objects["Clip"] = Clip
   custom_objects["quantized_bits"] = quantized_bits
@@ -743,7 +768,8 @@ def quantized_model_debug(model, X_test, plot=False):
 
   for n, p in zip(output_names, y_pred):
     layer = model.get_layer(n)
-    if layer.__class__.__name__ == "QActivation":
+    if (layer.__class__.__name__ in "QActivation" or
+        layer.__class__.__name__ in "QAdaptiveActivation"):
       alpha = get_weight_scale(layer.activation, p)
     else:
       alpha = 1.0

@@ -22,6 +22,7 @@ import warnings
 
 import numpy as np
 import six
+import re
 from six.moves import range
 import tensorflow.compat.v2 as tf
 from tensorflow.keras import initializers
@@ -50,6 +51,74 @@ def get_weight_scale(quantizer, x=None):
   if hasattr(quantizer, "scale") and quantizer.scale is not None:
     return K.eval(quantizer.scale)
   return 1.0
+
+
+def _get_integer_bits(min_value,
+                      max_value,
+                      bits=8,
+                      symmetric=False,
+                      keep_negative=False,
+                      is_clipping=True):
+  """Estimates the integer bit(number of bits to the left of the binary point)
+  satisfying the input argument constraints.
+
+  Args:
+    min_value: A tensor object. Its elements are in float representing the
+      minimum values of ranges.
+    max_value: A tensor object. Its elements are in float representing the
+      maximum values of ranges.
+    bits: number of bits to perform quantization.
+    symmetric: boolean type. if true, it enforces negative and positive ranges
+      to be symmetric.
+    keep_negative: boolean type. if true, we do not clip negative numbers.
+    is_clipping: boolean type. if true, the min_value and max_value are clipped
+      to nearest powers-of-2.
+
+  Returns:
+    integer_bits : number of bits to the left of the binary point.
+  """
+  # Max the min and max values positive if only using positive values
+  if not keep_negative:
+    min_value = K.maximum(min_value, 0)
+    max_value = K.maximum(max_value, 0)
+
+  # The number of bits excluding the sign bit
+  unsigned_bits = bits - keep_negative
+
+  # log2 of absolute min_value and max_value
+  min_value_log2 = K.log(K.abs(min_value)) / np.log(2.0)
+  max_value_log2 = K.log(K.abs(max_value)) / np.log(2.0)
+
+  # Estimate integer_bits
+  if is_clipping:
+    min_int_bits = tf.math.round(
+        tf.where(min_value_log2 > 0, min_value_log2, 0))
+    max_int_bits = tf.math.round(
+        tf.where(max_value_log2 > 0, max_value_log2, 0))
+  else:
+    min_int_bits = tf.math.ceil(tf.where(min_value_log2 > 0, min_value_log2, 0))
+    max_int_bits = tf.math.ceil(tf.where(max_value_log2 > 0, max_value_log2, 0))
+    # Checks max_value is bounded by the maximum positive value of
+    # pow(2,integer_bits) - pow(2,-fractional_bits).
+    max_value_po2 = pow(2.0, max_int_bits) - pow(
+        2.0, K.minimum(max_int_bits - unsigned_bits, 0))
+    max_int_bits = tf.where(max_value <= max_value_po2, max_int_bits,
+                            max_int_bits + 1)
+    if symmetric:
+      # Checks min_value is bounded by the minimum negative value of
+      # - pow(2,integer_bits) + pow(2,-fractional_bits).
+      min_value_po2 = -pow(2.0, min_int_bits) + pow(
+          2.0, K.minimum(min_int_bits - unsigned_bits, 0))
+      min_int_bits = tf.where(min_value_po2 <= min_value, min_int_bits,
+                              min_int_bits + 1)
+
+  # To cover both negative and positive ranges with integer_bits.
+  # (For keep_negative=False, min_int_bits is 0.)
+  integer_bits = tf.cast(K.maximum(min_int_bits, max_int_bits), dtype=tf.int32)
+  # It assumes that integer_bits cannot be greater than unsigned_bits
+  integer_bits = K.minimum(unsigned_bits, integer_bits)
+
+  return integer_bits
 
 
 def _get_scale(alpha, x, q):
@@ -336,7 +405,11 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
     self.scale = None
 
   def __str__(self):
-    flags = [str(self.bits), str(self.integer), str(int(self.symmetric))]
+    # Convert Tensors to printable strings by converting to a numpy array and
+    # then using regex to remove brackets when there is only one integer bit
+    integer_bits = re.sub(r"\[(\d)\]", r"\g<1>", str(np.array(self.integer)))
+
+    flags = [str(self.bits), integer_bits, str(int(self.symmetric))]
     if not self.keep_negative:
       flags.append("keep_negative=False")
     if self.alpha:
@@ -349,12 +422,19 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
                    str(int(self.use_stochastic_rounding)))
     return "quantized_bits(" + ",".join(flags) + ")"
 
-  def __call__(self, x):
+  def __call__(self, x, qnoise_factor=1.0):
     """Computes fixedpoint quantization of x."""
+    # qnoise_factor: a scalar from 0 to 1 that represents the level of
+    # quantization noise to add. This controls the amount of the quantization
+    # noise to add to the outputs by changing the weighted sum of
+    # (1 - qnoise_factor)*unquantized_x + qnoise_factor*quantized_x.
+
+    x = K.cast_to_floatx(x)
+
     # quantized_bits with "1" bit becomes a binary implementation.
     unsigned_bits = self.bits - self.keep_negative
-    m = pow(2, unsigned_bits)
-    m_i = pow(2, self.integer)
+    m = K.cast_to_floatx(pow(2, unsigned_bits))
+    m_i = K.cast_to_floatx(K.pow(2, self.integer))
 
     if self.alpha is None:
       scale = 1.0
@@ -398,7 +478,7 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
       x = m_i * x
       xq = m_i * z / m
       self.scale = scale
-      return x + tf.stop_gradient(-x + scale * xq)
+      return x + tf.stop_gradient(qnoise_factor * (-x + scale * xq))
     else:
       scale = self.alpha
 
@@ -415,7 +495,7 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
         xq = (xq + 1.0) / 2.0
 
     self.scale = scale
-    return x + tf.stop_gradient(-x + scale * xq)
+    return x + tf.stop_gradient(qnoise_factor * (-x + scale * xq))
 
   def _set_trainable_parameter(self):
     if self.alpha is None:
@@ -441,7 +521,7 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
       return -1.0
 
   def range(self):
-    """ Returns a list of all values that quantized_bits can represent 
+    """ Returns a list of all values that quantized_bits can represent
     ordered by their binary representation ascending  """
     assert self.symmetric == 0
     assert self.keep_negative
@@ -460,7 +540,7 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
   def get_config(self):
     config = {
         "bits": self.bits,
-        "integer": self.integer,
+        "integer": np.array(self.integer),  # Converts tf.Variables
         "symmetric": self.symmetric,
         "alpha": self.alpha,
         "keep_negative": self.keep_negative,
@@ -1146,26 +1226,49 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
     use_sigmoid: if true, we apply sigmoid to input to normalize it.
     negative_slope: slope when activation < 0, needs to be power of 2.
     use_stochastic_rounding: if true, we perform stochastic rounding.
+    relu_upper_bound: A float representing an upper bound of the unquantized
+      relu. If None, we apply relu without the upper bound when
+      "is_quantized_clip" is set to false (true by default).
+      Note: The quantized relu uses the quantization parameters (bits and
+      integer) to upper bound. So it is important to set relu_upper_bound
+      appropriately to the quantization parameters. "is_quantized_clip"
+      has precedence over "relu_upper_bound" for backward compatibility.
+    is_quantized_clip: A boolean representing whether the inputs are clipped to
+      the maximum value represented by the quantization parameters. This
+      parameter is deprecated, and the default is set to True for backwards
+      compatibility. Users are encouraged to use "relu_upper_bound" instead.
 
   Returns:
     Function that performs relu + quantization to bits >= 0.
   """
 
-  def __init__(self, bits=8, integer=0, use_sigmoid=0,
-               negative_slope=0, use_stochastic_rounding=False):
+  def __init__(self,
+               bits=8,
+               integer=0,
+               use_sigmoid=0,
+               negative_slope=0.0,
+               use_stochastic_rounding=False,
+               relu_upper_bound=None,
+               is_quantized_clip=True):
     super(quantized_relu, self).__init__()
     self.bits = bits
     self.integer = integer
     self.use_sigmoid = use_sigmoid
     self.negative_slope = negative_slope
     self.use_stochastic_rounding = use_stochastic_rounding
+    self.relu_upper_bound = relu_upper_bound
+    self.is_quantized_clip = is_quantized_clip
 
     assert negative_slope >= 0.0
-    if negative_slope != 0:
+    if negative_slope != 0.0:
       assert np.mod(np.log2(negative_slope), 1) == 0
 
   def __str__(self):
-    flags = [str(self.bits), str(self.integer)]
+    # Convert Tensors to printable strings by converting to a numpy array and
+    # then using regex to remove brackets when there is only one integer bit
+    integer_bits = re.sub(r"\[(\d)\]", r"\g<1>", str(np.array(self.integer)))
+
+    flags = [str(self.bits), integer_bits]
     if self.use_sigmoid or self.use_stochastic_rounding:
       flags.append(str(int(self.use_sigmoid)))
     if self.negative_slope:
@@ -1174,12 +1277,30 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
       flags.append(str(int(self.use_stochastic_rounding)))
     return "quantized_relu(" + ",".join(flags) + ")"
 
-  def __call__(self, x):
-    non_sign_bits = self.bits - (self.negative_slope != 0)
+  def __call__(self, x, qnoise_factor=1.0):
+    # qnoise_factor: a scalar from 0 to 1 that represents the level of
+    # quantization noise to add. This controls the amount of the quantization
+    # noise to add to the outputs by changing the weighted sum of
+    # (1 - qnoise_factor)*unquantized_relu + qnoise_factor*quantized_relu.
+
+    non_sign_bits = self.bits - (self.negative_slope != 0.0)
+    x = K.cast_to_floatx(x)
     m = K.cast_to_floatx(pow(2, non_sign_bits))
     m_i = K.cast_to_floatx(pow(2, self.integer))
-    x_uq = tf.where(
-        x <= m_i, K.relu(x, alpha=self.negative_slope), tf.ones_like(x) * m_i)
+
+    # is_quantized_clip has precedence over relu_upper_bound for backward
+    # compatibility.
+    if self.is_quantized_clip:
+      m_f = K.cast_to_floatx(
+          pow(tf.constant(2., tf.float32), self.integer - non_sign_bits))
+      x_u = tf.where(x <= m_i - m_f, K.relu(x, alpha=self.negative_slope),
+                     tf.ones_like(x) * (m_i - m_f))
+    elif self.relu_upper_bound is not None:
+      x_u = tf.where(x <= self.relu_upper_bound,
+                     K.relu(x, alpha=self.negative_slope),
+                     tf.ones_like(x) * self.relu_upper_bound)
+    else:
+      x_u = K.relu(x, alpha=self.negative_slope)
 
     if self.use_sigmoid:
       p = _sigmoid(x / m_i) * m
@@ -1190,8 +1311,8 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
         neg_factor = 1 / (self.negative_slope * m)
         xq = xq + m_i * self.negative_slope * tf.keras.backend.clip(
             2.0 * (_round_through(p * self.negative_slope,
-            self.use_stochastic_rounding) * neg_factor) - 1.0,
-            -1.0, 0.0)
+                                  self.use_stochastic_rounding) * neg_factor) -
+            1.0, -1.0, 0.0)
     else:
       p = x * m / m_i
       xq = m_i * tf.keras.backend.clip(
@@ -1199,10 +1320,12 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
           1.0 - 1.0 / m)
       if self.negative_slope > 0:
         neg_factor = 1 / (self.negative_slope * m)
-        xq = xq + m_i * self.negative_slope * (tf.keras.backend.clip(
-            _round_through(p * self.negative_slope,
-                           self.use_stochastic_rounding) * neg_factor, -1.0, 0.0))
-    return x_uq + tf.stop_gradient(-x_uq + xq)
+        xq = xq + m_i * self.negative_slope * (
+            tf.keras.backend.clip(
+                _round_through(p * self.negative_slope,
+                               self.use_stochastic_rounding) * neg_factor, -1.0,
+                0.0))
+    return x_u + tf.stop_gradient(qnoise_factor * (-x_u + xq))
 
   def max(self):
     """Get the maximum value that quantized_relu can represent."""
@@ -1225,7 +1348,7 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
       return -1.0
 
   def range(self):
-    """  Returns a list of all values that quantized_relu can represent 
+    """  Returns a list of all values that quantized_relu can represent
     ordered by their binary representation ascending """
     assert self.use_sigmoid == 0 # current unsupported
     assert self.negative_slope == 0 # # unsupported unsupported
@@ -1233,7 +1356,7 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
     return x * 2**(-self.bits + self.integer)
 
   def range(self):
-    """  Returns a list of all values that quantized_relu can represent 
+    """  Returns a list of all values that quantized_relu can represent
     ordered by their binary representation ascending """
     assert self.use_sigmoid == 0 # current unsupported
     assert self.negative_slope == 0 # # unsupported unsupported
@@ -1247,10 +1370,11 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
   def get_config(self):
     config = {
         "bits": self.bits,
-        "integer": self.integer,
+        "integer": np.array(self.integer),  # Converts tf.Variables
         "use_sigmoid": self.use_sigmoid,
         "negative_slope": self.negative_slope,
-        "use_stochastic_rounding": self.use_stochastic_rounding
+        "use_stochastic_rounding": self.use_stochastic_rounding,
+        "relu_upper_bound": self.relu_upper_bound
     }
     return config
 

@@ -38,6 +38,7 @@ from tensorflow.keras.layers import InputLayer
 from tensorflow.keras.models import Model
 
 from .qlayers import QActivation
+from .qlayers import QAdaptiveActivation
 from .qlayers import QDense
 from .qconvolutional import QConv1D
 from .qconvolutional import QConv2D
@@ -307,17 +308,24 @@ def get_operation_type(layer, output_cache):
 def create_activation_cache(model):
   """Creates an activation cache for the tensors of a model."""
 
+  input_quantizer = quantized_relu(8, 0)
+
   output_cache = {}
+
+  # If using a Sequential model, the input layer is hidden. Therefore, add the
+  # input quantization to the cache if the first layer is not an input layer
+  if not isinstance(model.layers[0], InputLayer):
+    output_cache[model.layers[0].input.experimental_ref()] = input_quantizer
 
   # cache graph tensors' activations
 
   for l in model.layers:
     output_cache[l.output.experimental_ref()] = l
-    if isinstance(l, QActivation):
+    if isinstance(l, QActivation) or isinstance(l, QAdaptiveActivation) :
       output_cache[l.output.experimental_ref()] = l.quantizer
     elif isinstance(l, InputLayer):
       # assume the input is 8-bit positive value
-      output_cache[l.output.experimental_ref()] = quantized_relu(8, 0)
+      output_cache[l.output.experimental_ref()] = input_quantizer
     elif l.__class__.__name__ in [
         "QDense", "QConv2D", "QConv1D", "QDepthwiseConv2D"
     ]:

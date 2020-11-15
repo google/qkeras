@@ -34,18 +34,25 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-import numpy as np
+
+import sys
 import warnings
+
+import numpy as np
 import six
 import tensorflow.compat.v2 as tf
 from tensorflow.keras import activations
 from tensorflow.keras import constraints
 from tensorflow.keras import initializers
 from tensorflow.keras import regularizers
+import tensorflow.keras.backend as K
 from tensorflow.keras.constraints import Constraint
 from tensorflow.keras.initializers import Initializer
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.layers import Layer
+
+from .quantizers import *
+from .quantizers import _get_integer_bits
 from .quantizers import get_quantizer
 from tensorflow_model_optimization.python.core.sparsity.keras.prunable_layer import PrunableLayer
 
@@ -175,6 +182,274 @@ class QActivation(Layer, PrunableLayer):
 
   def get_quantization_config(self):
     return str(self.activation)
+
+  def compute_output_shape(self, input_shape):
+    return input_shape
+
+  def get_prunable_weights(self):
+    return []
+
+
+class QAdaptiveActivation(Layer, PrunableLayer):
+  """[EXPERIMENTAL] Implements an adaptive quantized activation layer using EMA.
+
+  This layer calculates an exponential moving average of min and max of the
+  activation values to automatically determine the scale (integer bits) of
+  the quantizer used in this layer.
+  """
+
+  def __init__(self,
+               activation,
+               total_bits,
+               current_step=None,
+               symmetric=True,
+               quantization_delay=0,
+               ema_freeze_delay=None,
+               ema_decay=0.9999,
+               per_channel=False,
+               po2_rounding=False,
+               relu_neg_slope=0.0,
+               relu_upper_bound=None,
+               **kwargs):
+    """Initializes this QAdaptiveActivation layer.
+
+    Args:
+      activation: Str. The activation quantizer type to use for this activation
+        layer, such as 'quantized_relu'. Should be a string with no params.
+      total_bits: Int. The total bits that can be used by the quantizer
+      current_step: tf.Variable specifying the current step in training.
+        You can find this by passing model.optimizer.iterations
+        (see tf.keras.optimizers.Optimizer.iterations). If set to None, the
+        layer will attempt to estimate the current step itself, but please note
+        that this number may not always match the optimizer step.
+      symmetric: Bool. If to enforce symmetry about the origin in the quantized
+        bit representation of the value. When using linear activation, this
+        should be True for best results.
+      quantization_delay: Int. How many training steps to wait until quantizing
+        the activation values.
+      ema_freeze_delay: Int. Steps to wait until stopping the update of the
+        exponential moving average values. Set to None for an infinite delay.
+      ema_decay: Float. The decay value used for exponential moving average (see
+        tf.keras.backend.moving_average_update)
+      per_channel: Bool. If to quantize the activation values on a
+        per-channel basis.
+      po2_rounding: Bool. If true, the EMA max value is rounded to the nearest
+        power-of-2. If false, the EMA max value is rounded up (with ceil) to a
+        power-of-two. These power-of-two operations are necessary to calculate
+        the number of integer bits used in the quantizer, and the difference
+        between using round and ceil trade off the quantizer's range and
+        precision.
+      relu_neg_slope: Float. Slope of the negative values in relu to enable the
+        use of leaky relu. This parameter will only be used with the quantizer
+        type quantized_relu. Set to 0.0 to use normal relu.
+      relu_upper_bound: Float. The upper bound to use if the activation is set
+        to relu. Set to None to not artificially set an upper bound. Pease note
+        that this param is ignored if the activation is not quantized_relu
+      **kwargs: Args passed to the Layer class.
+    """
+    super(QAdaptiveActivation, self).__init__(**kwargs)
+
+    self.total_bits = total_bits
+    self.symmetric = symmetric
+    self.is_estimating_step_count = False  # If the layer should estimate its
+                                           # own step count by incrementing it
+                                           # every call.
+    if isinstance(current_step, tf.Variable):
+      self.step = current_step
+    elif current_step is None:
+      self.step = tf.Variable(-1, dtype=tf.int64)
+      self.is_estimating_step_count = True
+      print("[WARNING] QAdaptiveActivation is estimating it's own training "
+            "step count, which may not always be the same as the true optimizer"
+            " training step. To mitigate this, please set the current_step "
+            "parameter when initializing QAdaptiveActivation", file=sys.stderr)
+    else:
+      self.step = tf.Variable(current_step, dtype=tf.int64)
+      print("[WARNING] QAdaptiveActivation is disconnected from the optimizer "
+            "current step, which may lead to incorrect training. If you wish to"
+            " resume training, set this layer's self.step to the optimizer's "
+            "tf.Variable current step", file=sys.stderr)
+    self.quantization_delay = quantization_delay
+    self.ema_freeze_delay = ema_freeze_delay
+    self.will_ema_freeze = True if ema_freeze_delay else False
+    self.ema_decay = ema_decay
+    self.per_channel = per_channel
+    self.po2_rounding = po2_rounding
+    self.ema_min = None
+    self.ema_max = None
+    self.relu_neg_slope = relu_neg_slope
+    self.relu_upper_bound = relu_upper_bound
+
+    # Verify quantizer type is correct
+    self.supported_quantizers = ["quantized_bits", "quantized_relu"]
+    if activation not in self.supported_quantizers:
+      raise ValueError(("Invalid activation {}. Activation quantizer may NOT "
+                        "contain any parameters (they will be set automatically"
+                        " by this layer), and only the quantizer types {} are "
+                        "supported.").format(activation,
+                                             self.supported_quantizers))
+
+    # Get the quantizer associated with the activation
+    try:
+      self.quantizer = get_quantizer(activation)
+    except KeyError:
+      raise ValueError("Invalid activation '{}'".format(activation))
+
+    # Check that the quantizer is supported
+    if self.quantizer.__class__.__name__ not in self.supported_quantizers:
+      raise ValueError("Unsupported activation quantizer '{}'".format(
+          self.quantizer.__class__.__name__))
+
+    # Set keep_negative
+    if self.quantizer.__class__.__name__ == "quantized_relu":
+      self.quantizer.is_quantized_clip = False  # Use relu_upper_bound instead
+      if self.relu_upper_bound:
+        self.quantizer.relu_upper_bound = self.relu_upper_bound
+      self.quantizer.negative_slope = relu_neg_slope
+      self.keep_negative = relu_neg_slope != 0.0
+      self.quantizer.is_quantized_clip = False  # Use normal relu when qnoise=0
+    elif self.quantizer.__class__.__name__ == "quantized_bits":
+      self.keep_negative = True
+      self.quantizer.keep_negative = True
+
+    # If not using quantization delay, then print warning
+    if self.quantization_delay < 1:
+      print("[WARNING] If QAdaptiveActivation has the quantization_delay set "
+            "to 0, then the moving averages will be heavily biased towards the "
+            "initial quantizer configuration, which will likely prevent the "
+            "model from converging. Consider a larger quantization_delay.",
+            file=sys.stderr)
+
+  def build(self, input_shape):
+    if self.will_ema_freeze:
+      self.ema_freeze_delay = tf.constant(self.ema_freeze_delay, dtype=tf.int64)
+
+    self.ema_decay = tf.constant(self.ema_decay, dtype=tf.float32)
+    self.is_estimating_step_count = tf.constant(self.is_estimating_step_count,
+                                                dtype=tf.bool)
+
+    # Calculate the number of channels
+    channel_index = -1 if K.image_data_format() == "channels_last" else 1
+    if self.per_channel:
+      num_channels = tf.constant(input_shape.as_list()[channel_index],
+                                 shape=(1), dtype=tf.int64)
+    else:
+      num_channels = tf.constant(1, shape=(1), dtype=tf.int64)
+
+    # Initialize the moving mins and max
+    if not self.ema_min or not self.ema_max:
+      self.ema_min = tf.Variable(tf.zeros(num_channels), name="ema_min",
+                                 trainable=False)
+      self.ema_max = tf.Variable(tf.zeros(num_channels), name="ema_max",
+                                 trainable=False)
+
+    # Determine the parameters for the quantizer
+    self.quantizer.bits = self.total_bits
+
+    # Set up the initial integer bits and quantizer params
+    self.quantizer.integer = tf.Variable(tf.zeros(num_channels,
+                                                  dtype=tf.int32),
+                                         name="quantizer_integer_bits",
+                                         trainable=False)
+    integer_bits = _get_integer_bits(min_value=self.ema_min,
+                                     max_value=self.ema_max,
+                                     bits=self.total_bits,
+                                     symmetric=self.symmetric,
+                                     keep_negative=self.keep_negative,
+                                     is_clipping=self.po2_rounding)
+    self.quantizer.integer.assign(integer_bits)
+    self.quantizer.alpha = 1.0  # Setting alpha to 1.0 allows the integer bits
+                                # to serve as the scale
+    self.quantizer.symmetric = self.symmetric
+    self.quantization_delay = tf.constant(self.quantization_delay,
+                                          dtype=tf.int64)
+
+  def call(self, inputs, training=False):
+    x = inputs
+    training = training and self.trainable
+    self.will_ema_freeze = self.will_ema_freeze and self.trainable
+
+    # Update the step count if the optimizer step count is unknown
+    self.step.assign_add(K.switch(
+        tf.math.logical_and(self.is_estimating_step_count, training),
+        tf.constant(1, tf.int64), tf.constant(0, tf.int64)))
+
+    # Perform the quantization
+    if training:
+      # Calculate the qnoise, a scalar from 0 to 1 that represents the level of
+      # quantization noise to use. At training start, we want no quantization,
+      # so qnoise_factor = 0.0. After quantization_delay steps, we want normal
+      # quantization, so qnoise_factor = 1.0.
+      qnoise_factor = K.switch(
+          tf.greater_equal(self.step, self.quantization_delay),
+          lambda: tf.constant(1.0), lambda: tf.constant(0.0))
+      qx = self.quantizer(x, qnoise_factor=qnoise_factor)
+
+    else:  # If not training, we always want to use full quantization
+      qx = self.quantizer(x, qnoise_factor=tf.constant(1.0))
+
+    # Calculate the axis along where to find the min and max EMAs
+    len_axis = len(x.shape)
+    if len_axis > 1:
+      if self.per_channel:
+        if K.image_data_format() == "channels_last":
+          axis = list(range(len_axis - 1))
+        else:
+          axis = list(range(1, len_axis))
+      else:
+        axis = list(range(len_axis))
+    else:
+      axis = [0]
+
+    # Determine if freezing the EMA
+    is_ema_training = tf.constant(training, dtype=tf.bool)
+    if self.will_ema_freeze:
+      is_ema_training = tf.cond(
+          tf.greater(self.step, self.ema_freeze_delay),
+          lambda: tf.constant(False), lambda: tf.constant(True))
+
+    # Update the moving average
+    if is_ema_training:
+      new_min = tf.squeeze(K.min(qx, axis=axis, keepdims=True))
+      K.moving_average_update(self.ema_min, new_min, self.ema_decay)
+      new_max = tf.squeeze(K.max(qx, axis=axis, keepdims=True))
+      K.moving_average_update(self.ema_max, new_max, self.ema_decay)
+
+    # Set the integer bits for the quantizer
+    integer_bits = _get_integer_bits(
+        min_value=self.ema_min,
+        max_value=self.ema_max,
+        bits=self.total_bits,
+        symmetric=self.symmetric,
+        keep_negative=self.keep_negative,
+        is_clipping=self.po2_rounding)
+    self.quantizer.integer.assign(integer_bits)
+
+    return qx
+
+  # Override get_weights since we do not want ema_min or ema_max to be public
+  def get_weights(self):
+    return None
+
+  def get_config(self):
+    config = {
+        "activation": self.quantizer.__class__.__name__,
+        "total_bits": self.total_bits,
+        "current_step": self.step.numpy(),
+        "symmetric": self.symmetric,
+        "quantization_delay": np.array(self.quantization_delay),
+        "ema_freeze_delay": np.array(self.ema_freeze_delay),
+        "ema_decay": np.array(self.ema_decay),
+        "per_channel": self.per_channel,
+        "po2_rounding": self.po2_rounding,
+        "relu_neg_slope": self.relu_neg_slope
+    }
+    base_config = super(QAdaptiveActivation, self).get_config()
+    return dict(list(base_config.items()) + list(config.items()))
+
+  def get_quantization_config(self):
+    self.quantizer.integer_bits = np.array(self.quantizer)
+    return str(self.quantizer)
 
   def compute_output_shape(self, input_shape):
     return input_shape

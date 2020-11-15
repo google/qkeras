@@ -23,6 +23,7 @@ from numpy.testing import assert_allclose
 import pytest
 import tempfile
 
+import tensorflow as tf
 from tensorflow.keras import backend as K
 from tensorflow.keras.layers import Activation
 from tensorflow.keras.layers import Flatten
@@ -47,10 +48,6 @@ from qkeras.utils import load_qmodel
 from qkeras import print_qstats
 from qkeras import extract_model_operations
 
-
-# TODO(hzhuang):
-#   qoctave_conv test
-#   qbatchnorm test
 
 def test_qnetwork():
   K.set_learning_phase(1)
@@ -158,6 +155,50 @@ def test_qnetwork():
   inputs = 2 * np.random.rand(10, 28, 28, 1)
   actual_output = model.predict(inputs).astype(np.float16)
   assert_allclose(actual_output, expected_output, rtol=1e-4)
+
+
+def test_sequential_qnetwork():
+  model = tf.keras.Sequential()
+  model.add(Input((28, 28, 1), name='input'))
+  model.add(
+      QConv2D(
+          32, (2, 2),
+          strides=(2, 2),
+          kernel_quantizer=quantized_bits(4, 0, 1),
+          bias_quantizer=quantized_bits(4, 0, 1),
+          name='conv2d_0_m'))
+  model.add(QActivation(quantized_relu(4, 0), name='act0_m'))
+  model.add(
+      QConv2D(
+          64, (3, 3),
+          strides=(2, 2),
+          kernel_quantizer=quantized_bits(4, 0, 1),
+          bias_quantizer=quantized_bits(4, 0, 1),
+          name='conv2d_1_m'))
+  model.add(QActivation(quantized_relu(4, 0), name='act1_m'))
+  model.add(
+      QConv2D(
+          64, (2, 2),
+          strides=(2, 2),
+          kernel_quantizer=quantized_bits(4, 0, 1),
+          bias_quantizer=quantized_bits(4, 0, 1),
+          name='conv2d_2_m'))
+  model.add(QActivation(quantized_relu(4, 0), name='act2_m'))
+  model.add(Flatten())
+  model.add(
+      QDense(
+          10,
+          kernel_quantizer=quantized_bits(4, 0, 1),
+          bias_quantizer=quantized_bits(4, 0, 1),
+          name='dense'))
+  model.add(Activation('softmax', name='softmax'))
+
+  # Check that all model operation were found correctly
+  model_ops = extract_model_operations(model)
+  for layer in model_ops.keys():
+    assert model_ops[layer]['type'][0] != 'null'
+  return model
+
 
 @pytest.mark.parametrize("layer_cls", ["QConv1D", "QSeparableConv1D"])
 def test_qconv1d(layer_cls):

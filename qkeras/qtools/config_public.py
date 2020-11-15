@@ -33,6 +33,7 @@ config_settings = {
 
     "include_energy": {
         "QActivation": ["outputs"],
+        "QAdaptiveActivation": ["outputs"],
         "Activation": ["outputs"],
         "QBatchNormalization": ["parameters"],
         "BatchNormalization": ["parameters"],

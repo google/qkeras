@@ -27,7 +27,7 @@ from qkeras.utils import model_quantize
 def create_network():
   xi = Input((28,28,1))
   x = Conv2D(32, (3, 3))(xi)
-  x = Activation("relu")(x)
+  x = Activation("relu", name='relu_act')(x)
   x = Conv2D(32, (3, 3), activation="relu")(x)
   x = Activation("softmax")(x)
   x = QConv2D(32, (3, 3), activation="quantized_relu(4)")(x)
@@ -98,6 +98,48 @@ def test_conversion_from_relu_activation_to_qr_qactivation():
   assert qq.layers[2].__class__.__name__ == "QActivation"
   assert str(qq.layers[2].quantizer) == "ternary()"
   assert qq.layers[4].__class__.__name__ == "Activation"
+
+
+def test_conversion_from_relu_activation_to_qadaptiveactivation():
+  m = create_network()
+  d = {
+      "QConv2D": {
+          "kernel_quantizer": "binary",
+          "bias_quantizer": "binary"
+      },
+      "QAdaptiveActivation": {
+          "relu": "quantized_relu(8)"
+      }
+  }
+  qq = model_quantize(m, d, 4)
+  assert qq.layers[2].__class__.__name__ == "QAdaptiveActivation"
+  assert str(qq.layers[2].quantizer).startswith("quantized_relu(8,")
+  assert qq.layers[4].__class__.__name__ == "Activation"
+
+
+def test_conversion_qadaptiveactivation_with_preference():
+  m = create_network()
+  d = {
+      "QConv2D": {
+          "kernel_quantizer": "binary",
+          "bias_quantizer": "binary"
+      },
+      "relu_act": {
+          "relu": "quantized_relu(8)"
+      }
+  }
+
+  # Test with QActivation preference
+  qq1 = model_quantize(m, d, 4, prefer_qadaptiveactivation=False)
+  assert qq1.layers[2].__class__.__name__ == "QActivation"
+  assert str(qq1.layers[2].quantizer).startswith("quantized_relu(8,")
+  assert qq1.layers[4].__class__.__name__ == "Activation"
+
+  # Test with QAdaptiveActivation preference
+  qq2 = model_quantize(m, d, 4, prefer_qadaptiveactivation=True)
+  assert qq2.layers[2].__class__.__name__ == "QAdaptiveActivation"
+  assert str(qq2.layers[2].quantizer).startswith("quantized_relu(8,")
+  assert qq2.layers[4].__class__.__name__ == "Activation"
 
 
 def test_sequential_model_conversion():
