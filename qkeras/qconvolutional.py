@@ -703,7 +703,7 @@ class QDepthwiseConv2D(DepthwiseConv2D, PrunableLayer):
     return self.quantizers
 
   def get_prunable_weights(self):
-    return []
+    return [self.depthwise_kernel]
 
 
 def QSeparableConv2D(
