@@ -28,7 +28,8 @@ import tensorflow.compat.v2 as tf
 from tensorflow.keras import initializers
 import tensorflow.keras.backend as K
 from tensorflow.keras.utils import deserialize_keras_object
-from tensorflow.python.keras.utils import tf_utils
+#from tensorflow.python.keras.utils import tf_utils
+from tensorflow.python.framework import smart_cond as tf_utils
 
 from .safe_eval import safe_eval
 
@@ -121,7 +122,21 @@ def _get_integer_bits(min_value,
   return integer_bits
 
 
-def _get_scale(alpha, x, q):
+def _get_scaling_axis(scale_axis, len_axis):
+  """Get the axis to perform auto scaling with."""
+
+  if scale_axis is not None:
+    axis = list(range(scale_axis))
+    axis += list(range(scale_axis+1, len_axis))
+  else:
+    if K.image_data_format() == "channels_last":
+      axis = list(range(len_axis - 1))
+    else:
+      axis = list(range(1, len_axis))
+  return axis
+
+
+def _get_scale(alpha, x, q, scale_axis=None):
   """Gets scaling factor for scaling the tensor per channel.
 
   Arguments:
@@ -130,6 +145,7 @@ def _get_scale(alpha, x, q):
        scale = sum(x * q, axis=all but last) / sum(q * q, axis=all but last)
      x: A tensor object. Its elements are in float.
      q: A tensor object. Its elements are in quantized format of x.
+     scale_axis: which axis to calculate scale from
 
   Returns:
     A scaling factor tensor or scala for scaling tensor per channel.
@@ -146,10 +162,7 @@ def _get_scale(alpha, x, q):
 
     len_axis = len(x_shape)
     if len_axis > 1:
-      if K.image_data_format() == "channels_last":
-        axis = list(range(len_axis - 1))
-      else:
-        axis = list(range(1, len_axis))
+      axis = _get_scaling_axis(scale_axis, len_axis)
       qx = K.mean(tf.math.multiply(x, q), axis=axis, keepdims=True)
       qq = K.mean(tf.math.multiply(q, q), axis=axis, keepdims=True)
     else:
@@ -386,12 +399,13 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
       If None, the scaling factor is 1 for all channels.
     keep_negative: if true, we do not clip negative numbers.
     use_stochastic_rounding: if true, we perform stochastic rounding.
+    scale_axis: which axis to calculate scale from
 
   Returns:
     Function that computes fixed-point quantization with bits.
   """
   def __init__(self, bits=8, integer=0, symmetric=0, keep_negative=True,
-               alpha=None, use_stochastic_rounding=False):
+               alpha=None, use_stochastic_rounding=False, scale_axis=None):
     super(quantized_bits, self).__init__()
     self.bits = bits
     self.integer = integer
@@ -403,6 +417,7 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
     if isinstance(self.alpha, six.string_types):
       self.symmetric = True
     self.scale = None
+    self.scale_axis = scale_axis
 
   def __str__(self):
     # Convert Tensors to printable strings by converting to a numpy array and
@@ -443,10 +458,7 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
       assert self.symmetric
       len_axis = len(x.shape)
       if len_axis > 1:
-        if K.image_data_format() == "channels_last":
-          axis = list(range(len_axis - 1))
-        else:
-          axis = list(range(1, len_axis))
+        axis = _get_scaling_axis(self.scale_axis, len_axis)
       else:
         axis = [0]
 
@@ -463,8 +475,8 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
         v = tf.floor(tf.abs(x) / scale + 0.5)
         mask = v < (levels - 1) / 2
         z = tf.sign(x) * tf.where(mask, v, tf.ones_like(v) * (levels - 1) / 2)
-        scale = _get_scale("auto_po2", x, z)
-
+        scale = _get_scale(alpha="auto_po2", x=x, q=z,
+                           scale_axis=self.scale_axis)
       # z is an integer number, so we must make the scale * m and z / m
       scale = scale * m
 
