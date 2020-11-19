@@ -44,6 +44,8 @@ from qkeras import quantized_relu
 from qkeras.utils import model_save_quantized_weights
 from qkeras.utils import quantized_model_from_json
 from qkeras.utils import load_qmodel
+from qkeras.utils import get_kernel_and_bias_weights
+from qkeras.utils import get_state_variables_appended_weights
 from qkeras import print_qstats
 from qkeras import extract_model_operations
 
@@ -101,7 +103,8 @@ def test_qnetwork():
   np.random.seed(42)
   for layer in model.layers:
     all_weights = []
-    for i, weights in enumerate(layer.get_weights()):
+
+    for i, weights in enumerate(get_kernel_and_bias_weights(layer)):
       input_size = np.prod(layer.input.shape.as_list()[1:])
       if input_size is None:
         input_size = 576 * 10  # to avoid learning sizes
@@ -111,6 +114,7 @@ def test_qnetwork():
       all_weights.append(
           10.0 * np.random.normal(0.0, np.sqrt(2.0 / input_size), shape))
     if all_weights:
+      all_weights = get_state_variables_appended_weights(layer, all_weights)
       layer.set_weights(all_weights)
 
   # apply quantizer to weights
@@ -119,7 +123,7 @@ def test_qnetwork():
   all_weights = []
 
   for layer in model.layers:
-    for i, weights in enumerate(layer.get_weights()):
+    for i, weights in enumerate(get_kernel_and_bias_weights(layer)):
       w = np.sum(weights)
       all_weights.append(w)
 

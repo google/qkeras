@@ -33,6 +33,8 @@ from qkeras.qtools import run_qtools
 from qkeras.qtools import settings as qtools_settings
 from qkeras.qtools.quantized_operators import divider_factory
 from qkeras.qtools import generate_layer_data_type_map
+from qkeras.utils import get_state_variables_appended_weights
+
 
 
 def qdense_model_fork():
@@ -189,7 +191,8 @@ def qbn_model_inference():
   if not layer.center:
     num_weights -= 1
 
-  layer.set_weights(weight_arr[:num_weights])
+  weight_arr = get_state_variables_appended_weights(layer, weight_arr[:num_weights])
+  layer.set_weights(weight_arr)
 
   return model
 

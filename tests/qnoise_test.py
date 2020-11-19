@@ -50,15 +50,18 @@ def test_qnoise_quantized_bits():
   x_xq = 0.5 * (x + xq)
 
   # no quantization
-  x_q_0 = qb(inputs, qnoise_factor=0.0)
+  qb.update_qnoise_factor(qnoise_factor=0.0)
+  x_q_0 = qb(inputs)
   assert_equal(x_q_0, x)
 
   # full quantization
-  x_q_1 = qb(inputs, qnoise_factor=1.0)
+  qb.update_qnoise_factor(qnoise_factor=1.0)
+  x_q_1 = qb(inputs)
   assert_equal(x_q_1, xq)
 
   # mixing half and half of x and xq
-  x_q_05 = qb(inputs, qnoise_factor=0.5)
+  qb.update_qnoise_factor(qnoise_factor=0.5)
+  x_q_05 = qb(inputs)
   assert_equal(x_q_05, x_xq)
 
 
@@ -117,15 +120,18 @@ def test_qnoise_quantized_relu():
   qr.is_quantized_clip = False
 
   # no quantization
-  x_q_0 = qr(inputs, qnoise_factor=0.0)
+  qr.update_qnoise_factor(qnoise_factor=0.0)
+  x_q_0 = qr(inputs)
   assert_equal(x_q_0, x)
 
   # full quantization
-  x_q_1 = qr(inputs, qnoise_factor=1.0)
+  qr.update_qnoise_factor(qnoise_factor=1.0)
+  x_q_1 = qr(inputs)
   assert_equal(x_q_1, xq)
 
   # mixing half and half
-  x_q_05 = qr(inputs, qnoise_factor=0.5)
+  qr.update_qnoise_factor(qnoise_factor=0.5)
+  x_q_05 = qr(inputs)
   assert_equal(x_q_05, x_xq)
 
   #########################################
@@ -135,15 +141,18 @@ def test_qnoise_quantized_relu():
   qr.is_quantized_clip = True
 
   # no quantization
-  x_q_0 = qr(inputs, qnoise_factor=0.0)
+  qr.update_qnoise_factor(qnoise_factor=0.0)
+  x_q_0 = qr(inputs)
   assert_equal(x_q_0, x_clipped)
 
   # full quantization
-  x_q_1 = qr(inputs, qnoise_factor=1.0)
+  qr.update_qnoise_factor(qnoise_factor=1.0)
+  x_q_1 = qr(inputs)
   assert_equal(x_q_1, xq)
 
   # mixing half and half
-  x_q_05 = qr(inputs, qnoise_factor=0.5)
+  qr.update_qnoise_factor(qnoise_factor=0.5)
+  x_q_05 = qr(inputs)
   assert_equal(x_q_05, x_clipped_xq)
 
   #########################################
@@ -153,15 +162,18 @@ def test_qnoise_quantized_relu():
   qr_ub.is_quantized_clip = False
 
   # no quantization
-  x_q_0 = qr_ub(inputs, qnoise_factor=0.0)
+  qr_ub.update_qnoise_factor(qnoise_factor=0.0)
+  x_q_0 = qr_ub(inputs)
   assert_equal(x_q_0, x_ub)
 
   # full quantization
-  x_q_1 = qr_ub(inputs, qnoise_factor=1.0)
+  qr_ub.update_qnoise_factor(qnoise_factor=1.0)
+  x_q_1 = qr_ub(inputs)
   assert_equal(x_q_1, xq)
 
   # mixing half and half
-  x_q_05 = qr_ub(inputs, qnoise_factor=0.5)
+  qr_ub.update_qnoise_factor(qnoise_factor=0.5)
+  x_q_05 = qr_ub(inputs)
   assert_equal(x_q_05, x_ub_xq)
 
   #########################################
@@ -172,15 +184,18 @@ def test_qnoise_quantized_relu():
   qr_ub.is_quantized_clip = True
 
   # no quantization
-  x_q_0 = qr_ub(inputs, qnoise_factor=0.0)
+  qr_ub.update_qnoise_factor(qnoise_factor=0.0)
+  x_q_0 = qr_ub(inputs)
   assert_equal(x_q_0, x_clipped)
 
   # full quantization
-  x_q_1 = qr_ub(inputs, qnoise_factor=1.0)
+  qr_ub.update_qnoise_factor(qnoise_factor=1.0)
+  x_q_1 = qr_ub(inputs)
   assert_equal(x_q_1, xq)
 
   # mixing half and half
-  x_q_05 = qr_ub(inputs, qnoise_factor=0.5)
+  qr_ub.update_qnoise_factor(qnoise_factor=0.5)
+  x_q_05 = qr_ub(inputs)
   assert_equal(x_q_05, x_clipped_xq)
 
 

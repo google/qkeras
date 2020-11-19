@@ -383,10 +383,12 @@ class QAdaptiveActivation(Layer, PrunableLayer):
       qnoise_factor = K.switch(
           tf.greater_equal(self.step, self.quantization_delay),
           lambda: tf.constant(1.0), lambda: tf.constant(0.0))
-      qx = self.quantizer(x, qnoise_factor=qnoise_factor)
+      self.quantizer.update_qnoise_factor(qnoise_factor)
+      qx = self.quantizer(x)
 
     else:  # If not training, we always want to use full quantization
-      qx = self.quantizer(x, qnoise_factor=tf.constant(1.0))
+      self.quantizer.update_qnoise_factor(tf.constant(1.0))
+      qx = self.quantizer(x)
 
     # Calculate the axis along where to find the min and max EMAs
     len_axis = len(x.shape)
