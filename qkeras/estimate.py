@@ -37,6 +37,7 @@ from tensorflow.keras.layers import Activation
 from tensorflow.keras.layers import InputLayer
 from tensorflow.keras.models import Model
 
+from .qconv2d_batchnorm import QConv2DBatchnorm
 from .qlayers import QActivation
 from .qlayers import QAdaptiveActivation
 from .qlayers import QDense
@@ -50,17 +51,18 @@ from .quantizers import quantized_relu
 from .quantizers import quantized_tanh
 from .quantizers import quantized_ulaw
 from .utils import get_model_sparsity
+from .utils import convert_folded_model_to_normal
 
 
-def analyze_accumulator(model, x, verbose=False):
+def analyze_accumulator(in_model, x, verbose=False):
   """Analyzes the distribution of weights to specify size of accumulators.
 
      Computes the maximum number of bits for the accumulator assuming the
      inputs have a distribution given by the dictionary x.
 
      for each output channel i:
-       max_positive_value[i] = sum(positive) w[i] + positive(bias[i])
-       max_negative_value[i] = sum(negative) w[i] + negative(bias[i])
+       max_positive_value[i] = sum(w[i]) + bias[i] for the positive weights
+       max_negative_value[i] = sum(w[i]) + bias[i] for the negative weights
 
      max_value = max(
             max_positive_value[i] * positive(x) +
@@ -79,13 +81,18 @@ def analyze_accumulator(model, x, verbose=False):
      in the future, we want to provide a sample and compute this automatically
 
   Arguments:
-    model: model to be evaluated
-    x: input distribution
-    verbose: if true, print statistics messages
+    in_model: keras model object, model to be evaluated
+    x: dictionary of the form: { layer_name: (min_value, max_value) }
+       input distribution
+    verbose: boolean, if true, print statistics messages
 
   Returns:
     dictionary containing { layer_name: accumulator_size }
   """
+
+  # this function converts a folded model to a "normal" model. It replace folded
+  # layers (e.g., QConv2dBatchnorm) layer with qconv2d layer whenever possible.
+  model = convert_folded_model_to_normal(in_model)
 
   acc_sizes = {}
 
@@ -146,17 +153,18 @@ def analyze_accumulator(model, x, verbose=False):
 
 
 def analyze_accumulator_from_sample(
-    model, x_sample, mode="conservative", verbose=False):
-
+    in_model, x_sample, mode="conservative", verbose=False):
   """Extracts range of inputs of quantized layers from samples."""
 
   # mode is one of "conservative", "sampled"
-
   if mode not in ["conservative", "sampled"]:
     ValueError("'mode' has to be 'conservative' or 'sampled'")
 
-  # get layer names of quantized layers (QDense and QConv2D)
+  # this function converts a folded model to a "normal" model. It replace folded
+  # layers (e.g., QConv2DBatchnorm) layer with qconv2d layer whenever possible.
+  model = convert_folded_model_to_normal(in_model)
 
+  # get layer names of quantized layers (QDense and QConv2D)
   layer_names = [
       layer.name for layer in model.layers
       if (isinstance(layer, QDepthwiseConv2D) or isinstance(layer, QConv2D) or
@@ -348,9 +356,10 @@ def create_activation_cache(model):
   return output_cache
 
 
-def extract_model_operations(model):
+def extract_model_operations(in_model):
   """Determines types of operations for convolutions."""
 
+  model = convert_folded_model_to_normal(in_model)
   cache_q = create_activation_cache(model)
   cache_o = {}
 

@@ -31,6 +31,7 @@ from .qpooling import *  # pylint: disable=wildcard-import
 from .safe_eval import *  # pylint: disable=wildcard-import
 #from .qtools.run_qtools import QTools
 #from .qtools.settings import cfg
+from .qconv2d_batchnorm import QConv2DBatchnorm
 
 assert tf.executing_eagerly(), "QKeras requires TF with eager execution mode on"
 

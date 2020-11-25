@@ -33,6 +33,16 @@ def create_network():
   x = QConv2D(32, (3, 3), activation="quantized_relu(4)")(x)
   return Model(inputs=xi, outputs=x)
 
+def create_network_with_bn():
+  xi = Input((28,28,1))
+  x = Conv2D(32, (3, 3))(xi)
+  x = BatchNormalization(axis=-1)(x)
+  x = Activation("relu", name='relu_act')(x)
+  x = Conv2D(32, (3, 3), activation="relu")(x)
+  x = Activation("softmax")(x)
+  x = QConv2D(32, (3, 3), activation="quantized_relu(4)")(x)
+  return Model(inputs=xi, outputs=x)
+
 def create_network_sequential():
   model = Sequential([
     Conv2D(32, (3, 3), input_shape=(28,28,1)),
@@ -151,6 +161,71 @@ def test_sequential_model_conversion():
       }}
   qq = model_quantize(m, d, 4)
   assert str(qq.layers[2].activation) == "quantized_relu(4,0)"
+
+
+def test_folded_layer_conversion():
+  # create a sequential model with conv2d layer and activation layers
+  m1 = create_network()
+
+  # create a sequantial model with conv2d layer followed by bn layer
+  m2 = create_network_with_bn()
+
+  # quantization config
+  d = {
+      "QConv2D": {
+          "kernel_quantizer": "binary",
+          "bias_quantizer": "binary"
+      },
+      "QConv2DBatchnorm": {
+          "kernel_quantizer": "ternary",
+          "bias_quantizer": "ternary",
+      },
+      "relu_act": {
+          "relu": "quantized_relu(8)"
+      }
+  }
+
+  # test when model has no layer to fold
+  # desired behavior: un-folded layers
+  qq1 = model_quantize(m1, d, 4, enable_bn_folding=True)
+  assert qq1.layers[1].__class__.__name__ == "QConv2D"
+  assert str(qq1.layers[1].quantizers[0]).startswith("binary")
+
+  # test when the 1st conv2d layers needs to fold but the 2nd conv2d layer
+  # does not (not followed by bn layer)
+  # desired behavior: 1st conv2d is folded, 2nd conv2d unfolded
+  qq2 = model_quantize(m2, d, 4, enable_bn_folding=True)
+  assert qq2.layers[1].__class__.__name__ == "QConv2DBatchnorm"
+  assert str(qq2.layers[1].quantizers[0]).startswith("ternary")
+  assert qq2.layers[3].__class__.__name__ == "QConv2D"
+  assert str(qq2.layers[3].quantizers[0]).startswith("binary")
+
+  # test when there are layers to fold but folding is disabled
+  # desired behavior: all conv2d layers unfolded
+  qq3 = model_quantize(m2, d, 4, enable_bn_folding=False)
+  assert qq3.layers[1].__class__.__name__ == "QConv2D"
+  assert str(qq3.layers[1].quantizers[0]).startswith("binary")
+  assert qq3.layers[2].__class__.__name__ == "BatchNormalization"
+  assert str(qq3.layers[3].quantizer).startswith("quantized_relu")
+
+  # test when QConv2DBatchnorm quantizer is not given in config
+  # desired behavior: quantizers for QConv2DBatchnorm layer fall back to QConv2D
+  #   quantizers
+  d = {
+      "QConv2D": {
+          "kernel_quantizer": "binary",
+          "bias_quantizer": "binary"
+      },
+      "relu_act": {
+          "relu": "quantized_relu(8)"
+      }
+  }
+  qq4 = model_quantize(m2, d, 4, enable_bn_folding=True)
+  assert qq4.layers[1].__class__.__name__ == "QConv2DBatchnorm"
+  assert str(qq4.layers[1].quantizers[0]).startswith("binary")
+  assert qq4.layers[3].__class__.__name__ == "QConv2D"
+  assert str(qq4.layers[3].quantizers[0]).startswith("binary")
+
 
 if __name__ == "__main__":
   pytest.main([__file__])
