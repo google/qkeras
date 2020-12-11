@@ -78,7 +78,7 @@ def main():
   print("       hs =", K.eval(hard_sigmoid(c)).astype(np.float16))
   print("    b_all =", b.astype(np.float16))
   T = 0.0
-  t = K.eval(stochastic_ternary(threshold=T, alpha="auto")(c_1000))
+  t = K.eval(stochastic_ternary(alpha="auto")(c_1000))
   for i in range(10):
     print("stochastic_ternary({}) =".format(i), t[i])
   print("   st_all =", np.round(
