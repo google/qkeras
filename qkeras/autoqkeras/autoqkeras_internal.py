@@ -723,6 +723,8 @@ class AutoQKeras:
          quantizers for kernel, bias and activation.
        head_name: specify which head to calcuate score/trial-size from in
          autoqkeras
+       score_metric: Str. Optional metric name to use to evaluate the trials.
+         Defaults to val_score
        tuner_kwargs: parameters for kerastuner depending on whether
          mode is random, hyperband or baeysian. Please refer to the
          documentation of kerstuner Tuners.
@@ -731,11 +733,14 @@ class AutoQKeras:
   def __init__(
       self, model, metrics=None, custom_objects=None, goal=None,
       output_dir="result", mode="random", custom_tuner=None,
-      custom_tuner_config=None, transfer_weights=False,
-      frozen_layers=None, activation_bits=4, limit=None, tune_filters="none",
+      transfer_weights=False, frozen_layers=None, activation_bits=4,
+      limit=None, tune_filters="none",
       tune_filters_exceptions=None, learning_rate_optimizer=False,
       layer_indexes=None, quantization_config=None, overwrite=True,
-      head_name=None, **tuner_kwargs):
+      head_name=None, score_metric=None, **tuner_kwargs):
+
+    # Collect input arguments to AutoQKeras for usage by custom tuner
+    autoqkeras_input_args = locals()
 
     if not metrics:
       metrics = []
@@ -815,15 +820,16 @@ class AutoQKeras:
     output_dir = name
     self.output_dir = output_dir
 
-    if self.head_name:
-      score_metric = "val_" + self.head_name + "_score"
-    else:
-      score_metric = "val_score"
+    if score_metric is None:
+      if self.head_name:
+        score_metric = "val_" + self.head_name + "_score"
+      else:
+        score_metric = "val_score"
     assert mode in ["random", "bayesian", "hyperband"]
     if custom_tuner is not None:
       self.tuner = custom_tuner(
           self.hypermodel,
-          custom_tuner_config=custom_tuner_config,
+          autoqkeras_config=autoqkeras_input_args,
           objective=kt.Objective(score_metric, "max"),
           project_name=output_dir,
           **tuner_kwargs)
