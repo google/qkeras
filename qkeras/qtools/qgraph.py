@@ -71,8 +71,7 @@ def  GraphAddHiddenInputLayer(model, graph, input_quantizer_map):
   """For Keras Sequential model api, input layer is hidden. Need to add it."""
 
   node_id = -1
-  for u in graph.nodes:
-
+  for (u, _) in graph.nodes.items():
     if u >= node_id:
       node_id = u
     if u == SOURCE or u == SINK:
@@ -81,6 +80,7 @@ def  GraphAddHiddenInputLayer(model, graph, input_quantizer_map):
     if graph.nodes[u]["type"][-1] == "InputLayer":
       return
 
+  # determine a node id for the newly added input layer
   node_id += 1
 
   # find the first layer of the sequential model

@@ -21,6 +21,7 @@ import networkx as nx
 from tensorflow.keras.models import Model
 from .qtools import generate_layer_data_type_map as gen_map
 
+
 def replace_layers(src_layer, inputs, replace_to):
   """Replace a source layer with a different layer type and set the weights.
 
@@ -40,11 +41,13 @@ def replace_layers(src_layer, inputs, replace_to):
   # QConv2D object and generate template for its config
   if replace_to == "QConv2D":
     new_layer = QConv2D(filters=1, kernel_size=(2, 2))
-    new_layer_cfg = new_layer.get_config()
+  elif replace_to == "QDepthwiseConv2D":
+    new_layer = QDepthwiseConv2D(kernel_size=(2, 2))
   else:
-    # TODO(lishanok): will extend to other layer types in the future
+    # TODO(lishanok): will extend to QDense in the future
     assert ValueError, "%s is not supported!" % replace_to
 
+  new_layer_cfg = new_layer.get_config()
   # set qconv2d config according to the values in the composite layer
   for (key, _) in new_layer_cfg.items():
     new_layer_cfg[key] = config[key]
@@ -56,13 +59,25 @@ def replace_layers(src_layer, inputs, replace_to):
   # create a qconv2d layer from config and replace old layer with it
   if replace_to == "QConv2D":
     new_layer = QConv2D.from_config(new_layer_cfg)
+  elif replace_to == "QDepthwiseConv2D":
+    new_layer = QDepthwiseConv2D.from_config(new_layer_cfg)
+
+  # call new_layer first so that the weights are initialized
   outputs = new_layer(inputs)
 
-  # transfer weights from composite layer to the target layer
-  folded_kernel_quantized = src_layer.folded_kernel_quantized.numpy()
-  folded_bias_quantized = src_layer.folded_bias_quantized.numpy()
-  new_layer.set_weights([folded_kernel_quantized, folded_bias_quantized])
+  if replace_to == "QConv2D":
+    # transfer weights from composite layer to the target layer
+    folded_kernel_quantized = src_layer.folded_kernel_quantized.numpy()
+    folded_bias_quantized = src_layer.folded_bias_quantized.numpy()
+    new_layer.set_weights([folded_kernel_quantized, folded_bias_quantized])
 
+  elif replace_to == "QDepthwiseConv2D":
+    # transfer weights from composite layer to the target layer
+    folded_depthwise_kernel_quantized = (
+        src_layer.folded_depthwise_kernel_quantized.numpy())
+    folded_bias_quantized = src_layer.folded_bias_quantized.numpy()
+    new_layer.set_weights([folded_depthwise_kernel_quantized,
+                           folded_bias_quantized])
   return (new_layer, outputs)
 
 
@@ -96,46 +111,29 @@ def convert_folded_model_to_normal_seq(model):
   for i in range(1, len(layer_list)):
     layer = layer_list[i]
 
-    if layer.__class__.__name__ not in ["QConv2DBatchnorm"]:
-      x = layer_list[i](x)
+    if layer.__class__.__name__ in ["QConv2DBatchnorm"]:
+      (_, x) = replace_layers(
+          layer, x, replace_to="QConv2D")
 
+    elif layer.__class__.__name__ in ["QDepthwiseConv2DBatchnorm"]:
+      (_, x) = replace_layers(
+          layer, x, replace_to="QDepthwiseConv2D")
+
+    # TODO(lishanok): extend to QDense layer
     else:
-      # get layer config from the composite layer
-      config = layer.get_config()
+      x = layer(x)
 
-      # set layer config for QConv2D layer by first creating a tmp
-      # QConv2D object and generate template for its config
-      qconv2d = QConv2D(filters=1, kernel_size=(2, 2))
-      qconv2d_cfg = qconv2d.get_config()
+  new_model = Model(inputs=model.inputs, outputs=x)
 
-      # set qconv2d config according to the values in the composite layer
-      for (key, _) in qconv2d_cfg.items():
-        qconv2d_cfg[key] = config[key]
-
-      # in case use_bias is False in the composite layer,
-      #  we need to set it True because we have folded bias
-      qconv2d_cfg["use_bias"] = True
-
-      # create a qconv2d layer from config and replace old layer with it
-      qconv2d = QConv2D.from_config(qconv2d_cfg)
-      x = qconv2d(x)
-
-      # transfer weights from composite layer to the qconv2d layer
-      for weight in layer.weights:
-        if "folded_kernel_quantized" in weight.name:
-          folded_kernel_quantized = weight.numpy()
-        elif "folded_bias_quantized" in weight.name:
-          folded_bias_quantized = weight.numpy()
-      qconv2d.set_weights([folded_kernel_quantized, folded_bias_quantized])
-
-  return Model(inputs=model.inputs, outputs=x)
+  return new_model
 
 
 def convert_folded_model_to_normal(fold_model):
   """Convert a model with batchnorm folded layer to a normal model.
 
-  "Normal" here refers to a model with separate QConv/QDense and Batchnorm
-  layer. This function replace the folded layers with a normal QConv/QDense
+  "Normal" here refers to a model without composite folded layer such as
+  QConv2DBatchnorm layer.
+  This function replace the folded layers with a normal QConv/QDense
   layer. It aslo sets the weights in the normal layer with the folded weights
   in the folded layer. Model architecture could be either sequential or
   non-sequential.
@@ -181,7 +179,10 @@ def convert_folded_model_to_normal(fold_model):
         assert len(layer_input_tensors) == 1
         (_, x) = replace_layers(
             layer, layer_input_tensors[0].deref(), "QConv2D")
-
+      elif layer.__class__.__name__ in ["QDepthwiseConv2DBatchnorm"]:
+        assert len(layer_input_tensors) == 1
+        (_, x) = replace_layers(
+            layer, layer_input_tensors[0].deref(), "QDepthwiseConv2D")
       else:
         # for other layers that do not need to be replaced, we simply call the
         # layer to get output tensor

@@ -1,4 +1,4 @@
-# Copyright 2019 Google LLC
+# Copyright 2020 Google LLC
 #
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -35,6 +35,8 @@ from qkeras import QConv2DBatchnorm
 from qkeras import QConv2D
 from qkeras import QDense
 from qkeras import QActivation
+from qkeras import QDepthwiseConv2D
+from qkeras import QDepthwiseConv2DBatchnorm
 from qkeras import utils as qkeras_utils
 from qkeras import bn_folding_utils
 
@@ -359,7 +361,7 @@ def test_loading():
   # test convert a folded model to a normal model for zpm
   # the kernel/bias weight in the normal model should be the same as the folded
   # kernel/bias in the folded model
-  normal_model = bn_folding_utils.convert_folded_model_to_normal_seq(model_fold)
+  normal_model = bn_folding_utils.convert_folded_model_to_normal(model_fold)
   weight2 = normal_model.layers[1].get_weights()
 
   assert_equal(weight1[0], weight2[0])
@@ -474,6 +476,117 @@ def test_same_training_and_prediction():
   assert_raises(AssertionError, assert_allclose, y1, y2_batch, rtol=1e-4)
   assert_allclose(y2_batch, y2_ema, rtol=1e-4)
 
+  # test QDepthwiseConv2DBatchnorm layers
+  def _get_models(x_shape, num_class, depthwise_quantizer, folding_mode,
+                  ema_freeze_delay):
+    x = x_in = layers.Input(x_shape, name="input")
+    x = QDepthwiseConv2DBatchnorm(
+        kernel_size=(2, 2), strides=(2, 2), depth_multiplier=1,
+        depthwise_initializer="ones", bias_initializer="zeros", use_bias=False,
+        depthwise_quantizer=depthwise_quantizer, beta_initializer="zeros",
+        gamma_initializer="ones", moving_mean_initializer="zeros",
+        moving_variance_initializer="ones", folding_mode=folding_mode,
+        ema_freeze_delay=ema_freeze_delay,
+        name="fold_depthwiseconv2d")(x)
+    x = layers.Flatten(name="flatten")(x)
+    x = layers.Dense(num_class, use_bias=False, kernel_initializer="ones",
+                     name="dense")(x)
+    x = layers.Activation("softmax", name="softmax")(x)
+    fold_model = Model(inputs=[x_in], outputs=[x])
+
+    x = x_in = layers.Input(x_shape, name="input")
+    x = QDepthwiseConv2D(
+        kernel_size=(2, 2), strides=(2, 2), depth_multiplier=1,
+        depthwise_initializer="ones", bias_initializer="zeros", use_bias=False,
+        depthwise_quantizer=depthwise_quantizer,
+        name="depthwiseconv2d")(x)
+    x = layers.BatchNormalization(
+        beta_initializer="zeros",
+        gamma_initializer="ones", moving_mean_initializer="zeros",
+        moving_variance_initializer="ones",
+        name="bn")(x)
+    x = layers.Flatten(name="flatten")(x)
+    x = layers.Dense(num_class, use_bias=False, kernel_initializer="ones",
+                     name="dense")(x)
+    x = layers.Activation("softmax", name="softmax")(x)
+    model = Model(inputs=[x_in], outputs=[x])
+
+    return (model, fold_model)
+
+  input_shape = (4, 4, 1)
+  num_class = 2
+  depthwise_quantizer = None
+  folding_mode = "ema_stats_folding"
+  ema_freeze_delay = 10
+
+  # weights
+  depthwise_kernel = np.array([[[[1.]], [[0.]]], [[[0.]], [[1.]]]])
+  gamma = np.array([2])
+  beta = np.array([0])
+  moving_mean = np.array([4.])
+  moving_variance = np.array([2.])
+  iteration = np.array(2)
+  folded_depthwise_kernel_quantized = np.array(
+      [[[[1.4138602]], [[0.]]], [[[0.]], [[1.4138602]]]])
+  folded_bias_quantized = np.array([-5.655441])
+  dense_weight = np.array([[1., 0], [0, 0], [0, 0], [0, 0]])
+
+  # generate dataset
+  train_ds = generate_dataset(train_size=3, batch_size=3,
+                              input_shape=input_shape, num_class=2)
+
+  # define models, one with folded layer and one without
+  (model, fold_model) = _get_models(
+      input_shape, num_class=num_class, depthwise_quantizer=depthwise_quantizer,
+      folding_mode=folding_mode, ema_freeze_delay=ema_freeze_delay)
+
+  # set weights
+  fold_model.layers[1].set_weights([
+      depthwise_kernel, gamma, beta, folded_depthwise_kernel_quantized,
+      folded_bias_quantized, iteration, moving_mean, moving_variance])
+  fold_model.layers[3].set_weights([dense_weight])
+
+  model.layers[1].set_weights([depthwise_kernel])
+  model.layers[2].set_weights([gamma, beta, moving_mean, moving_variance])
+  model.layers[4].set_weights([dense_weight])
+
+  # perform training
+  epochs = 5
+  loss_fn = tf.keras.losses.MeanSquaredError()
+  loss_metric = metrics.Mean()
+  optimizer = tf.keras.optimizers.SGD(learning_rate=1e-3)
+
+  pred1 = run_training(
+      model, epochs, loss_fn, loss_metric, optimizer, train_ds, do_print=False)
+  pred2 = run_training(
+      fold_model, epochs, loss_fn, loss_metric, optimizer, train_ds,
+      do_print=False)
+
+  # before bn freezes, the two models should reach the same point
+  assert_allclose(pred1, pred2, rtol=1e-4)
+
+  # after bn freezes, the two models will not reach the same
+  iteration = np.array(12)
+  epochs = 5
+  ema_freeze_delay = 10
+  (model, fold_model) = _get_models(
+      input_shape, num_class=num_class, depthwise_quantizer=depthwise_quantizer,
+      folding_mode=folding_mode, ema_freeze_delay=ema_freeze_delay)
+  fold_model.layers[1].set_weights([
+      depthwise_kernel, gamma, beta, folded_depthwise_kernel_quantized,
+      folded_bias_quantized, iteration, moving_mean, moving_variance])
+  fold_model.layers[3].set_weights([dense_weight])
+  model.layers[1].set_weights([depthwise_kernel])
+  model.layers[2].set_weights([gamma, beta, moving_mean, moving_variance])
+  model.layers[4].set_weights([dense_weight])
+  pred1 = run_training(
+      model, epochs, loss_fn, loss_metric, optimizer, train_ds, do_print=False)
+  pred2 = run_training(
+      fold_model, epochs, loss_fn, loss_metric, optimizer, train_ds,
+      do_print=False)
+
+  assert_raises(AssertionError, assert_allclose, pred1, pred2, rtol=1e-4)
+
 
 def test_populate_bias_quantizer_from_accumulator():
   """Test populate_bias_quantizer_from_accumulator function.
@@ -528,4 +641,3 @@ def test_populate_bias_quantizer_from_accumulator():
       model, ["quantized_bits(8, 0, 1)"])
   q = model.layers[5].get_quantizers()[1]
   assert_equal(q.__str__(), "quantized_bits(10,3,1)")
-

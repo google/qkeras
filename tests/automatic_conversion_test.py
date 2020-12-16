@@ -1,4 +1,4 @@
-# Copyright 2019 Google LLC
+# Copyright 2020 Google LLC
 #
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -40,7 +40,8 @@ def create_network_with_bn():
   x = Activation("relu", name='relu_act')(x)
   x = Conv2D(32, (3, 3), activation="relu")(x)
   x = Activation("softmax")(x)
-  x = QConv2D(32, (3, 3), activation="quantized_relu(4)")(x)
+  x = DepthwiseConv2D((3, 3))(x)
+  x = BatchNormalization(axis=-1)(x)
   return Model(inputs=xi, outputs=x)
 
 def create_network_sequential():
@@ -176,8 +177,16 @@ def test_folded_layer_conversion():
           "kernel_quantizer": "binary",
           "bias_quantizer": "binary"
       },
+      "QDepthwiseConv2D": {
+          "depthwise_quantizer": "binary",
+          "bias_quantizer": "binary"
+      },
       "QConv2DBatchnorm": {
           "kernel_quantizer": "ternary",
+          "bias_quantizer": "ternary",
+      },
+      "QDepthwiseConv2DBatchnorm": {
+          "depthwise_quantizer": "ternary",
           "bias_quantizer": "ternary",
       },
       "relu_act": {
@@ -194,26 +203,35 @@ def test_folded_layer_conversion():
   # test when the 1st conv2d layers needs to fold but the 2nd conv2d layer
   # does not (not followed by bn layer)
   # desired behavior: 1st conv2d is folded, 2nd conv2d unfolded
+  # also test the depthwiseconv2d layer should fold
   qq2 = model_quantize(m2, d, 4, enable_bn_folding=True)
   assert qq2.layers[1].__class__.__name__ == "QConv2DBatchnorm"
   assert str(qq2.layers[1].quantizers[0]).startswith("ternary")
   assert qq2.layers[3].__class__.__name__ == "QConv2D"
   assert str(qq2.layers[3].quantizers[0]).startswith("binary")
+  assert qq2.layers[5].__class__.__name__ == "QDepthwiseConv2DBatchnorm"
+  assert str(qq2.layers[5].quantizers[0]).startswith("ternary")
 
   # test when there are layers to fold but folding is disabled
-  # desired behavior: all conv2d layers unfolded
+  # desired behavior: all conv2d/depthwise2d layers are not folded
   qq3 = model_quantize(m2, d, 4, enable_bn_folding=False)
   assert qq3.layers[1].__class__.__name__ == "QConv2D"
   assert str(qq3.layers[1].quantizers[0]).startswith("binary")
   assert qq3.layers[2].__class__.__name__ == "BatchNormalization"
   assert str(qq3.layers[3].quantizer).startswith("quantized_relu")
+  assert qq3.layers[6].__class__.__name__ == "QDepthwiseConv2D"
+  assert str(qq3.layers[6].quantizers[0]).startswith("binary")
 
-  # test when QConv2DBatchnorm quantizer is not given in config
+  # test when QConv2DBatchnorm quantizer, e.g., is not given in config
   # desired behavior: quantizers for QConv2DBatchnorm layer fall back to QConv2D
   #   quantizers
   d = {
       "QConv2D": {
           "kernel_quantizer": "binary",
+          "bias_quantizer": "binary"
+      },
+      "QDepthwiseConv2D": {
+          "depthwise_quantizer": "binary",
           "bias_quantizer": "binary"
       },
       "relu_act": {
@@ -225,6 +243,8 @@ def test_folded_layer_conversion():
   assert str(qq4.layers[1].quantizers[0]).startswith("binary")
   assert qq4.layers[3].__class__.__name__ == "QConv2D"
   assert str(qq4.layers[3].quantizers[0]).startswith("binary")
+  assert qq4.layers[5].__class__.__name__ == "QDepthwiseConv2DBatchnorm"
+  assert str(qq4.layers[5].quantizers[0]).startswith("binary")
 
 
 if __name__ == "__main__":

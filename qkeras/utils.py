@@ -43,6 +43,7 @@ from tensorflow_model_optimization.python.core.sparsity.keras import prunable_la
 
 from .qlayers import Clip
 from .qconv2d_batchnorm import QConv2DBatchnorm
+from .qdepthwiseconv2d_batchnorm import QDepthwiseConv2DBatchnorm
 from .qlayers import QActivation
 from .qlayers import QAdaptiveActivation
 from .qpooling import QAveragePooling2D
@@ -88,6 +89,7 @@ REGISTERED_LAYERS = [
     "QBidirectional",
     "QBatchNormalization",
     "QConv2DBatchnorm",
+    "QDepthwiseConv2DBatchnorm",
 ]
 
 # This is a list of the state variable names of the QKeras layers and quantizers
@@ -509,7 +511,7 @@ def model_quantize(model,
         quantize_activation(layer_config, activation_bits)
 
     elif layer["class_name"] == "DepthwiseConv2D":
-      if enable_bn_folding and layer.name in layers_to_fold:
+      if enable_bn_folding and layer["name"] in layers_to_fold:
         q_name = "QDepthwiseConv2DBatchnorm"
       else:
         q_name = "QDepthwiseConv2D"
@@ -731,6 +733,7 @@ def _add_supported_quantized_objects(custom_objects):
   custom_objects["quantized_relu_po2"] = quantized_relu_po2
 
   custom_objects["QConv2DBatchnorm"] = QConv2DBatchnorm
+  custom_objects["QDepthwiseConv2DBatchnorm"] = QDepthwiseConv2DBatchnorm
 
 
 def clone_model(model, custom_objects=None):
@@ -863,7 +866,7 @@ def get_model_sparsity(model, per_layer=False, allow_list=None):
         "SeparableConv2D", "QOctaveConv2D",
         "QSimpleRNN", "RNN", "QLSTM", "QGRU",
         "QConv2DTranspose", "Conv2DTranspose",
-        "QConv2DBatchnorm"
+        "QConv2DBatchnorm", "QDepthwiseConv2DBatchnorm",
     ]
 
   # Quantize the model weights for a more accurate sparsity calculation

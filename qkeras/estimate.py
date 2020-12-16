@@ -37,7 +37,6 @@ from tensorflow.keras.layers import Activation
 from tensorflow.keras.layers import InputLayer
 from tensorflow.keras.models import Model
 
-from .qconv2d_batchnorm import QConv2DBatchnorm
 from .qlayers import QActivation
 from .qlayers import QAdaptiveActivation
 from .qlayers import QDense
