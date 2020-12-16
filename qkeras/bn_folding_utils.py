@@ -15,12 +15,11 @@
 # ==============================================================================
 """Utility functions for folding batchnorm with qconv/qdense layers."""
 
-import networkx as nx
-from tensorflow.keras.models import Model
-
 from .qconvolutional import QConv2D
 from .qtools import qgraph
-
+import networkx as nx
+from tensorflow.keras.models import Model
+from .qtools import generate_layer_data_type_map as gen_map
 
 def replace_layers(src_layer, inputs, replace_to):
   """Replace a source layer with a different layer type and set the weights.
@@ -135,9 +134,9 @@ def convert_folded_model_to_normal_seq(model):
 def convert_folded_model_to_normal(fold_model):
   """Convert a model with batchnorm folded layer to a normal model.
 
-  "Normal" here refers to a model with separate qconv/qdense and batchnorm
-  layer. This function replace the folded layers with a normal qconv/qdense
-  layer. It also sets the weights in the normal layer with the folded weights
+  "Normal" here refers to a model with separate QConv/QDense and Batchnorm
+  layer. This function replace the folded layers with a normal QConv/QDense
+  layer. It aslo sets the weights in the normal layer with the folded weights
   in the folded layer. Model architecture could be either sequential or
   non-sequential.
 
@@ -201,9 +200,65 @@ def convert_folded_model_to_normal(fold_model):
         # successor layer can be updated accordingly.
         graph[u][v]["tensor"] = x.ref()
 
-        if v == -2:
-          # is output layer:
+        if v == -2 and x not in model_outputs:
+          # When it is output layer, add the output tensor of this layer
+          # into model outputs.
           model_outputs.append(x)
-          break
 
   return Model(inputs=model_inputs, outputs=model_outputs)
+
+
+def populate_bias_quantizer_from_accumulator(model, source_quantizers):
+  """Populate the bias quantizer from accumulator type.
+
+  When user set bias_quantizer=None for layers(e.g.,
+  QConv2DBatchnorm), this function generates the accumulator type of
+  the layer MAC op and set it as the bias quantizer.
+  Such step is skipped if user provided a specific bias quantizer type.
+
+  Args:
+    model: keras/qkeras model object. If the model doesn't contain any batchnorm
+      folded layer or if the bias quanizer type in the folded layer is already
+      given, no operation needed. Else we generate the bias quantizer type and
+      set it in model.
+
+    source_quantizers: list of qkeras quantizers. A list of quantizer types
+      for model inputs.
+
+  Returns:
+    keras model object
+  """
+  default_quantizer = "quantized_bits(8, 0, 1)"
+
+  # if source_quantizers is None, CreateGraph will use default_quantizer
+  (graph, source_quantizer_list) = qgraph.CreateGraph(
+      model, source_quantizers, default_quantizer)
+  qgraph.GraphPropagateActivationsToEdges(graph)
+
+  # generate the quantizer types of each layer. For folded layers, if bias
+  # quantizer is not given by user, this function will generate the accumulator
+  # type and set it as the bias quantizer type.
+  is_inference = False
+  keras_quantizer = "quantized_bits(8, 0, 1)"
+  keras_accumulator = "quantized_bits(8, 0, 1)"
+  for_reference = False
+  layer_map = gen_map.generate_layer_data_type_map(
+      graph, source_quantizer_list, is_inference,
+      keras_quantizer, keras_accumulator, for_reference)
+
+  for layer in model.layers:
+    # TODO(lishanok): extend to other layer types if necessary
+    if layer.__class__.__name__ in ["QConv2DBatchnorm"]:
+      if not layer.bias_quantizer:
+        # if user didn't specify the bias quantizer, we set it as the
+        # MAC accumulator type of the current layer's MAC operation
+        layer.bias_quantizer = (layer_map["layer_data_type_map"][layer].
+                                bias_quantizer.convert_to_qkeras_quantizer())
+        layer.bias_quantizer_internal = layer.bias_quantizer
+        layer.quantizers = [layer.kernel_quantizer_internal,
+                            layer.bias_quantizer_internal]
+
+  return model
+
+
+

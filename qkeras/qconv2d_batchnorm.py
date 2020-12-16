@@ -79,7 +79,6 @@ class QConv2DBatchnorm(QConv2D):
       ema_freeze_delay=300000,
       folding_mode="ema_stats_folding",
       **kwargs):
-
     """Initialize a composite layer that folds conv2d and batch normalization.
 
     The first group of parameters correponds to the initialization parameters
@@ -274,13 +273,11 @@ class QConv2DBatchnorm(QConv2D):
         q_folded_kernel = folded_kernel
 
       # If loaded from a ckpt, bias_quantizer is the ckpt value
-      # Else if the layer is called for the first time, in this case bias
+      # Else if bias_quantizer not specified, bias
       #   quantizer is None and we need to calculate bias quantizer
-      #   type according to accumulator type
-      if not self.bias_quantizer_internal:
-        # TODO(lishanok): implement an "eager-mode" quantizer map
-        pass
-
+      #   type according to accumulator type. User can call
+      #   bn_folding_utils.populate_bias_quantizer_from_accumulator(
+      #      model, input_quantizer_list]) to populate such bias quantizer.
       if self.bias_quantizer_internal is not None:
         q_folded_bias = self.bias_quantizer_internal(folded_bias)
       else:

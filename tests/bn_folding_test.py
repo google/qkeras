@@ -22,8 +22,8 @@ import numpy as np
 from numpy.testing import assert_allclose
 from numpy.testing import assert_equal
 from numpy.testing import assert_raises
+from numpy.testing import assert_equal
 import tempfile
-
 import tensorflow as tf
 from tensorflow.keras import layers
 from tensorflow.keras.models import Model
@@ -33,6 +33,8 @@ from tensorflow.keras import metrics
 
 from qkeras import QConv2DBatchnorm
 from qkeras import QConv2D
+from qkeras import QDense
+from qkeras import QActivation
 from qkeras import utils as qkeras_utils
 from qkeras import bn_folding_utils
 
@@ -471,3 +473,59 @@ def test_same_training_and_prediction():
       do_print=False)
   assert_raises(AssertionError, assert_allclose, y1, y2_batch, rtol=1e-4)
   assert_allclose(y2_batch, y2_ema, rtol=1e-4)
+
+
+def test_populate_bias_quantizer_from_accumulator():
+  """Test populate_bias_quantizer_from_accumulator function.
+
+  Define a qkeras model with a QConv2DBatchnorm layer. Set bias quantizer in the
+  layer as None. Call populate_bias_quantizer_from_accumulator function
+  to automatically generate bias quantizer type from the MAC accumulator type.
+  Set the bias quantizer accordingly in the model.
+
+  Call populate_bias_quantizer_from_accumulator again in this model. This time
+  since bias quantizer is already set, populate_bias_quantizer_from_accumulator
+  function should not change the bias quantizer.
+  """
+
+  x_shape = (2, 2, 1)
+
+  # get a qkeras model with QConv2DBatchnorm layer. Set bias quantizer in the
+  # layer as None.
+  x = x_in = layers.Input(x_shape, name="input")
+  x1 = QConv2D(filters=1, kernel_size=(1, 1), strides=(1, 1), use_bias=False,
+               kernel_quantizer="quantized_bits(4, 0, 1)", name="conv2d_1")(x)
+  x2 = QConv2D(filters=1, kernel_size=(1, 1), strides=(1, 1), use_bias=False,
+               kernel_quantizer="quantized_bits(4, 0, 1)", name="conv2d_2")(x)
+  x = layers.Maximum()([x1, x2])
+  x = QActivation("quantized_relu(4, 1)")(x)
+  x = QConv2DBatchnorm(
+      filters=2, kernel_size=(2, 2), strides=(4, 4),
+      kernel_initializer="ones", bias_initializer="zeros", use_bias=False,
+      kernel_quantizer="quantized_bits(4, 0, 1)", bias_quantizer=None,
+      beta_initializer="zeros",
+      gamma_initializer="ones", moving_mean_initializer="zeros",
+      moving_variance_initializer="ones", folding_mode="batch_stats_folding",
+      ema_freeze_delay=10,
+      name="foldconv2d")(x)
+  x1 = x
+  x2 = layers.Flatten(name="flatten")(x)
+  x2 = QDense(2, use_bias=False, kernel_initializer="ones",
+              kernel_quantizer="quantized_bits(6, 2, 1)", name="dense")(x2)
+  model = Model(inputs=[x_in], outputs=[x1, x2])
+  assert_equal(model.layers[5].get_quantizers()[1], None)
+
+  # Call populate_bias_quantizer_from_accumulator function
+  # to automatically generate bias quantizer from the MAC accumulator type.
+  _ = bn_folding_utils.populate_bias_quantizer_from_accumulator(
+      model, ["quantized_bits(8, 0, 1)"])
+  q = model.layers[5].get_quantizers()[1]
+  assert_equal(q.__str__(), "quantized_bits(10,3,1)")
+
+  # Call populate_bias_quantizer_from_accumulator function again
+  # bias quantizer should not change
+  _ = bn_folding_utils.populate_bias_quantizer_from_accumulator(
+      model, ["quantized_bits(8, 0, 1)"])
+  q = model.layers[5].get_quantizers()[1]
+  assert_equal(q.__str__(), "quantized_bits(10,3,1)")
+
