@@ -27,6 +27,7 @@ import tensorflow.keras.backend as K
 
 from qkeras.qtools.quantized_operators import quantizer_factory as quantizer_factory_module
 from qkeras.qtools.settings import cfg
+from tensorflow.keras.layers import InputLayer
 
 SOURCE = -1
 SINK = -2
@@ -64,6 +65,53 @@ def GraphRemoveNodeWithNodeType(graph, node_type):
   for v in nodes_to_remove:
 
     GraphRemoveNode(graph, v)
+
+
+def  GraphAddHiddenInputLayer(model, graph, input_quantizer_map):
+  """For Keras Sequential model api, input layer is hidden. Need to add it."""
+
+  node_id = -1
+  for u in graph.nodes:
+
+    if u >= node_id:
+      node_id = u
+    if u == SOURCE or u == SINK:
+      continue
+
+    if graph.nodes[u]["type"][-1] == "InputLayer":
+      return
+
+  node_id += 1
+
+  # find the first layer of the sequential model
+  first_layer_nodes = []
+  for u in graph.nodes:
+    if u == SOURCE or u == SINK:
+      continue
+    predecessors = list(graph.predecessors(u))
+     # find the first layer which doesn't have a parent
+    if not predecessors:
+      first_layer_nodes.append(u)
+  assert len(first_layer_nodes) == 1
+  # since it is a sequential model, there is only one first layer
+  v_id = first_layer_nodes[0]
+
+  # create a input layer node
+  node_type = "InputLayer"
+  input_shape = model.layers[0].input_shape
+  layer = InputLayer(input_shape=input_shape[1:])
+  o_shape = input_shape
+  node = (node_id, {"layer": [layer], "type": [node_type],
+                    "out_quantizer": None})
+  graph.add_nodes_from([node])
+
+  # insert input_quantizers on the edge between input layer and its next layer
+  for (a, _) in input_quantizer_map.items():
+    edge = (node_id, v_id, {
+        "shape": [o_shape], "tensor": a,
+        "quantizer": input_quantizer_map[a]})
+
+  graph.add_edges_from([edge])
 
 
 def GraphAddSingleSourceSingleSink(graph):
@@ -231,6 +279,7 @@ def GenerateGraphFromModel(model, input_quantizers,
               "quantizer": None}))
 
   graph.add_edges_from(edge_list)
+  GraphAddHiddenInputLayer(model, graph, input_quantizer_map)
 
   return (graph, input_quantizer_list)
 

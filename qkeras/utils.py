@@ -179,10 +179,6 @@ def model_save_quantized_weights(model, filename=None):
 
   """
 
-  # this function converts a folded model to a "normal" model. It replace folded
-  # layers (e.g., QConv2DBatchnorm) layer with qconv2d layer whenever possible.
-  model = convert_folded_model_to_normal(model)
-
   saved_weights = {}
 
   print("... quantizing model")
@@ -897,7 +893,6 @@ def get_model_sparsity(model, per_layer=False, allow_list=None):
 def quantized_model_debug(model, X_test, plot=False):
   """Debugs and plots model weights and activations."""
 
-  model = convert_folded_model_to_normal(model)
   outputs = []
   output_names = []
 
@@ -996,65 +991,3 @@ def quantized_model_dump(model,
     print("writing the layer output tensor to ", filename)
     with open(filename, "w") as fid:
       tensor_data.astype(np.float32).tofile(fid)
-
-
-def convert_folded_model_to_normal(model):
-  """Convert a sequential model with batchnorm folded layer to a normal model.
-
-  Replace the folded layers with a normal qconv/qdense layer.
-  Set the weights in the normal layer with the folded weights
-  in the folded layer.
-
-  we need to convert a folded model to a normal model before we pass it to zpm.
-
-  Arguments:
-    model: model with folded layers.
-
-  Returns:
-    A model that replaces folded layers (e.g., QConv2DBatchnorm) with normal
-      qkeras layers (e.g., QConv2D). This model can be passed on to hardware
-      generator (zpm) so that hardware doesn't see batch normalization
-      parameters.
-  """
-
-  layer_list = list(model.layers)
-  x = layer_list[0].output
-
-  for i in range(1, len(layer_list)):
-    layer = layer_list[i]
-
-    if layer.__class__.__name__ not in ["QConv2DBatchnorm"]:
-      x = layer_list[i](x)
-
-    else:
-      # get layer config from the composite layer
-      config = layer.get_config()
-
-      # set layer config for QConv2D layer by first creating a tmp
-      # QConv2D object and generate template for its config
-      qconv2d = QConv2D(filters=1, kernel_size=(2, 2))
-      qconv2d_cfg = qconv2d.get_config()
-
-      # set qconv2d config according to the values in the composite layer
-      for key in qconv2d_cfg.keys():
-        qconv2d_cfg[key] = config[key]
-
-      # in case use_bias is False in the composite layer,
-      #  we need to set it True because we have folded bias
-      qconv2d_cfg["use_bias"] = True
-
-      # create a qconv2d layer from config and replace old layer with it
-      qconv2d = QConv2D.from_config(qconv2d_cfg)
-      x = qconv2d(x)
-
-      # transfer weights from composite layer to the qconv2d layer
-      for weight in layer.weights:
-        if "folded_kernel_quantized" in weight.name:
-          folded_kernel_quantized = weight.numpy()
-        elif "folded_bias_quantized" in weight.name:
-          folded_bias_quantized = weight.numpy()
-      qconv2d.set_weights([folded_kernel_quantized, folded_bias_quantized])
-
-  new_model = Model(inputs=model.inputs, outputs=x)
-
-  return new_model

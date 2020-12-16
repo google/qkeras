@@ -50,8 +50,8 @@ from .quantizers import quantized_bits
 from .quantizers import quantized_relu
 from .quantizers import quantized_tanh
 from .quantizers import quantized_ulaw
+from .bn_folding_utils import convert_folded_model_to_normal
 from .utils import get_model_sparsity
-from .utils import convert_folded_model_to_normal
 
 
 def analyze_accumulator(in_model, x, verbose=False):

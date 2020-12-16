@@ -20,6 +20,7 @@ from __future__ import division
 from __future__ import print_function
 import numpy as np
 from numpy.testing import assert_allclose
+from numpy.testing import assert_equal
 from numpy.testing import assert_raises
 import tempfile
 
@@ -33,6 +34,7 @@ from tensorflow.keras import metrics
 from qkeras import QConv2DBatchnorm
 from qkeras import QConv2D
 from qkeras import utils as qkeras_utils
+from qkeras import bn_folding_utils
 
 
 def get_qconv2d_model(input_shape, kernel_size, kernel_quantizer=None):
@@ -225,6 +227,96 @@ def run_training(model, epochs, loss_fn, loss_metric, optimizer,
   return output_predictions
 
 
+def test_convert_folded_model_to_normal():
+  """Test if convert_folded_model_to_normal works properly.
+
+  Convert a folded model to a normal model. The kernel/bias weight in
+  the normal model should be the same as the folded kernel/bias in the folded
+  model. Test if the function can convert both sequential and non-sequantial
+  models properly.
+  """
+
+  x_shape = (2, 2, 1)
+  kernel_quantizer = None
+  folding_mode = "batch_stats_folding"
+  ema_freeze_delay = 10
+  kernel = np.array([[[[1., 1.]], [[1., 0.]]], [[[1., 1.]], [[0., 1.]]]])
+  gamma = np.array([2., 1.])
+  beta = np.array([0., 1.])
+  moving_mean = np.array([1., 1.])
+  moving_variance = np.array([1., 2.])
+  iteration = np.array(-1)
+  folded_kernel_quantized = np.array([[[[1.99900079, 0.706930101]],
+                                       [[1.99900079, 0]]],
+                                      [[[1.99900079, 0.706930101]],
+                                       [[0, 0.706930101]]]])
+  folded_bias_quantized = np.array([-1.99900079, 0.293069899])
+
+  def _get_sequantial_folded_model(x_shape):
+    x = x_in = layers.Input(x_shape, name="input")
+    x = QConv2DBatchnorm(
+        filters=2, kernel_size=(2, 2), strides=(4, 4),
+        kernel_initializer="ones", bias_initializer="zeros", use_bias=False,
+        kernel_quantizer=kernel_quantizer, beta_initializer="zeros",
+        gamma_initializer="ones", moving_mean_initializer="zeros",
+        moving_variance_initializer="ones", folding_mode=folding_mode,
+        ema_freeze_delay=ema_freeze_delay,
+        name="foldconv2d")(x)
+    model = Model(inputs=[x_in], outputs=[x])
+    model.layers[1].set_weights([
+        kernel, gamma, beta, folded_kernel_quantized, folded_bias_quantized,
+        iteration, moving_mean, moving_variance
+    ])
+
+    return model
+
+  def _get_nonseq_folded_model(x_shape):
+    x = x_in = layers.Input(x_shape, name="input")
+    x1 = layers.Conv2D(filters=1, kernel_size=(1, 1), strides=(1, 1),
+                       name="conv2d_1")(x)
+    x2 = layers.Conv2D(filters=1, kernel_size=(1, 1), strides=(1, 1),
+                       name="conv2d_2")(x)
+    x = layers.Maximum()([x1, x2])
+    x = QConv2DBatchnorm(
+        filters=2, kernel_size=(2, 2), strides=(4, 4),
+        kernel_initializer="ones", bias_initializer="zeros", use_bias=False,
+        kernel_quantizer=kernel_quantizer, beta_initializer="zeros",
+        gamma_initializer="ones", moving_mean_initializer="zeros",
+        moving_variance_initializer="ones", folding_mode=folding_mode,
+        ema_freeze_delay=ema_freeze_delay,
+        name="foldconv2d")(x)
+    x1 = x
+    x2 = layers.Flatten(name="flatten")(x)
+    x2 = layers.Dense(2, use_bias=False, kernel_initializer="ones",
+                      name="dense")(x2)
+    model = Model(inputs=[x_in], outputs=[x1, x2])
+    model.layers[4].set_weights([
+        kernel, gamma, beta, folded_kernel_quantized, folded_bias_quantized,
+        iteration, moving_mean, moving_variance
+    ])
+    return model
+
+  seq_model = _get_sequantial_folded_model(x_shape)
+  nonseq_model = _get_nonseq_folded_model(x_shape)
+
+  for model in [nonseq_model, seq_model]:
+    weight1 = None
+    weight2 = None
+    cvt_model = bn_folding_utils.convert_folded_model_to_normal(model)
+    for layer in model.layers:
+      if layer.__class__.__name__ == "QConv2DBatchnorm":
+        weight1 = layer.get_folded_quantized_weight()
+        break
+
+    for layer in cvt_model.layers:
+      if layer.__class__.__name__ == "QConv2D":
+        weight2 = layer.get_weights()
+        break
+
+    assert_equal(weight1[0], weight2[0])
+    assert_equal(weight1[1], weight2[1])
+
+
 def test_loading():
   """Test to load model using different approahches."""
 
@@ -259,16 +351,17 @@ def test_loading():
   model_loaded = qkeras_utils.load_qmodel(fname)
   weight1 = model_fold.layers[1].get_folded_quantized_weight()
   weight2 = model_loaded.layers[1].get_folded_quantized_weight()
-  assert_allclose(weight1[0], weight2[0], rtol=1e-4)
-  assert_allclose(weight1[1], weight2[1], rtol=1e-4)
+  assert_equal(weight1[0], weight2[0])
+  assert_equal(weight1[1], weight2[1])
 
   # test convert a folded model to a normal model for zpm
   # the kernel/bias weight in the normal model should be the same as the folded
   # kernel/bias in the folded model
-  normal_model = qkeras_utils.convert_folded_model_to_normal(model_fold)
+  normal_model = bn_folding_utils.convert_folded_model_to_normal_seq(model_fold)
   weight2 = normal_model.layers[1].get_weights()
-  assert_allclose(weight1[0], weight2[0], rtol=1e-4)
-  assert_allclose(weight1[1], weight2[1], rtol=1e-4)
+
+  assert_equal(weight1[0], weight2[0])
+  assert_equal(weight1[1], weight2[1])
 
 
 def test_same_training_and_prediction():
