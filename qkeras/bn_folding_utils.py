@@ -15,11 +15,17 @@
 # ==============================================================================
 """Utility functions for folding batchnorm with qconv/qdense layers."""
 
-from .qconvolutional import QConv2D
-from .qtools import qgraph
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import networkx as nx
+from six.moves import range
 from tensorflow.keras.models import Model
+
+from .qconvolutional import QConv2D
 from .qtools import generate_layer_data_type_map as gen_map
+from .qtools import qgraph
 
 
 def replace_layers(src_layer, inputs, replace_to):
@@ -260,6 +266,3 @@ def populate_bias_quantizer_from_accumulator(model, source_quantizers):
                             layer.bias_quantizer_internal]
 
   return model
-
-
-
