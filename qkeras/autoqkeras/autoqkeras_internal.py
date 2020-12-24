@@ -23,6 +23,15 @@ import os
 import re
 import copy
 
+# Temporary fix for a KerasTuner bug introduced by cl/347827925
+try:
+  import IPython
+  def KerasTunerBugFix():
+    raise NameError('This is not running in a notebook')
+  IPython.get_ipython = KerasTunerBugFix
+except ModuleNotFoundError:
+  pass
+
 import kerastuner as kt
 from kerastuner import HyperModel
 from kerastuner.tuners import BayesianOptimization

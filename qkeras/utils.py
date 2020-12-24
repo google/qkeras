@@ -92,67 +92,6 @@ REGISTERED_LAYERS = [
     "QDepthwiseConv2DBatchnorm",
 ]
 
-# This is a list of the state variable names of the QKeras layers and quantizers
-# besides the kernel and bias weights. It is used to check whether a weight of a
-# layer is a training state variable or not. So when a new state variable is
-# added in a layer or a quantizer, the variable name must be added here.
-REGISTERED_STATE_VARIABLES = [
-    "qnoise_factor",
-]
-
-
-def is_supported_state_variables(weight_name):
-  """Check whether weight is the state variable or not.
-
-  Takes a weight name and compares with state variable names in the
-  REGISTERED_STATE_VARIABLES.
-
-  Arguments:
-    weight_name: name of the weight.
-
-  Returns:
-    bool. Whether weight_name is registered state variable name or not.
-  """
-
-  return any(weight_name.startswith(s) for s in REGISTERED_STATE_VARIABLES)
-
-def get_kernel_and_bias_weights(layer):
-  """Get only kernel and bias weights without state variables.
-
-  Takes a layer and return kernel and bias weights only with an assumption that
-  the number of quantizers and the number of kernel and bias weights match.
-
-  Arguments:
-    layer: layer with weights to be returned.
-
-  Returns:
-    list containing kernel and bias weights without state variables.
-  """
-
-  kernel_and_bias_weights = []
-  for i, weight in enumerate(layer.get_weights()):
-    if not is_supported_state_variables(layer.weights[i].name):
-      kernel_and_bias_weights.append(weight)
-
-  return kernel_and_bias_weights
-
-
-def get_state_variables_appended_weights(layer, weights):
-  """Return a new list of the weights appended with state variables.
-
-  Arguments:
-    layer: layer with weights to be returned.
-    weights : list of kernel and bias weights
-
-  Returns:
-    list containing kernel, bias, and training state variable weights.
-  """
-
-  new_weights = weights
-  for i, weight in enumerate(layer.get_weights()):
-    if is_supported_state_variables(layer.weights[i].name):
-      new_weights.append(weight)
-  return new_weights
 
 #
 # Model utilities: before saving the weights, we want to apply the quantizers
@@ -188,8 +127,7 @@ def model_save_quantized_weights(model, filename=None):
     if hasattr(layer, "get_quantizers"):
       weights = []
       signs = []
-      for quantizer, weight in zip(layer.get_quantizers(),
-                                   get_kernel_and_bias_weights(layer)):
+      for quantizer, weight in zip(layer.get_quantizers(), layer.get_weights()):
         if quantizer:
           weight = tf.constant(weight)
           weight = tf.keras.backend.eval(quantizer(weight))
@@ -236,8 +174,6 @@ def model_save_quantized_weights(model, filename=None):
       if has_sign:
         saved_weights[layer.name]["signs"] = signs
 
-      # To store training state variables in the layer.
-      weights = get_state_variables_appended_weights(layer, weights)
       layer.set_weights(weights)
     else:
       if layer.get_weights():

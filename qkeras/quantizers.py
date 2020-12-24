@@ -351,8 +351,66 @@ class BaseQuantizer(tf.Module):
   def __init__(self):
     pass
 
+  def build(self, var_name=None, use_variables=False):
+    if use_variables:
+      if var_name:
+        qnoise_factor_name = var_name + "/" + "qnoise_factor"
+        integer_name = var_name + "/" + "integer"
+      else:
+        # This naming scheme is to solve a problem of a layer having more than
+        # one quantizer can have multiple qnoise_factor variables with the same
+        # name of "qnoise_factor".
+        qnoise_factor_name = "qnoise_factor" + "_" + str(
+            K.get_uid("qnoise_factor"))
+        integer_name = "integer" + "_" + str(K.get_uid("integer"))
+
+      self.qnoise_factor = tf.Variable(
+          lambda: tf.constant(self.qnoise_factor, dtype=tf.float32),
+          name=qnoise_factor_name,
+          dtype=tf.float32,
+          trainable=False)
+
+      self.integer = tf.Variable(
+          lambda: tf.constant(self.integer, dtype=tf.int32),
+          name=integer_name,
+          dtype=tf.int32,
+          trainable=False)
+      self.is_built = True
+
   def _set_trainable_parameter(self):
     pass
+
+  def update_qnoise_factor(self, qnoise_factor):
+    """Update qnoise_factor."""
+    if isinstance(self.qnoise_factor, tf.Variable):
+      # self.qnoise_factor is a tf.Variable.
+      # This is to update self.qnoise_factor during training.
+      self.qnoise_factor.assign(qnoise_factor)
+    else:
+      if isinstance(qnoise_factor, tf.Variable):
+        # self.qnoise_factor is a numpy variable, and qnoise_factor is a
+        # tf.Variable.
+        self.qnoise_factor = qnoise_factor.eval()
+      else:
+        # self.qnoise_factor and qnoise_factor are numpy variables.
+        # This is to set self.qnoise_factor before building
+        # (creating tf.Variable) it.
+        self.qnoise_factor = qnoise_factor
+
+  # Override not to expose the quantizer variables.
+  @property
+  def variables(self):
+    return ()
+
+  # Override not to expose the quantizer variables.
+  @property
+  def trainable_variables(self):
+    return ()
+
+  # Override not to expose the quantizer variables.
+  @property
+  def non_trainable_variables(self):
+    return ()
 
 
 class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
@@ -405,12 +463,27 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
       quantization noise to add. This controls the amount of the quantization
       noise to add to the outputs by changing the weighted sum of
       (1 - qnoise_factor)*unquantized_x + qnoise_factor*quantized_x.
+    use_ste: Bool. Whether to use "straight-through estimator" (STE) method or
+        not.
+    use_variables: Bool. Whether to make the quantizer variables to be dynamic
+      tf.Variables or not.
+
   Returns:
     Function that computes fixed-point quantization with bits.
   """
-  def __init__(self, bits=8, integer=0, symmetric=0, keep_negative=True,
-               alpha=None, use_stochastic_rounding=False, scale_axis=None,
-               qnoise_factor=1.0):
+
+  def __init__(self,
+               bits=8,
+               integer=0,
+               symmetric=0,
+               keep_negative=True,
+               alpha=None,
+               use_stochastic_rounding=False,
+               scale_axis=None,
+               qnoise_factor=1.0,
+               var_name=None,
+               use_ste=True,
+               use_variables=False):
     super(quantized_bits, self).__init__()
     self.bits = bits
     self.integer = integer
@@ -424,11 +497,18 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
     self.scale = None
     self.scale_axis = scale_axis
     self.qnoise_factor = qnoise_factor
+    self.use_ste = use_ste
+    self.var_name = var_name
+    self.use_variables = use_variables
+    self.is_built = False
 
   def __str__(self):
     # Convert Tensors to printable strings by converting to a numpy array and
     # then using regex to remove brackets when there is only one integer bit
-    integer_bits = re.sub(r"\[(\d)\]", r"\g<1>", str(np.array(self.integer)))
+    integer_bits = re.sub(
+        r"\[(\d)\]", r"\g<1>",
+        str(self.integer.numpy() if isinstance(self.integer, tf.Variable
+                                              ) else self.integer))
 
     flags = [str(self.bits), integer_bits, str(int(self.symmetric))]
     if not self.keep_negative:
@@ -443,15 +523,12 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
                    str(int(self.use_stochastic_rounding)))
     return "quantized_bits(" + ",".join(flags) + ")"
 
-  def build(self):
-    self.qnoise_factor = tf.Variable(
-        self.qnoise_factor,
-        name="qnoise_factor",
-        dtype=tf.float32,
-        trainable=False)
 
   def __call__(self, x):
     """Computes fixedpoint quantization of x."""
+    if not self.is_built and self.use_variables:
+      self.build(var_name=self.var_name, use_variables=self.use_variables)
+
     x = K.cast_to_floatx(x)
 
     # quantized_bits with "1" bit becomes a binary implementation.
@@ -498,7 +575,12 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
       x = m_i * x
       xq = m_i * z / m
       self.scale = scale
-      return x + tf.stop_gradient(self.qnoise_factor * (-x + scale * xq))
+      if self.use_ste:
+        return x + tf.stop_gradient(self.qnoise_factor * (-x + scale * xq))
+      else:
+        return (1 - self.qnoise_factor) * x + tf.stop_gradient(
+            self.qnoise_factor * scale * xq)
+
     else:
       scale = self.alpha
 
@@ -515,7 +597,12 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
         xq = (xq + 1.0) / 2.0
 
     self.scale = scale
-    return x + tf.stop_gradient(self.qnoise_factor * (-x + scale * xq))
+
+    if self.use_ste:
+      return x + tf.stop_gradient(self.qnoise_factor * (-x + scale * xq))
+    else:
+      return (1 - self.qnoise_factor) * x + tf.stop_gradient(
+          self.qnoise_factor * scale * xq)
 
   def _set_trainable_parameter(self):
     if self.alpha is None:
@@ -526,7 +613,11 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
     """Get maximum value that quantized_bits class can represent."""
     unsigned_bits = self.bits - self.keep_negative
     if unsigned_bits > 0:
-      return max(1.0, np.power(2.0, self.integer))
+      return max(
+          1.0,
+          np.array(
+              K.pow(2., K.cast(self.integer, dtype="float32")),
+              dtype="float32"))
     else:
       return 1.0
 
@@ -536,7 +627,10 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
       return 0.0
     unsigned_bits = self.bits - self.keep_negative
     if unsigned_bits > 0:
-      return -max(1.0, np.power(2.0, self.integer))
+      return -max(
+          1.0,
+          np.array(
+              K.pow(2, K.cast(self.integer, dtype="float32")), dtype="float32"))
     else:
       return -1.0
 
@@ -548,20 +642,11 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
     assert self.alpha is None or self.alpha == 1.0
 
     x = np.asarray(range(2**self.bits), dtype=np.float32)
-    p_and_n = np.where(x >= 2**(self.bits-1),
-                      (x-2**(self.bits-1)) - 2**(self.bits-1),
-                      x)
-    return p_and_n * 2**(-self.bits + self.integer + 1)
-
-  def update_qnoise_factor(self, qnoise_factor):
-    """Update qnoise_factor."""
-    if isinstance(self.qnoise_factor, tf.Variable):
-      self.qnoise_factor.assign(qnoise_factor)
-    else:
-      if isinstance(qnoise_factor, tf.Variable):
-        self.qnoise_factor = qnoise_factor.eval()
-      else:
-        self.qnoise_factor = qnoise_factor
+    p_and_n = np.where(x >= 2**(self.bits - 1),
+                       (x - 2**(self.bits - 1)) - 2**(self.bits - 1), x)
+    return p_and_n * np.array(
+        K.pow(2.0, -self.bits + K.cast(self.integer, dtype="float32") + 1),
+        dtype="float32")
 
   @classmethod
   def from_config(cls, config):
@@ -569,13 +654,22 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
 
   def get_config(self):
     config = {
-        "bits": self.bits,
-        "integer": np.array(self.integer),  # Converts tf.Variables
-        "symmetric": self.symmetric,
-        "alpha": self.alpha,
-        "keep_negative": self.keep_negative,
-        "use_stochastic_rounding": self.use_stochastic_rounding,
-        "qnoise_factor": np.array(self.qnoise_factor)
+        "bits":
+            self.bits,
+        "integer":
+            self.integer.numpy()
+            if isinstance(self.integer, tf.Variable) else self.integer,
+        "symmetric":
+            self.symmetric,
+        "alpha":
+            self.alpha,
+        "keep_negative":
+            self.keep_negative,
+        "use_stochastic_rounding":
+            self.use_stochastic_rounding,
+        "qnoise_factor":
+            self.qnoise_factor.numpy() if isinstance(
+                self.qnoise_factor, tf.Variable) else self.qnoise_factor
     }
     return config
 
@@ -1272,7 +1366,11 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
       quantization noise to add. This controls the amount of the quantization
       noise to add to the outputs by changing the weighted sum of
       (1 - qnoise_factor)*unquantized_relu + qnoise_factor*quantized_relu.
-      
+    use_ste: Bool. Whether to use "straight-through estimator" (STE) method or
+        not.
+    use_variables: Bool. Whether to make the quantizer variables to be dynamic
+      tf.Variables or not.
+
   Returns:
     Function that performs relu + quantization to bits >= 0.
   """
@@ -1285,7 +1383,10 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
                use_stochastic_rounding=False,
                relu_upper_bound=None,
                is_quantized_clip=True,
-               qnoise_factor=1.0):
+               qnoise_factor=1.0,
+               var_name=None,
+               use_ste=True,
+               use_variables=False):
     super(quantized_relu, self).__init__()
     self.bits = bits
     self.integer = integer
@@ -1295,15 +1396,21 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
     self.relu_upper_bound = relu_upper_bound
     self.is_quantized_clip = is_quantized_clip
     self.qnoise_factor = qnoise_factor
-
+    self.use_ste = use_ste
     assert negative_slope >= 0.0
     if negative_slope != 0.0:
       assert np.mod(np.log2(negative_slope), 1) == 0
+    self.var_name = var_name
+    self.use_variables = use_variables
+    self.is_built = False
 
   def __str__(self):
     # Convert Tensors to printable strings by converting to a numpy array and
     # then using regex to remove brackets when there is only one integer bit
-    integer_bits = re.sub(r"\[(\d)\]", r"\g<1>", str(np.array(self.integer)))
+    integer_bits = re.sub(
+        r"\[(\d)\]", r"\g<1>",
+        str(self.integer.numpy() if isinstance(self.integer, tf.Variable
+                                              ) else self.integer))
 
     flags = [str(self.bits), integer_bits]
     if self.use_sigmoid or self.use_stochastic_rounding:
@@ -1314,24 +1421,24 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
       flags.append(str(int(self.use_stochastic_rounding)))
     return "quantized_relu(" + ",".join(flags) + ")"
 
-  def build(self):
-    self.qnoise_factor = tf.Variable(
-        self.qnoise_factor,
-        name="qnoise_factor",
-        dtype=tf.float32,
-        trainable=False)
 
   def __call__(self, x):
+    if not self.is_built and self.use_variables:
+      self.build(var_name=self.var_name, use_variables=self.use_variables)
+
     non_sign_bits = self.bits - (self.negative_slope != 0.0)
-    x = K.cast_to_floatx(x)
-    m = K.cast_to_floatx(pow(2, non_sign_bits))
-    m_i = K.cast_to_floatx(pow(2, self.integer))
+    x = K.cast(x, dtype="float32")
+    m = K.cast(K.pow(2, non_sign_bits), dtype="float32")
+    m_i = K.cast(K.pow(2, self.integer), dtype="float32")
 
     # is_quantized_clip has precedence over relu_upper_bound for backward
     # compatibility.
     if self.is_quantized_clip:
-      m_f = K.cast_to_floatx(
-          pow(tf.constant(2., tf.float32), self.integer - non_sign_bits))
+      m_f = K.cast(
+          K.pow(
+              tf.constant(2., tf.float32),
+              K.cast(self.integer, dtype="float32") - non_sign_bits),
+          dtype="float32")
       x_u = tf.where(x <= m_i - m_f, K.relu(x, alpha=self.negative_slope),
                      tf.ones_like(x) * (m_i - m_f))
     elif self.relu_upper_bound is not None:
@@ -1364,14 +1471,23 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
                 _round_through(p * self.negative_slope,
                                self.use_stochastic_rounding) * neg_factor, -1.0,
                 0.0))
-    return x_u + tf.stop_gradient(self.qnoise_factor * (-x_u + xq))
+
+    if self.use_ste:
+      return x_u + tf.stop_gradient(self.qnoise_factor * (-x_u + xq))
+    else:
+      return (1 - self.qnoise_factor) * x_u + tf.stop_gradient(
+          self.qnoise_factor * xq)
 
   def max(self):
     """Get the maximum value that quantized_relu can represent."""
-    unsigned_bits = self.bits - (self.negative_slope!= 0.0)
+    unsigned_bits = self.bits - (self.negative_slope != 0.0)
 
     if unsigned_bits > 0:
-      return max(1.0, np.power(2.0, self.integer))
+      return max(
+          1.0,
+          np.array(
+              K.pow(2.0, K.cast(self.integer, dtype="float32")),
+              dtype="float32"))
     else:
       return 1.0
 
@@ -1382,27 +1498,24 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
 
     unsigned_bits = self.bits - 1
     if unsigned_bits > 0:
-      return min(-0.0, - self.negative_slope * np.power(2.0, self.integer))
+      return min(
+          -0.0, -self.negative_slope * np.array(
+              K.pow(2.0, K.cast(self.integer, dtype="float32")),
+              dtype="float32"))
     else:
       return -1.0
 
   def range(self):
     """Returns a list of all values that quantized_relu can represent
-    ordered by their binary representation ascending."""
-    assert self.use_sigmoid == 0 # current unsupported
-    assert self.negative_slope == 0 # # unsupported unsupported
-    x = np.asarray(range(2**self.bits))
-    return x * 2**(-self.bits + self.integer)
 
-  def update_qnoise_factor(self, qnoise_factor):
-    """Update qnoise_factor."""
-    if isinstance(self.qnoise_factor, tf.Variable):
-      self.qnoise_factor.assign(qnoise_factor)
-    else:
-      if isinstance(qnoise_factor, tf.Variable):
-        self.qnoise_factor = qnoise_factor.eval()
-      else:
-        self.qnoise_factor = qnoise_factor
+      ordered by their binary representation ascending.
+    """
+    assert self.use_sigmoid == 0  # current unsupported
+    assert self.negative_slope == 0  # # unsupported unsupported
+    x = np.asarray(range(2**self.bits))
+    return x * np.array(
+        K.pow(2.0, -self.bits + K.cast(self.integer, dtype="float32")),
+        dtype="float32")
 
   @classmethod
   def from_config(cls, config):
@@ -1410,15 +1523,26 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
 
   def get_config(self):
     config = {
-        "bits": self.bits,
-        "integer": np.array(self.integer),  # Converts tf.Variables
-        "use_sigmoid": self.use_sigmoid,
-        "negative_slope": self.negative_slope,
-        "use_stochastic_rounding": self.use_stochastic_rounding,
-        "relu_upper_bound": self.relu_upper_bound,
-        "qnoise_factor": np.array(self.qnoise_factor)
+        "bits":
+            self.bits,
+        "integer":
+            self.integer.numpy() if isinstance(self.integer, tf.Variable) else
+            self.integer,
+        "use_sigmoid":
+            self.use_sigmoid,
+        "negative_slope":
+            self.negative_slope,
+        "use_stochastic_rounding":
+            self.use_stochastic_rounding,
+        "relu_upper_bound":
+            self.relu_upper_bound,
+        "qnoise_factor":
+            self.qnoise_factor.numpy() if isinstance(
+                self.qnoise_factor, tf.Variable) else self.qnoise_factor
     }
     return config
+
+
 
 
 class quantized_ulaw(BaseQuantizer):  # pylint: disable=invalid-name

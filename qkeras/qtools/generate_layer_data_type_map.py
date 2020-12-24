@@ -28,7 +28,6 @@ from qkeras.qtools import qtools_util
 from qkeras.qtools import quantized_operators
 from qkeras.qtools.quantized_operators import quantizer_factory as quantizer_factory_module
 from qkeras.qtools.settings import cfg
-from qkeras.utils import get_kernel_and_bias_weights
 
 
 class TagMissingError(ValueError):
@@ -157,7 +156,7 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
       output_shapes = layer.output_shape
 
     if hasattr(layer, "get_weights"):
-      weights = get_kernel_and_bias_weights(layer)
+      weights = layer.get_weights()
       if len(weights) != 0:
         w_shapes = layer.get_weights()[0].shape
         b_shapes = weights[0].shape[-1]
