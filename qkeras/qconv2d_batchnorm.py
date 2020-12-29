@@ -15,7 +15,12 @@
 # ==============================================================================
 """Fold batchnormalization with previous QConv2D layers."""
 
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import numpy as np
+from six.moves import range
 import tensorflow as tf
 from tensorflow.keras import layers
 from tensorflow.keras.models import Model
