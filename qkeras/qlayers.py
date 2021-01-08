@@ -320,6 +320,8 @@ class QAdaptiveActivation(Layer, PrunableLayer):
             "model from converging. Consider a larger quantization_delay.",
             file=sys.stderr)
 
+    self.activation = self.quantizer  # self.activation is used by QTools
+
   def build(self, input_shape):
     if self.will_ema_freeze:
       self.ema_freeze_delay = tf.constant(self.ema_freeze_delay, dtype=tf.int64)
@@ -431,7 +433,7 @@ class QAdaptiveActivation(Layer, PrunableLayer):
 
   # Override get_weights since we do not want ema_min or ema_max to be public
   def get_weights(self):
-    return None
+    return []
 
   def get_config(self):
     config = {

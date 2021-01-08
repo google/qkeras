@@ -27,7 +27,10 @@ import copy
 try:
   import IPython
   def KerasTunerBugFix():
-    raise NameError('This is not running in a notebook')
+    class IPythonTerminal():
+      def __init__(self):
+        pass
+    return IPythonTerminal()
   IPython.get_ipython = KerasTunerBugFix
 except ModuleNotFoundError:
   pass

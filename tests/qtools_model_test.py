@@ -23,6 +23,7 @@ import pytest
 import tensorflow.keras as keras
 
 from qkeras import QActivation
+from qkeras import QAdaptiveActivation
 from qkeras import QBatchNormalization
 from qkeras import QConv2D
 from qkeras import QDense
@@ -598,7 +599,7 @@ def test_qenergy():
   x = QDense(100, kernel_quantizer=quantizers.quantized_bits(4, 0, 1),
              bias_quantizer=quantizers.quantized_bits(4, 0, 1),
              name="d1")(x)
-  x = QActivation("quantized_relu(4,0)", name="d1_qr4")(x)
+  x = QAdaptiveActivation("quantized_relu", 4, name="d1_qr4")(x)
   x = QDense(
       10, kernel_quantizer=quantizers.quantized_bits(4, 0, 1),
       bias_quantizer=quantizers.quantized_bits(4, 0, 1),
