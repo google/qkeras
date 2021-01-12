@@ -333,6 +333,26 @@ def _ceil_through(x):
   return x + tf.stop_gradient(-x + tf.ceil(x))
 
 
+
+def _create_variable_name(attr_name, var_name=None):
+  """Creates variable name.
+  Arguments:
+    attr_name: string. attribute name
+    var_name: string. variable name
+
+  Returns:
+    string. variable name
+  """
+
+  if var_name:
+    return var_name + "/" + attr_name
+
+  # This naming scheme is to solve a problem of a layer having more than
+  # one quantizer can have multiple qnoise_factor variables with the same
+  # name of "qnoise_factor".
+  return attr_name + "_" + str(K.get_uid(attr_name))
+
+
 #
 # Activation functions for quantized networks.
 #
@@ -349,33 +369,23 @@ class BaseQuantizer(tf.Module):
   """
 
   def __init__(self):
-    pass
+    self.built = False
 
   def build(self, var_name=None, use_variables=False):
     if use_variables:
-      if var_name:
-        qnoise_factor_name = var_name + "/" + "qnoise_factor"
-        integer_name = var_name + "/" + "integer"
-      else:
-        # This naming scheme is to solve a problem of a layer having more than
-        # one quantizer can have multiple qnoise_factor variables with the same
-        # name of "qnoise_factor".
-        qnoise_factor_name = "qnoise_factor" + "_" + str(
-            K.get_uid("qnoise_factor"))
-        integer_name = "integer" + "_" + str(K.get_uid("integer"))
-
-      self.qnoise_factor = tf.Variable(
-          lambda: tf.constant(self.qnoise_factor, dtype=tf.float32),
-          name=qnoise_factor_name,
-          dtype=tf.float32,
-          trainable=False)
-
-      self.integer = tf.Variable(
-          lambda: tf.constant(self.integer, dtype=tf.int32),
-          name=integer_name,
-          dtype=tf.int32,
-          trainable=False)
-      self.is_built = True
+      if hasattr(self, "qnoise_factor"):
+        self.qnoise_factor = tf.Variable(
+            lambda: tf.constant(self.qnoise_factor, dtype=tf.float32),
+            name=_create_variable_name("qnoise_factor", var_name=var_name),
+            dtype=tf.float32,
+            trainable=False)
+      if hasattr(self, "integer"):
+        self.integer = tf.Variable(
+            lambda: tf.constant(self.integer, dtype=tf.int32),
+            name=_create_variable_name("integer", var_name=var_name),
+            dtype=tf.int32,
+            trainable=False)
+    self.built = True
 
   def _set_trainable_parameter(self):
     pass
@@ -500,7 +510,6 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
     self.use_ste = use_ste
     self.var_name = var_name
     self.use_variables = use_variables
-    self.is_built = False
 
   def __str__(self):
     # Convert Tensors to printable strings by converting to a numpy array and
@@ -523,10 +532,9 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
                    str(int(self.use_stochastic_rounding)))
     return "quantized_bits(" + ",".join(flags) + ")"
 
-
   def __call__(self, x):
     """Computes fixedpoint quantization of x."""
-    if not self.is_built and self.use_variables:
+    if not self.built:
       self.build(var_name=self.var_name, use_variables=self.use_variables)
 
     x = K.cast_to_floatx(x)
@@ -1402,7 +1410,6 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
       assert np.mod(np.log2(negative_slope), 1) == 0
     self.var_name = var_name
     self.use_variables = use_variables
-    self.is_built = False
 
   def __str__(self):
     # Convert Tensors to printable strings by converting to a numpy array and
@@ -1421,9 +1428,8 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
       flags.append(str(int(self.use_stochastic_rounding)))
     return "quantized_relu(" + ",".join(flags) + ")"
 
-
   def __call__(self, x):
-    if not self.is_built and self.use_variables:
+    if not self.built:
       self.build(var_name=self.var_name, use_variables=self.use_variables)
 
     non_sign_bits = self.bits - (self.negative_slope != 0.0)

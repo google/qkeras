@@ -92,14 +92,22 @@ class QNoiseScheduler(tf.keras.callbacks.Callback):
       qnoise_factor : calculated qnoise_factor.
     """
     if freq < self.start:
-      self.qnoise_factor = 0.0
+      qnoise_factor = 0.0
     elif freq <= self.finish and self.start != self.finish:
       val = float(self.finish - freq) / float(self.finish - self.start)
-      self.qnoise_factor = 1.0 - np.power(val, self.exponent)
+      qnoise_factor = 1.0 - np.power(val, self.exponent)
     else:
-      self.qnoise_factor = 1.0
+      qnoise_factor = 1.0
 
-    return self.qnoise_factor
+    return qnoise_factor
+
+  def set_qnoise_factor(self, quantizer, qnoise_factor):
+    """Set self.qnoise_factor and update the qnoise_factor of the quantizer."""
+
+    # Updating the qnoise_factor of the quantizer.
+    quantizer.update_qnoise_factor(qnoise_factor)
+    # Updating the qnoise_factor of the callback.
+    self.qnoise_factor = qnoise_factor
 
   def set_quantizers(self):
     """Set quantizers to update the qnoise_factor.
@@ -111,6 +119,15 @@ class QNoiseScheduler(tf.keras.callbacks.Callback):
         quantizer.use_ste = self.use_ste
       if hasattr(quantizer, "use_variables"):
         quantizer.use_variables = True
+      if hasattr(quantizer, "built"):
+        # If the quantizer has been built but not using tf.Variable then it
+        # builds again to create tf.Variables.
+        if quantizer.built and not isinstance(quantizer.qnoise_factor,
+                                                 tf.Variable):
+          quantizer.build(use_variables=True)
+
+      # Set the qnoise_factor to 0.0 to pretrain without quantization.
+      self.set_qnoise_factor(quantizer, qnoise_factor=0.0)
 
   def get_quantizers(self, model):
     """Returns a list of quantizers with qnoise_factor in the model.
@@ -142,30 +159,30 @@ class QNoiseScheduler(tf.keras.callbacks.Callback):
     """
     # Update the qnoise_factor at the frequency of self.update_freq.
     if freq % self.update_freq != 0:
-      self.num_iters +=1
+      self.num_iters += 1
       return
-
-    if not self.quantizers:
-      # Build a list of quantizers which is used for updating qnoise_factor.
-      self.quantizers = self.get_quantizers(self.model)
-      self.set_quantizers()
 
     new_qnoise_factor = self.calculate_qnoise_factor(freq)
     for quantizer in self.quantizers:
       # Updates the qnoise factors of the quantizers in the model.
-      quantizer.update_qnoise_factor(new_qnoise_factor)
-    self.num_iters +=1
+      self.set_qnoise_factor(quantizer, new_qnoise_factor)
+    self.num_iters += 1
+
+  def on_train_begin(self, logs=None):
+    if not self.quantizers:
+      # Build a list of quantizers which is used for updating qnoise_factor.
+      self.quantizers = self.get_quantizers(self.model)
+      self.set_quantizers()
 
   def on_epoch_begin(self, epoch, logs=None):
     if self.freq_type == "epoch":
       self.update_qnoise_factor(self.initial_step_or_epoch + self.num_iters)
 
   def on_epoch_end(self, epoch, logs=None):
-    if self.summary_writer and self.qnoise_factor:
+    if self.summary_writer:
       with self.summary_writer.as_default():
         tf.summary.scalar("qnoise_factor", data=self.qnoise_factor, step=epoch)
 
   def on_train_batch_begin(self, batch, logs=None):
-
     if self.freq_type == "step":
       self.update_qnoise_factor(self.initial_step_or_epoch + self.num_iters)
