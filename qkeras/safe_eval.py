@@ -44,6 +44,37 @@ def Num(s):
     s = s[1:-1]
     return s
 
+def Str(s):
+  return s[1:-1]
+
+def IsNum(s):
+  try:
+    try:
+      int(s)
+      return True
+    except ValueError:
+      float(s)
+      return True
+  except ValueError:
+    return False
+
+def IsBool(s):
+  if s in ["True", "False"]:
+    return True
+  else:
+    return False
+
+def Bool(s):
+  return True if "True" in s else False
+
+def GetArg(s):
+  if IsBool(s):
+    return Bool(s)
+  elif IsNum(s):
+    return Num(s)
+  else:
+    return Str(s)
+
 
 def GetParams(s):
   """Extracts args and kwargs from string."""
@@ -62,8 +93,8 @@ def GetParams(s):
   items = data.parseString(s).asList()
 
   # need to make sure that kwargs only happen after args are processed
-  args = [Num(i[0]) for i in items if len(i) == 1]
-  kwargs = {i[0]: Num(i[1]) for i in items if len(i) == 2}
+  args = [GetArg(i[0]) for i in items if len(i) == 1]
+  kwargs = {i[0]: GetArg(i[1]) for i in items if len(i) == 2}
 
   # check for syntax error
   for i in range(1, len(items)):
