@@ -409,6 +409,16 @@ def model_quantize(model,
           layer["name"] in layers_to_fold):
         # only fold if current layer is followed by BN layer
         q_name = "Q" + layer["class_name"] + "Batchnorm"
+        # set ema_freeze_delay and folding_mode specific to
+        # QDepthwiseConv2DBatchnorm layer config
+        folding_mode = get_config(
+            quantizer_config, layer, q_name, "folding_mode")
+        layer_config["folding_mode"] = (
+            folding_mode if folding_mode else "ema_stats_folding")
+        ema_freeze_delay = get_config(
+            quantizer_config, layer, q_name, "ema_freeze_delay")
+        layer_config["ema_freeze_delay"] = (
+            ema_freeze_delay if ema_freeze_delay else None)
       else:
         q_name = "Q" + layer["class_name"]
       # needs to add kernel/bias quantizers
@@ -449,6 +459,17 @@ def model_quantize(model,
     elif layer["class_name"] == "DepthwiseConv2D":
       if enable_bn_folding and layer["name"] in layers_to_fold:
         q_name = "QDepthwiseConv2DBatchnorm"
+        # set ema_freeze_delay and folding_mode specific to
+        # QDepthwiseConv2DBatchnorm layers
+        folding_mode = get_config(
+            quantizer_config, layer, q_name, "folding_mode")
+        layer_config["folding_mode"] = (
+            folding_mode if folding_mode else "ema_stats_folding")
+        ema_freeze_delay = get_config(
+            quantizer_config, layer, q_name, "ema_freeze_delay")
+        layer_config["ema_freeze_delay"] = (
+            ema_freeze_delay if ema_freeze_delay else None)
+
       else:
         q_name = "QDepthwiseConv2D"
 

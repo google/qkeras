@@ -255,14 +255,19 @@ def populate_bias_quantizer_from_accumulator(model, source_quantizers):
 
   for layer in model.layers:
     # TODO(lishanok): extend to other layer types if necessary
-    if layer.__class__.__name__ in ["QConv2DBatchnorm"]:
+    if layer.__class__.__name__ in [
+        "QConv2DBatchnorm", "QDepthwiseConv2DBatchnorm"]:
       if not layer.bias_quantizer:
         # if user didn't specify the bias quantizer, we set it as the
         # MAC accumulator type of the current layer's MAC operation
         layer.bias_quantizer = (layer_map["layer_data_type_map"][layer].
                                 bias_quantizer.convert_to_qkeras_quantizer())
         layer.bias_quantizer_internal = layer.bias_quantizer
-        layer.quantizers = [layer.kernel_quantizer_internal,
-                            layer.bias_quantizer_internal]
 
+        if layer.__class__.__name__ == "QConv2DBatchnorm":
+          layer.quantizers = [layer.kernel_quantizer_internal,
+                              layer.bias_quantizer_internal]
+        elif layer.__class__.__name__ == "QDepthwiseConv2DBatchnorm":
+          layer.quantizers = [layer.depthwise_quantizer_internal,
+                              layer.bias_quantizer_internal]
   return model

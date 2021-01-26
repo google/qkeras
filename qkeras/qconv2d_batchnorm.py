@@ -182,8 +182,12 @@ class QConv2DBatchnorm(QConv2D):
     training = self.batchnorm._get_training_value(training)  # pylint: disable=protected-access
 
     # checking if to update batchnorm params
-    bn_training = tf.math.logical_and(training, tf.math.less_equal(
-        self._iteration, self.ema_freeze_delay))
+    if self.ema_freeze_delay is None or self.ema_freeze_delay < 0:
+      # if ema_freeze_delay is None or a negative value, do not freeze bn stats
+      bn_training = tf.cast(training, dtype=bool)
+    else:
+      bn_training = tf.math.logical_and(training, tf.math.less_equal(
+          self._iteration, self.ema_freeze_delay))
 
     kernel = self.kernel
 

@@ -23,6 +23,7 @@ from .qconvolutional import QDepthwiseConv2D
 from .quantizers import *
 from tensorflow.python.framework import smart_cond as tf_utils
 from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import array_ops
 
 tf.compat.v2.enable_v2_behavior()
 
@@ -77,7 +78,7 @@ class QDepthwiseConv2DBatchnorm(QDepthwiseConv2D):
       name=None,
 
       # other params
-      ema_freeze_delay=300000,
+      ema_freeze_delay=None,
       folding_mode="ema_stats_folding",
       **kwargs):
 
@@ -94,8 +95,8 @@ class QDepthwiseConv2DBatchnorm(QDepthwiseConv2D):
     The 3rd group of parameters corresponds to the initialization parameters
       specific to this class.
 
-      ema_freeze_delay: int. number of steps before batch normalization mv_mean
-        and mv_variance will be frozen and used in the folded layer.
+      ema_freeze_delay: int or None. number of steps before batch normalization
+        mv_mean and mv_variance will be frozen and used in the folded layer.
       folding_mode: string
         "ema_stats_folding": mimic tflite which uses the ema statistics to
           fold the kernel to suppress quantization induced jitter then performs
@@ -124,7 +125,7 @@ class QDepthwiseConv2DBatchnorm(QDepthwiseConv2D):
         bias_constraint=bias_constraint,
         dilation_rate=dilation_rate,
         depthwise_quantizer=depthwise_quantizer,
-        bias_quantizer=depthwise_range,
+        bias_quantizer=bias_quantizer,
         depthwise_range=depthwise_range,
         bias_range=bias_range)
 
@@ -176,9 +177,9 @@ class QDepthwiseConv2DBatchnorm(QDepthwiseConv2D):
         trainable=False,
         dtype=self.dtype)
 
-    # self._iteration (i.e., training_steps) is initialized with -1. When
-    # loading ckpt, it can load the number of training steps that have been
-    # previously trainied. If start training from scratch.
+    # If start training from scratch, self._iteration (i.e., training_steps)
+    # is initialized with -1. When loading ckpt, it can load the number of
+    # training steps that have been previously trainied.
     # TODO(lishanok): develop a way to count iterations outside layer
     self._iteration = tf.Variable(-1, trainable=False, name="iteration",
                                   dtype=tf.int64)
@@ -189,8 +190,12 @@ class QDepthwiseConv2DBatchnorm(QDepthwiseConv2D):
     training = self.batchnorm._get_training_value(training)  # pylint: disable=protected-access
 
     # checking if to update batchnorm params
-    bn_training = tf.math.logical_and(training, tf.math.less_equal(
-        self._iteration, self.ema_freeze_delay))
+    if self.ema_freeze_delay is None or self.ema_freeze_delay < 0:
+      # if ema_freeze_delay is None or a negative value, do not freeze bn stats
+      bn_training = tf.cast(training, dtype=bool)
+    else:
+      bn_training = tf.math.logical_and(training, tf.math.less_equal(
+          self._iteration, self.ema_freeze_delay))
 
     depthwise_kernel = self.depthwise_kernel
 
@@ -276,6 +281,13 @@ class QDepthwiseConv2DBatchnorm(QDepthwiseConv2D):
       else:
         assert ValueError
 
+      # for DepthwiseConv2D inv needs to be broadcasted to the last 2 dimensions
+      # of the kernels
+      depthwise_weights_shape = [
+          depthwise_kernel.get_shape().as_list()[2],
+          depthwise_kernel.get_shape().as_list()[3]
+      ]
+      inv = array_ops.reshape(inv, depthwise_weights_shape)
       # wrap conv kernel with bn parameters
       folded_depthwise_kernel = inv * depthwise_kernel
       # quantize the folded kernel
@@ -350,7 +362,7 @@ class QDepthwiseConv2DBatchnorm(QDepthwiseConv2D):
 
   def get_quantization_config(self):
     return {
-        "kernel_quantizer": str(self.kernel_quantizer_internal),
+        "depthwise_quantizer": str(self.depthwise_quantizer_internal),
         "bias_quantizer": str(self.bias_quantizer_internal),
         "activation": str(self.activation),
         "filters": str(self.filters)

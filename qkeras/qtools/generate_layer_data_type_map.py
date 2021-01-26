@@ -611,7 +611,7 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
       )
 
     # folded conv/dense/depthwiseconv layer
-    elif node_type in ["QConv2DBatchnorm"]:
+    elif node_type in ["QConv2DBatchnorm", "QDepthwiseConv2DBatchnorm"]:
 
       (input_quantizer, _) = input_qe_list[0]
       if for_reference or not hasattr(layer, "get_quantizers"):
@@ -630,8 +630,6 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
         # qkeras layer
         qkeras_weight_quantizer = layer.get_quantizers()[0]
         qkeras_bias_quantizer = layer.get_quantizers()[1]
-        print("weight quantizer:", qkeras_weight_quantizer)
-        print("orig bias quantizer:", qkeras_bias_quantizer)
         if not quantizer_factory.is_quantizer_supported(
             qkeras_weight_quantizer):
           raise TagMissingError(
