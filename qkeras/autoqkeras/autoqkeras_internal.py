@@ -47,7 +47,6 @@ import tensorflow.keras.backend as K
 from tensorflow.keras.metrics import binary_accuracy
 from tensorflow.keras.metrics import categorical_accuracy
 from tensorflow.keras.metrics import sparse_categorical_accuracy
-from tensorflow.keras.optimizers import Adam
 from qkeras.autoqkeras.forgiving_metrics import forgiving_factor  # pylint: disable=line-too-long
 from qkeras.autoqkeras.forgiving_metrics import ForgivingFactor  # pylint: disable=line-too-long
 from qkeras.autoqkeras.quantization_config import default_quantization_config  # pylint: disable=line-too-long
@@ -627,11 +626,12 @@ class AutoQKHyperModel(HyperModel):
     if self.learning_rate_optimizer:
       lr_range = list(lr * np.linspace(delta_lr, 1.1, 5))
       lr_choice = hp.Choice("learning_rate", lr_range)
+      self.model.optimizer.learning_rate = lr_choice
     else:
       lr_choice = lr
       print("learning_rate: {}".format(lr))
 
-    optimizer = Adam(lr=lr_choice)
+    optimizer = self.model.optimizer
 
     q_model.summary()
 
@@ -1215,7 +1215,7 @@ class AutoQKerasScheduler:
       # this is just a placeholder for the optimizer.
 
       model.compile(
-          Adam(lr=lr),
+          model.optimizer,
           loss=self.model.loss,
           metrics=self.model.metrics)
 
