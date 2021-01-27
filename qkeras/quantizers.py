@@ -473,6 +473,8 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
       quantization noise to add. This controls the amount of the quantization
       noise to add to the outputs by changing the weighted sum of
       (1 - qnoise_factor)*unquantized_x + qnoise_factor*quantized_x.
+    var_name: String or None. A variable name shared between the tf.Variables
+      created in the build function. If None, it is generated automatically.
     use_ste: Bool. Whether to use "straight-through estimator" (STE) method or
         not.
     use_variables: Bool. Whether to make the quantizer variables to be dynamic
@@ -583,11 +585,13 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
       x = m_i * x
       xq = m_i * z / m
       self.scale = scale
+      xq = scale * xq
+
       if self.use_ste:
-        return x + tf.stop_gradient(self.qnoise_factor * (-x + scale * xq))
+        return x + tf.stop_gradient(self.qnoise_factor * (-x + xq))
       else:
         return (1 - self.qnoise_factor) * x + tf.stop_gradient(
-            self.qnoise_factor * scale * xq)
+            self.qnoise_factor * xq)
 
     else:
       scale = self.alpha
@@ -605,12 +609,13 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
         xq = (xq + 1.0) / 2.0
 
     self.scale = scale
+    xq = scale * xq
 
     if self.use_ste:
-      return x + tf.stop_gradient(self.qnoise_factor * (-x + scale * xq))
+      return x + tf.stop_gradient(self.qnoise_factor * (-x + xq))
     else:
       return (1 - self.qnoise_factor) * x + tf.stop_gradient(
-          self.qnoise_factor * scale * xq)
+          self.qnoise_factor * xq)
 
   def _set_trainable_parameter(self):
     if self.alpha is None:
@@ -713,6 +718,7 @@ class bernoulli(BaseQuantizer):  # pylint: disable=invalid-name
   """
 
   def __init__(self, alpha=None, temperature=6.0, use_real_sigmoid=True):
+    super(bernoulli, self).__init__()
     self.alpha = alpha
     self.bits = 1
     self.temperature = temperature
@@ -1373,7 +1379,9 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
     qnoise_factor: float. a scalar from 0 to 1 that represents the level of
       quantization noise to add. This controls the amount of the quantization
       noise to add to the outputs by changing the weighted sum of
-      (1 - qnoise_factor)*unquantized_relu + qnoise_factor*quantized_relu.
+      (1 - qnoise_factor)*unquantized_x + qnoise_factor*quantized_x.
+    var_name: String or None. A variable name shared between the tf.Variables
+      created in the build function. If None, it is generated automatically.
     use_ste: Bool. Whether to use "straight-through estimator" (STE) method or
         not.
     use_variables: Bool. Whether to make the quantizer variables to be dynamic
@@ -1644,6 +1652,7 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
 
   def __init__(self, bits=8, integer=0, symmetric=0,
                use_stochastic_rounding=False):
+    super(quantized_tanh, self).__init__()
     self.bits = bits
     self.integer = integer
     self.symmetric = symmetric
@@ -1833,13 +1842,28 @@ class quantized_po2(BaseQuantizer):  # pylint: disable=invalid-name
       stochastic rounding and forces the mean of x to be x statstically.
     quadratic_approximation: A boolean, default is False if True, it forces the
       exponent to be even number that closted to x.
+    qnoise_factor: float. a scalar from 0 to 1 that represents the level of
+      quantization noise to add. This controls the amount of the quantization
+      noise to add to the outputs by changing the weighted sum of
+      (1 - qnoise_factor)*unquantized_x + qnoise_factor*quantized_x.
+    var_name: String or None. A variable name shared between the tf.Variables
+      created in the build function. If None, it is generated automatically.
+    use_ste: Bool. Whether to use "straight-through estimator" (STE) method or
+        not.
+    use_variables: Bool. Whether to make the quantizer variables to be dynamic
+      tf.Variables or not.
   """
 
   def __init__(self,
                bits=8,
                max_value=None,
                use_stochastic_rounding=False,
-               quadratic_approximation=False):
+               quadratic_approximation=False,
+               qnoise_factor=1.0,
+               var_name=None,
+               use_ste=True,
+               use_variables=False):
+    super(quantized_po2, self).__init__()
     self.bits = bits
     self.max_value = max_value
     self.use_stochastic_rounding = use_stochastic_rounding
@@ -1850,6 +1874,11 @@ class quantized_po2(BaseQuantizer):  # pylint: disable=invalid-name
     non_sign_bits = self.bits - 1
     self._min_exp, self._max_exp = _get_min_max_exponents(
         non_sign_bits, need_exponent_sign_bit, self.quadratic_approximation)
+    # qnoise_factor related attributes
+    self.qnoise_factor = qnoise_factor
+    self.use_ste = use_ste
+    self.var_name = var_name
+    self.use_variables = use_variables
 
   def __str__(self):
     flags = [str(self.bits)]
@@ -1863,6 +1892,9 @@ class quantized_po2(BaseQuantizer):  # pylint: disable=invalid-name
     return "quantized_po2(" + ",".join(flags) + ")"
 
   def __call__(self, x):
+    if not self.built:
+      self.build(var_name=self.var_name, use_variables=self.use_variables)
+
     x_sign = tf.sign(x)
     x_sign += (1.0 - tf.abs(x_sign))
     x_abs = tf.abs(x)
@@ -1870,7 +1902,13 @@ class quantized_po2(BaseQuantizer):  # pylint: disable=invalid-name
                                    self.max_value,
                                    self.quadratic_approximation,
                                    self.use_stochastic_rounding)
-    return x + tf.stop_gradient(-x + x_sign * pow(2.0, x_clipped))
+    xq = x_sign * pow(2.0, x_clipped)
+
+    if self.use_ste:
+      return x + tf.stop_gradient(self.qnoise_factor * (-x + xq))
+    else:
+      return (1 - self.qnoise_factor) * x + tf.stop_gradient(
+          self.qnoise_factor * xq)
 
   def max(self):
     """Get the maximum value that quantized_po2 can represent."""
@@ -1904,10 +1942,17 @@ class quantized_po2(BaseQuantizer):  # pylint: disable=invalid-name
           the closest one to x.
     """
     config = {
-        "bits": self.bits,
-        "max_value": self.max_value,
-        "use_stochastic_rounding": self.use_stochastic_rounding,
-        "quadratic_approximation": self.quadratic_approximation
+        "bits":
+            self.bits,
+        "max_value":
+            self.max_value,
+        "use_stochastic_rounding":
+            self.use_stochastic_rounding,
+        "quadratic_approximation":
+            self.quadratic_approximation,
+        "qnoise_factor":
+            self.qnoise_factor.numpy() if isinstance(
+                self.qnoise_factor, tf.Variable) else self.qnoise_factor
     }
     return config
 
@@ -1924,6 +1969,16 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
       stochastic rounding and forces the mean of x to be x statstically.
     quadratic_approximation: A boolean, default is False if True, it forces the
       exponent to be even number that is closest to x.
+    qnoise_factor: float. a scalar from 0 to 1 that represents the level of
+      quantization noise to add. This controls the amount of the quantization
+      noise to add to the outputs by changing the weighted sum of
+      (1 - qnoise_factor)*unquantized_x + qnoise_factor*quantized_x.
+    var_name: String or None. A variable name shared between the tf.Variables
+      created in the build function. If None, it is generated automatically.
+    use_ste: Bool. Whether to use "straight-through estimator" (STE) method or
+        not.
+    use_variables: Bool. Whether to make the quantizer variables to be dynamic
+      tf.Variables or not.  
   """
 
   def __init__(self,
@@ -1931,7 +1986,11 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
                max_value=None,
                negative_slope=0,
                use_stochastic_rounding=False,
-               quadratic_approximation=False):
+               quadratic_approximation=False,
+               qnoise_factor=1.0,
+               var_name=None,
+               use_ste=True,
+               use_variables=False):
     super(quantized_relu_po2, self).__init__()
     self.bits = bits
     self.max_value = max_value
@@ -1949,6 +2008,11 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
     assert negative_slope >= 0.0
     if negative_slope != 0:
       assert np.mod(np.log2(negative_slope), 1) == 0
+    # qnoise_factor related attributes
+    self.qnoise_factor = qnoise_factor
+    self.use_ste = use_ste
+    self.var_name = var_name
+    self.use_variables = use_variables
 
   def __str__(self):
     flags = [str(self.bits)]
@@ -1964,6 +2028,9 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
     return "quantized_relu_po2(" + ",".join(flags) + ")"
 
   def __call__(self, x):
+    if not self.built:
+      self.build(var_name=self.var_name, use_variables=self.use_variables)
+
     x_original = x
 
     if self.max_value is None:
@@ -1988,9 +2055,15 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
         self.quadratic_approximation,
         self.use_stochastic_rounding)
 
-    return x + tf.stop_gradient(
-        -x + tf.where(tf.logical_or(x_original >= 0.0, self.negative_slope == 0.0),
-        pow(2.0, x_pos_clipped), -pow(2.0, x_neg_clipped)))
+    xq = tf.where(
+        tf.logical_or(x_original >= 0.0, self.negative_slope == 0.0),
+        pow(2.0, x_pos_clipped), -pow(2.0, x_neg_clipped))
+
+    if self.use_ste:
+      return x + tf.stop_gradient(self.qnoise_factor * (-x + xq))
+    else:
+      return (1 - self.qnoise_factor) * x + tf.stop_gradient(
+          self.qnoise_factor * xq)
 
   def max(self):
     """Get the maximum value that quantized_relu_po2 can represent."""
@@ -2029,11 +2102,19 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
     """
 
     config = {
-        "bits": self.bits,
-        "max_value": self.max_value,
-        "negative_slope": self.negative_slope,
-        "use_stochastic_rounding": self.use_stochastic_rounding,
-        "quadratic_approximation": self.quadratic_approximation
+        "bits":
+            self.bits,
+        "max_value":
+            self.max_value,
+        "negative_slope":
+            self.negative_slope,
+        "use_stochastic_rounding":
+            self.use_stochastic_rounding,
+        "quadratic_approximation":
+            self.quadratic_approximation,
+        "qnoise_factor":
+            self.qnoise_factor.numpy() if isinstance(
+                self.qnoise_factor, tf.Variable) else self.qnoise_factor
     }
     return config
 
