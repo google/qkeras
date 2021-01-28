@@ -371,8 +371,11 @@ def model_quantize(model,
         quantizer_config, layer, q_name, "kernel_quantizer")
     recurrent_quantizer = get_config(
         quantizer_config, layer, q_name, "recurrent_quantizer")
-    bias_quantizer = get_config(
-        quantizer_config, layer, q_name, "bias_quantizer")
+    if layer["config"]['use_bias']:
+      bias_quantizer = get_config(
+          quantizer_config, layer, q_name, "bias_quantizer")
+    else:
+      bias_quantizer = None
 
     # this is to avoid unwanted transformations
     if kernel_quantizer is None:
@@ -409,6 +412,8 @@ def model_quantize(model,
           layer["name"] in layers_to_fold):
         # only fold if current layer is followed by BN layer
         q_name = "Q" + layer["class_name"] + "Batchnorm"
+        layer_config["use_bias"] = True  # Folded layers require a bias
+
         # set ema_freeze_delay and folding_mode specific to
         # QDepthwiseConv2DBatchnorm layer config
         folding_mode = get_config(
@@ -425,8 +430,11 @@ def model_quantize(model,
       kernel_quantizer = get_config(
           quantizer_config, layer, q_name, "kernel_quantizer")
 
-      bias_quantizer = get_config(
-          quantizer_config, layer, q_name, "bias_quantizer")
+      if layer_config["use_bias"]:
+        bias_quantizer = get_config(
+            quantizer_config, layer, q_name, "bias_quantizer")
+      else:
+        bias_quantizer = None
 
       if (kernel_quantizer is None and
           q_name == "Q" + layer["class_name"] + "Batchnorm"):
@@ -459,6 +467,8 @@ def model_quantize(model,
     elif layer["class_name"] == "DepthwiseConv2D":
       if enable_bn_folding and layer["name"] in layers_to_fold:
         q_name = "QDepthwiseConv2DBatchnorm"
+        layer_config["use_bias"] = True  # Folded layers require a bias
+
         # set ema_freeze_delay and folding_mode specific to
         # QDepthwiseConv2DBatchnorm layers
         folding_mode = get_config(
@@ -476,8 +486,12 @@ def model_quantize(model,
       # needs to add kernel/bias quantizers
       depthwise_quantizer = get_config(quantizer_config, layer, q_name,
                                        "depthwise_quantizer")
-      bias_quantizer = get_config(quantizer_config, layer, q_name,
-                                  "bias_quantizer")
+
+      if layer_config["use_bias"]:
+        bias_quantizer = get_config(quantizer_config, layer, q_name,
+                                    "bias_quantizer")
+      else:
+        bias_quantizer = None
 
       if depthwise_quantizer is None and q_name == "QDepthwiseConv2DBatchnorm":
         # try none-folded layer quantizer as a back up
