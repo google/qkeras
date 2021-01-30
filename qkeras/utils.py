@@ -42,6 +42,8 @@ from tensorflow_model_optimization.python.core.sparsity.keras import prune_regis
 from tensorflow_model_optimization.python.core.sparsity.keras import prunable_layer
 
 from .qlayers import Clip
+from .qconv2d_batchnorm import QConv2DBatchnorm
+from .qdepthwiseconv2d_batchnorm import QDepthwiseConv2DBatchnorm
 from .qlayers import QActivation
 from .qlayers import QAdaptiveActivation
 from .qpooling import QAveragePooling2D
@@ -90,7 +92,10 @@ REGISTERED_LAYERS = [
     "QGRU",
     "QBidirectional",
     "QBatchNormalization",
+    "QConv2DBatchnorm",
+    "QDepthwiseConv2DBatchnorm",
 ]
+
 
 #
 # Model utilities: before saving the weights, we want to apply the quantizers
@@ -219,12 +224,53 @@ def get_config(quantizer_config, layer, layer_class, parameter=None):
   return quantizer
 
 
+def find_layers_to_fold(model):
+  """Find conv/dense layers that need to be folded with following bn layers.
+
+  Args:
+    model: input model
+
+  Returns:
+    new model without bn layers
+    list of layers that need to be folded
+
+  Note: currently only supports sequential model
+  """
+
+  # TODO(lishanok): extends this function to non-sequential model
+  layers = list(model.layers)
+  layers_to_fold = []
+
+  prev_layer = None
+  prev_x = layers[0].output
+
+  for i in range(1, len(layers)):
+    layer = layers[i]
+
+    if layer.__class__.__name__ not in ["BatchNormalization",
+                                        "QBatchNormalization"]:
+      x = layer(prev_x)
+      prev_x = x
+      prev_layer = layer
+    else:
+      # current layer is a bn layer; mark prev layer in the to_fold list
+      if prev_layer.__class__.__name__ in [
+          "Conv2D", "Dense", "QConv2D", "QDense", "DepthwiseConv2D",
+          "QDepthwiseConv2D"]:
+        layers_to_fold.append(prev_layer.name)
+
+  new_model = Model(inputs=model.inputs, outputs=x)
+
+  return new_model, layers_to_fold
+
+
 def model_quantize(model,
                    quantizer_config,
                    activation_bits,
                    custom_objects=None,
                    transfer_weights=False,
-                   prefer_qadaptiveactivation=False):
+                   prefer_qadaptiveactivation=False,
+                   enable_bn_folding=False):
   """Creates a quantized model from non-quantized model.
 
   The quantized model translation is based on json interface of Keras,
@@ -298,10 +344,20 @@ def model_quantize(model,
       qmodel.
     prefer_qadaptiveactivation: Bool. If true, try to use QAdaptiveActivation
       over QActivation whenever possible
+    enable_bn_folding: Bool. If true, fold conv/dense layers with
+      following batch normalization layers whenever possible. use
+      QConv2DBatchnorm for example, to replace conv2d layers
 
   Returns:
     qmodel with quantized operations and custom_objects.
   """
+
+  if enable_bn_folding:
+    # remove bn layers from the model and find a list of layers to fold
+    model, layers_to_fold = find_layers_to_fold(model)
+    if len(layers_to_fold) == 0:
+      # no layers to fold, no need to perform folding
+      enable_bn_folding = False
 
   if not custom_objects:
     custom_objects = {}
@@ -356,13 +412,38 @@ def model_quantize(model,
       "Dense", "Conv1D", "Conv2D", "Conv2DTranspose",
       "SeparableConv1D", "SeparableConv2D"
     ]:
-      q_name = "Q" + layer["class_name"]
+      if (layer["class_name"] in ["Dense", "Conv2D"] and enable_bn_folding and
+          layer["name"] in layers_to_fold):
+        # only fold if current layer is followed by BN layer
+        q_name = "Q" + layer["class_name"] + "Batchnorm"
+        # set ema_freeze_delay and folding_mode specific to
+        # QDepthwiseConv2DBatchnorm layer config
+        folding_mode = get_config(
+            quantizer_config, layer, q_name, "folding_mode")
+        layer_config["folding_mode"] = (
+            folding_mode if folding_mode else "ema_stats_folding")
+        ema_freeze_delay = get_config(
+            quantizer_config, layer, q_name, "ema_freeze_delay")
+        layer_config["ema_freeze_delay"] = (
+            ema_freeze_delay if ema_freeze_delay else None)
+      else:
+        q_name = "Q" + layer["class_name"]
       # needs to add kernel/bias quantizers
       kernel_quantizer = get_config(
           quantizer_config, layer, q_name, "kernel_quantizer")
 
       bias_quantizer = get_config(
           quantizer_config, layer, q_name, "bias_quantizer")
+
+      if (kernel_quantizer is None and
+          q_name == "Q" + layer["class_name"] + "Batchnorm"):
+        # try none-folded layer quantizer as a back up
+        kernel_quantizer = get_config(
+            quantizer_config, layer, "Q" + layer["class_name"],
+            "kernel_quantizer")
+        bias_quantizer = get_config(
+            quantizer_config, layer, "Q" + layer["class_name"],
+            "bias_quantizer")
 
       # this is to avoid unwanted transformations
       if kernel_quantizer is None:
@@ -383,23 +464,46 @@ def model_quantize(model,
         quantize_activation(layer_config, activation_bits)
 
     elif layer["class_name"] == "DepthwiseConv2D":
+      if enable_bn_folding and layer["name"] in layers_to_fold:
+        q_name = "QDepthwiseConv2DBatchnorm"
+        # set ema_freeze_delay and folding_mode specific to
+        # QDepthwiseConv2DBatchnorm layers
+        folding_mode = get_config(
+            quantizer_config, layer, q_name, "folding_mode")
+        layer_config["folding_mode"] = (
+            folding_mode if folding_mode else "ema_stats_folding")
+        ema_freeze_delay = get_config(
+            quantizer_config, layer, q_name, "ema_freeze_delay")
+        layer_config["ema_freeze_delay"] = (
+            ema_freeze_delay if ema_freeze_delay else None)
+
+      else:
+        q_name = "QDepthwiseConv2D"
+
       # needs to add kernel/bias quantizers
-      depthwise_quantizer = get_config(quantizer_config, layer,
-          "QDepthwiseConv2D", "depthwise_quantizer")
-      bias_quantizer = get_config(quantizer_config, layer,
-          "QDepthwiseConv2D", "bias_quantizer")
+      depthwise_quantizer = get_config(quantizer_config, layer, q_name,
+                                       "depthwise_quantizer")
+      bias_quantizer = get_config(quantizer_config, layer, q_name,
+                                  "bias_quantizer")
+
+      if depthwise_quantizer is None and q_name == "QDepthwiseConv2DBatchnorm":
+        # try none-folded layer quantizer as a back up
+        depthwise_quantizer = get_config(
+            quantizer_config, layer, "QDepthwiseConv2D", "depthwise_quantizer")
+        bias_quantizer = get_config(
+            quantizer_config, layer, "QDepthwiseConv2D", "bias_quantizer")
 
       # this is to avoid unwanted transformations
       if depthwise_quantizer is None:
         continue
 
-      layer["class_name"] = "QDepthwiseConv2D"
+      layer["class_name"] = q_name
 
       layer_config["depthwise_quantizer"] = depthwise_quantizer
       layer_config["bias_quantizer"] = bias_quantizer
       # if activation is present, add activation here
-      quantizer = get_config(quantizer_config, layer,
-          "QDepthwiseConv2D", "activation_quantizer",)
+      quantizer = get_config(quantizer_config, layer, q_name,
+                             "activation_quantizer",)
 
       if quantizer:
         layer_config["activation"] = quantizer
@@ -409,16 +513,19 @@ def model_quantize(model,
     elif layer["class_name"] in ["SimpleRNN", "LSTM", "GRU"]:
       quantize_rnn(layer, quantizer_config)
 
-    elif layer['class_name'] == 'Bidirectional':
+    elif layer["class_name"] == "Bidirectional":
       forward_layer_quantizer_config = {
-        layer_config['layer']['config']['name'] : get_config(quantizer_config,
-                                                              layer, "QBidirectional") }
-      quantize_rnn(layer['config']['layer'], forward_layer_quantizer_config)
+          layer_config["layer"]["config"]["name"]:
+              get_config(quantizer_config, layer, "QBidirectional")
+      }
+      quantize_rnn(layer["config"]["layer"], forward_layer_quantizer_config)
       if "backward_layer" in layer_config:
         backward_layer_quantizer_config = {
-          layer_config['backward_layer']['config']['name'] : get_config(quantizer_config,
-                                                                layer, "QBidirectional") }
-        quantize_rnn(layer['config']['backward_layer'], backward_layer_quantizer_config)
+            layer_config["backward_layer"]["config"]["name"]:
+                get_config(quantizer_config, layer, "QBidirectional")
+        }
+        quantize_rnn(layer["config"]["backward_layer"],
+                     backward_layer_quantizer_config)
       layer["class_name"] = "QBidirectional"
 
     elif layer["class_name"] == "Activation":
@@ -550,7 +657,7 @@ def model_quantize(model,
 
   # if transfer_weights is true, we load the weights from model to qmodel
 
-  if transfer_weights:
+  if transfer_weights and not enable_bn_folding:
     for layer, qlayer in zip(model.layers, qmodel.layers):
       if layer.get_weights():
         qlayer.set_weights(copy.deepcopy(layer.get_weights()))
@@ -590,6 +697,9 @@ def _add_supported_quantized_objects(custom_objects):
   custom_objects["quantized_tanh"] = quantized_tanh
   custom_objects["quantized_po2"] = quantized_po2
   custom_objects["quantized_relu_po2"] = quantized_relu_po2
+
+  custom_objects["QConv2DBatchnorm"] = QConv2DBatchnorm
+  custom_objects["QDepthwiseConv2DBatchnorm"] = QDepthwiseConv2DBatchnorm
 
 
 def clone_model(model, custom_objects=None):
@@ -722,7 +832,8 @@ def get_model_sparsity(model, per_layer=False, allow_list=None):
         "QSeparableConv1D", "SeparableConv1D",
         "QSeparableConv2D", "SeparableConv2D", "QOctaveConv2D", 
         "QSimpleRNN", "RNN", "QLSTM", "QGRU",
-        "QConv2DTranspose", "Conv2DTranspose"
+        "QConv2DTranspose", "Conv2DTranspose",
+        "QConv2DBatchnorm", "QDepthwiseConv2DBatchnorm",
     ]
 
   # Quantize the model weights for a more accurate sparsity calculation
@@ -751,6 +862,7 @@ def get_model_sparsity(model, per_layer=False, allow_list=None):
 
 def quantized_model_debug(model, X_test, plot=False):
   """Debugs and plots model weights and activations."""
+
   outputs = []
   output_names = []
 
@@ -780,9 +892,9 @@ def quantized_model_debug(model, X_test, plot=False):
     if alpha != 1.0:
       print(" a[{: 8.4f} {:8.4f}]".format(np.min(alpha), np.max(alpha)))
     if plot and layer.__class__.__name__ in [
-      "QConv1D", "QConv2D", "QConv2DTranspose", "QDense", "QActivation", 
-      "QSimpleRNN", "QLSTM", "QGRU", "QBidirectional",
-      "QSeparableConv1D", "QSeparableConv2D"
+        "QConv1D", "QConv2D", "QConv2DTranspose", "QDense", "QActivation",
+        "QAdaptiveActivation", "QSimpleRNN", "QLSTM", "QGRU", "QBidirectional",
+        "QSeparableConv1D", "QSeparableConv2D"
     ]:
       plt.hist(p.flatten(), bins=25)
       plt.title(layer.name + "(output)")

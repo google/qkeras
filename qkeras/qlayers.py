@@ -320,6 +320,8 @@ class QAdaptiveActivation(Layer, PrunableLayer):
             "model from converging. Consider a larger quantization_delay.",
             file=sys.stderr)
 
+    self.activation = self.quantizer  # self.activation is used by QTools
+
   def build(self, input_shape):
     if self.will_ema_freeze:
       self.ema_freeze_delay = tf.constant(self.ema_freeze_delay, dtype=tf.int64)
@@ -383,10 +385,12 @@ class QAdaptiveActivation(Layer, PrunableLayer):
       qnoise_factor = K.switch(
           tf.greater_equal(self.step, self.quantization_delay),
           lambda: tf.constant(1.0), lambda: tf.constant(0.0))
-      qx = self.quantizer(x, qnoise_factor=qnoise_factor)
+      self.quantizer.update_qnoise_factor(qnoise_factor)
+      qx = self.quantizer(x)
 
     else:  # If not training, we always want to use full quantization
-      qx = self.quantizer(x, qnoise_factor=tf.constant(1.0))
+      self.quantizer.update_qnoise_factor(tf.constant(1.0))
+      qx = self.quantizer(x)
 
     # Calculate the axis along where to find the min and max EMAs
     len_axis = len(x.shape)
@@ -410,10 +414,21 @@ class QAdaptiveActivation(Layer, PrunableLayer):
 
     # Update the moving average
     if is_ema_training:
-      new_min = tf.squeeze(K.min(qx, axis=axis, keepdims=True))
+      # Set the qnoise factor to 0 to update the EMA using the unquantized input
+      prev_qnoise_factor = tf.identity(self.quantizer.qnoise_factor)
+      self.quantizer.update_qnoise_factor(tf.constant(0.0))
+
+      # Update the EMA
+      act_x = self.quantizer(x)  # act_x is the input after the activation
+                                 # function, but before the quantizer. This is
+                                 # done by using a qnoise_factor of 0
+      new_min = tf.squeeze(K.min(act_x, axis=axis, keepdims=True))
       K.moving_average_update(self.ema_min, new_min, self.ema_decay)
-      new_max = tf.squeeze(K.max(qx, axis=axis, keepdims=True))
+      new_max = tf.squeeze(K.max(act_x, axis=axis, keepdims=True))
       K.moving_average_update(self.ema_max, new_max, self.ema_decay)
+
+      # Reset the qnoise factor to the previous value
+      self.quantizer.update_qnoise_factor(prev_qnoise_factor)
 
     # Set the integer bits for the quantizer
     integer_bits = _get_integer_bits(
@@ -429,7 +444,7 @@ class QAdaptiveActivation(Layer, PrunableLayer):
 
   # Override get_weights since we do not want ema_min or ema_max to be public
   def get_weights(self):
-    return None
+    return []
 
   def get_config(self):
     config = {

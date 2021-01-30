@@ -99,7 +99,12 @@ def run_qadaptiveactivation_test(input_val, kwargs):
                                             tf.int64))
 
   # Check quantized output
+  # To set qnoise_factor to 1.0 explicitly.
+  qnoise_factor = np.array(quant.qnoise_factor)
+  quant.update_qnoise_factor(1.0)
   expected_qout = np.copy(quant(input_val))
+  # Revert qnoise_factor to its original value.
+  quant.update_qnoise_factor(qnoise_factor)
   qout = model(input_val, training=True).numpy()
   assert np.isclose(expected_qout, qout).all(), err
 

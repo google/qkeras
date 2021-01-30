@@ -44,6 +44,22 @@ def test_get_params2():
   assert not kwargs
 
 
+def test_get_params3():
+  s = ("(3, 0.3,  -1.0, True, False, 'string1', num1=0.1, num2=-3.0, "
+       "str1='string2', bool1=True, bool2=False)")
+
+  args, kwargs = GetParams(s)
+
+  assert args == [3, 0.3, -1.0, True, False, "string1"]
+  assert kwargs == {
+      "num1": 0.1,
+      "num2": -3.0,
+      "str1": "string2",
+      "bool1": True,
+      "bool2": False
+  }
+
+
 def test_safe_eval1():
   s = "add(3,3)"
   assert safe_eval(s, globals()) == 6

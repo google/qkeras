@@ -94,6 +94,17 @@ class QuantizedBits(IQuantizer):
     self.int_bits = quantizer.integer
     self.is_signed = quantizer.keep_negative
 
+  def convert_to_qkeras_quantizer(
+      self, symmetric=1, alpha=None, use_stochastic_rounding=False,
+      scale_axis=None, qnoise_factor=1.0):
+    """convert qtools quantizer to qkeras quantizer."""
+
+    return quantizers.quantized_bits(
+        bits=self.bits, integer=self.int_bits, keep_negative=self.is_signed,
+        symmetric=symmetric, alpha=alpha,
+        use_stochastic_rounding=use_stochastic_rounding,
+        scale_axis=scale_axis, qnoise_factor=qnoise_factor)
+
 
 class QuantizedTanh(QuantizedBits):
   """same as quantized bits."""
@@ -108,6 +119,14 @@ class QuantizedTanh(QuantizedBits):
     self.bits = quantizer.bits
     self.int_bits = quantizer.integer
     self.is_signed = 1
+
+  def convert_to_qkeras_quantizer(
+      self, symmetric=0, use_stochastic_rounding=False):
+    """convert qtools quantizer to qkeras quantizer."""
+
+    return quantizers.quantized_tanh(
+        bits=self.bits, integer=self.int_bits, symmetric=symmetric,
+        use_stochastic_rounding=use_stochastic_rounding)
 
 
 class QuantizedUlaw(QuantizedBits):
@@ -124,6 +143,12 @@ class QuantizedUlaw(QuantizedBits):
     self.bits = quantizer.bits
     self.int_bits = quantizer.integer
     self.is_signed = 1
+
+  def convert_to_qkeras_quantizer(self, symmetric=0, u=255.0):
+    """convert qtools quantizer to qkeras quantizer."""
+
+    return quantizers.quantized_ulaw(
+        bits=self.bits, integer=self.int_bits, symmetric=symmetric, u=u)
 
 
 class Binary(IQuantizer):
@@ -153,6 +178,13 @@ class Binary(IQuantizer):
 
     self.use_01 = quantizer.use_01
 
+  def convert_to_qkeras_quantizer(self, alpha=None,
+                                  use_stochastic_rounding=False):
+    """convert qtools quantizer to qkeras quantizer."""
+
+    return quantizers.binary(use_01=self.use_01, alpha=alpha,
+                             use_stochastic_rounding=use_stochastic_rounding)
+
 
 class StochasticBinary(Binary):
   """stochastic binary quantizer."""
@@ -164,9 +196,16 @@ class StochasticBinary(Binary):
 
   def convert_qkeras_quantizer(
       self, quantizer: quantizers.stochastic_binary):
-    """convert from a given qkeras quantizer type."""
+    """convert qkeras quantizer to qtools quantizer."""
 
     pass
+
+  def convert_to_qkeras_quantizer(self, alpha=None, temperature=6.0,
+                                  use_real_sigmoid=True):
+    """convert qtools quantizer to qkeras quantizer."""
+
+    return quantizers.stochastic_binary(alpha=alpha, temperature=temperature,
+                                        use_real_sigmoid=use_real_sigmoid)
 
 
 class Bernoulli(Binary):
@@ -178,6 +217,13 @@ class Bernoulli(Binary):
 
   def convert_qkeras_quantizer(self, quantizer: quantizers.bernoulli):
     pass
+
+  def convert_to_qkeras_quantizer(self, alpha=None, temperature=6.0,
+                                  use_real_sigmoid=True):
+    """convert qtools quantizer to qkeras quantizer."""
+
+    return quantizers.bernoulli(alpha=alpha, temperature=temperature,
+                                use_real_sigmoid=use_real_sigmoid)
 
 
 class QuantizedRelu(IQuantizer):
@@ -206,6 +252,19 @@ class QuantizedRelu(IQuantizer):
     if hasattr(quantizer, "negative_slope") and quantizer.negative_slope != 0:
       self.is_signed = 1
 
+  def convert_to_qkeras_quantizer(
+      self, use_sigmoid=0, negative_slope=0.0, use_stochastic_rounding=False,
+      relu_upper_bound=None, is_quantized_clip=True, qnoise_factor=1.0):
+    """convert qtools quantizer to qkeras quantizer."""
+
+    return quantizers.quantized_relu(
+        bits=self.bits, integer=self.int_bits, use_sigmoid=use_sigmoid,
+        negative_slope=negative_slope,
+        use_stochastic_rounding=use_stochastic_rounding,
+        relu_upper_bound=relu_upper_bound,
+        is_quantized_clip=is_quantized_clip,
+        qnoise_factor=qnoise_factor)
+
 
 class Ternary(IQuantizer):
   """ternary(0, 1, -1)."""
@@ -222,6 +281,16 @@ class Ternary(IQuantizer):
       self, quantizer: quantizers.ternary):
     pass
 
+  def convert_to_qkeras_quantizer(
+      self, alpha=None, threshold=None, use_stochastic_rounding=False,
+      number_of_unrolls=5):
+    """convert qtools quantizer to qkeras quantizer."""
+
+    return quantizers.ternary(
+        alpha=alpha, threshold=threshold,
+        use_stochastic_rounding=use_stochastic_rounding,
+        number_of_unrolls=number_of_unrolls)
+
 
 class StochasticTernary(Ternary):
   """stochastic ternary."""
@@ -234,6 +303,16 @@ class StochasticTernary(Ternary):
   def convert_qkeras_quantizer(
       self, quantizer: quantizers.stochastic_ternary):
     pass
+
+  def convert_to_qkeras_quantizer(
+      self, alpha=None, threshold=None, temperature=8.0,
+      use_real_sigmoid=True, number_of_unrolls=5):
+    """convert qtools quantizer to qkeras quantizer."""
+
+    return quantizers.stochastic_ternary(
+        alpha=alpha, threshold=threshold, temperature=temperature,
+        use_real_sigmoid=use_real_sigmoid,
+        number_of_unrolls=number_of_unrolls)
 
 
 class FloatingPoint(IQuantizer):
@@ -249,6 +328,9 @@ class FloatingPoint(IQuantizer):
     self.name = "floating_point"
 
   def convert_qkeras_quantizer(self, bits):
+    pass
+
+  def convert_to_qkeras_quantizer(self, bits):
     pass
 
 
@@ -289,6 +371,27 @@ class PowerOfTwo(IQuantizer):
       self.max_val_po2 = max_val_po2
     self.bits = bits
     self.int_bits = bits
+
+  def convert_to_qkeras_quantizer(
+      self, negative_slope=0, use_stochastic_rounding=False,
+      quadratic_approximation=False):
+    """convert qtools quantizer to qkeras quantizer."""
+
+    if self.is_signed:
+      # quantized_po2
+      return quantizers.quantized_po2(
+          bits=self.bits,
+          max_value=self.max_val_po2 if self.max_val_po2 >= 0 else None,
+          use_stochastic_rounding=use_stochastic_rounding,
+          quadratic_approximation=quadratic_approximation)
+    else:
+      # quantized_relu_po2
+      return quantizers.quantized_relu_po2(
+          bits=self.bits,
+          max_value=self.max_val_po2 if self.max_val_po2 >= 0 else None,
+          negative_slope=negative_slope,
+          use_stochastic_rounding=use_stochastic_rounding,
+          quadratic_approximation=quadratic_approximation)
 
   def get_min_max_exp(self):
     return get_exp(self)
@@ -390,3 +493,16 @@ class ReluPowerOfTwo(PowerOfTwo):
       self.max_val_po2 = -1
     else:
       self.max_val_po2 = quantizer.max_value
+
+  def convert_to_qkeras_quantizer(
+      self, negative_slope=0, use_stochastic_rounding=False,
+      quadratic_approximation=False):
+    """convert qtools quantizer to qkeras quantizer."""
+
+    # quantized_relu_po2
+    return quantizers.quantized_relu_po2(
+        bits=self.bits,
+        max_value=self.max_val_po2 if self.max_val_po2 >= 0 else None,
+        negative_slope=negative_slope,
+        use_stochastic_rounding=use_stochastic_rounding,
+        quadratic_approximation=quadratic_approximation)

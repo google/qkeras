@@ -23,6 +23,18 @@ import os
 import re
 import copy
 
+# Temporary fix for a KerasTuner bug introduced by cl/347827925
+try:
+  import IPython
+  def KerasTunerBugFix():
+    class IPythonTerminal():
+      def __init__(self):
+        pass
+    return IPythonTerminal()
+  IPython.get_ipython = KerasTunerBugFix
+except ModuleNotFoundError:
+  pass
+
 import kerastuner as kt
 from kerastuner import HyperModel
 from kerastuner.tuners import BayesianOptimization
@@ -35,7 +47,6 @@ import tensorflow.keras.backend as K
 from tensorflow.keras.metrics import binary_accuracy
 from tensorflow.keras.metrics import categorical_accuracy
 from tensorflow.keras.metrics import sparse_categorical_accuracy
-from tensorflow.keras.optimizers import Adam
 from qkeras.autoqkeras.forgiving_metrics import forgiving_factor  # pylint: disable=line-too-long
 from qkeras.autoqkeras.forgiving_metrics import ForgivingFactor  # pylint: disable=line-too-long
 from qkeras.autoqkeras.quantization_config import default_quantization_config  # pylint: disable=line-too-long
@@ -638,11 +649,12 @@ class AutoQKHyperModel(HyperModel):
     if self.learning_rate_optimizer:
       lr_range = list(lr * np.linspace(delta_lr, 1.1, 5))
       lr_choice = hp.Choice("learning_rate", lr_range)
+      self.model.optimizer.learning_rate = lr_choice
     else:
       lr_choice = lr
       print("learning_rate: {}".format(lr))
 
-    optimizer = Adam(lr=lr_choice)
+    optimizer = self.model.optimizer
 
     q_model.summary()
 
@@ -746,6 +758,8 @@ class AutoQKeras:
          quantizers for kernel, bias and activation.
        head_name: specify which head to calcuate score/trial-size from in
          autoqkeras
+       score_metric: Str. Optional metric name to use to evaluate the trials.
+         Defaults to val_score
        tuner_kwargs: parameters for kerastuner depending on whether
          mode is random, hyperband or baeysian. Please refer to the
          documentation of kerstuner Tuners.
@@ -754,11 +768,14 @@ class AutoQKeras:
   def __init__(
       self, model, metrics=None, custom_objects=None, goal=None,
       output_dir="result", mode="random", custom_tuner=None,
-      custom_tuner_config=None, transfer_weights=False,
-      frozen_layers=None, activation_bits=4, limit=None, tune_filters="none",
+      transfer_weights=False, frozen_layers=None, activation_bits=4,
+      limit=None, tune_filters="none",
       tune_filters_exceptions=None, learning_rate_optimizer=False,
       layer_indexes=None, quantization_config=None, overwrite=True,
-      head_name=None, **tuner_kwargs):
+      head_name=None, score_metric=None, **tuner_kwargs):
+
+    # Collect input arguments to AutoQKeras for usage by custom tuner
+    autoqkeras_input_args = locals()
 
     if not metrics:
       metrics = []
@@ -838,15 +855,16 @@ class AutoQKeras:
     output_dir = name
     self.output_dir = output_dir
 
-    if self.head_name:
-      score_metric = "val_" + self.head_name + "_score"
-    else:
-      score_metric = "val_score"
+    if score_metric is None:
+      if self.head_name:
+        score_metric = "val_" + self.head_name + "_score"
+      else:
+        score_metric = "val_score"
     assert mode in ["random", "bayesian", "hyperband"]
     if custom_tuner is not None:
       self.tuner = custom_tuner(
           self.hypermodel,
-          custom_tuner_config=custom_tuner_config,
+          autoqkeras_config=autoqkeras_input_args,
           objective=kt.Objective(score_metric, "max"),
           project_name=output_dir,
           **tuner_kwargs)
@@ -1220,7 +1238,7 @@ class AutoQKerasScheduler:
       # this is just a placeholder for the optimizer.
 
       model.compile(
-          Adam(lr=lr),
+          model.optimizer,
           loss=self.model.loss,
           metrics=self.model.metrics)
 

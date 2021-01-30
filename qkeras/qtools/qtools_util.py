@@ -136,7 +136,7 @@ def get_operation_count(layer, input_shape):
         "BatchNormalization" in layer.__class__.__name__):
     operation_count = np.prod(input_shape[1:])
 
-  elif layer.__class__.__name__ in ["QConv2D", "Conv2D"]:
+  elif layer.__class__.__name__ in ["QConv2D", "Conv2D", "QConv2DBatchnorm"]:
 
     output_shape = layer.compute_output_shape(input_shape)
     _, _, _, channels_i = input_shape

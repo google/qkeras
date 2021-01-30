@@ -38,7 +38,7 @@ def print_qmodel_summary(q_model):
       if "Dense" in layer.__class__.__name__:
         print("u={} ".format(layer.units), end="")
       elif layer.__class__.__name__ in [
-          "Conv2D", "QConv2D", "Conv1D", "QConv1D"]:
+          "Conv2D", "QConv2D", "Conv1D", "QConv1D", "QConv2DBatchnorm"]:
         print("f={} ".format(layer.filters), end="")
       quantizers = layer.get_quantizers()
       for q in range(len(quantizers)):

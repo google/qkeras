@@ -20,6 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
+import copy
 
 import networkx as nx
 from qkeras.qtools import qgraph
@@ -580,6 +581,106 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
         print("multiplier_gate_bits:", multiplier.gate_bits)
         print("accumulator:", accumulator.output.bits)
 
+      if for_reference or not hasattr(layer, "get_quantizers"):
+        accumulator.output = quantizer_factory.make_default_quantizer(
+            mode=cfg.default_interm_quantizer)
+        multiplier.output = quantizer_factory.make_default_quantizer(
+            mode=cfg.default_interm_quantizer)
+
+        if keras_accumulator:
+          accumulator.output = quantizer_factory.make_default_quantizer(
+              mode=keras_accumulator)
+          multiplier.output = quantizer_factory.make_default_quantizer(
+              mode=keras_accumulator)
+
+      layer_quantizer = accumulator.output
+      output_quantizer = update_output_quantizer_in_graph(
+          graph, node_id, quantizer_factory, layer_quantizer, for_reference)
+
+      layer_data_type_map[layer] = LayerDataType(
+          input_quantizer_list,
+          multiplier,
+          accumulator,
+          weight_quantizer,
+          w_shapes,
+          bias_quantizer,
+          b_shapes,
+          output_quantizer,
+          output_shapes,
+          operation_count
+      )
+
+    # folded conv/dense/depthwiseconv layer
+    elif node_type in ["QConv2DBatchnorm", "QDepthwiseConv2DBatchnorm"]:
+
+      (input_quantizer, _) = input_qe_list[0]
+      if for_reference or not hasattr(layer, "get_quantizers"):
+        # for_reference: force all quantizers to keras_quantizer
+        weight_quantizer = quantizer_factory.make_default_quantizer(
+            mode=cfg.default_interm_quantizer)
+        bias_quantizer = quantizer_factory.make_default_quantizer(
+            mode=cfg.default_interm_quantizer)
+
+        if keras_quantizer:
+          weight_quantizer = quantizer_factory.make_default_quantizer(
+              mode=keras_quantizer)
+          bias_quantizer = quantizer_factory.make_default_quantizer(
+              mode=keras_quantizer)
+      else:
+        # qkeras layer
+        qkeras_weight_quantizer = layer.get_quantizers()[0]
+        qkeras_bias_quantizer = layer.get_quantizers()[1]
+        if not quantizer_factory.is_quantizer_supported(
+            qkeras_weight_quantizer):
+          raise TagMissingError(
+              "Unsupported weight quantizer {} on this layer: {}".format(
+                  qkeras_weight_quantizer, layer))
+
+        if not quantizer_factory.is_quantizer_supported(
+            qkeras_bias_quantizer):
+          raise TagMissingError(
+              "Unsupported bias quantizer {} on this layer: {}".format(
+                  qkeras_bias_quantizer, layer))
+
+        weight_quantizer = quantizer_factory.make_quantizer(
+            qkeras_weight_quantizer)
+
+        if qkeras_bias_quantizer:
+          bias_quantizer = quantizer_factory.make_quantizer(
+              qkeras_bias_quantizer)
+        else:
+          bias_quantizer = None
+
+      # TODO(lishanok): during inference, if weight and bias is po2,
+      #  need to update corresponding quantizer type with min and max
+      #  of the constant values
+      if is_inference:
+        weights = qtools_util.get_weights(layer)
+        if weight_quantizer.is_po2:
+          weight_quantizer.update_inference_values(weights[0])
+
+        if bias_quantizer and bias_quantizer.is_po2:
+          bias_quantizer.update_inference_values(weights[1])
+
+      multiplier_factory = quantized_operators.MultiplierFactory()
+      multiplier = multiplier_factory.make_multiplier(
+          weight_quantizer, input_quantizer)
+
+      weights = layer.get_weights()
+      kernel = weights[0]
+
+      accumulator_factory = quantized_operators.AccumulatorFactory()
+      accumulator = accumulator_factory.make_accumulator(
+          kernel.shape, multiplier, use_bias=True if bias_quantizer else False)
+
+      if not bias_quantizer:
+        # set bias the same as accumulator type
+        bias_quantizer = copy.deepcopy(accumulator.output)
+        if not accumulator.output.is_floating_point:
+          # for fixed point accumulator, needs to add 1 to its bits to avoid
+          # possible satuation
+          accumulator.output.bits += 1
+          accumulator.output.int_bits += 1
       if for_reference or not hasattr(layer, "get_quantizers"):
         accumulator.output = quantizer_factory.make_default_quantizer(
             mode=cfg.default_interm_quantizer)

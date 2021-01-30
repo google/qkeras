@@ -98,6 +98,7 @@ def test_qnetwork():
   np.random.seed(42)
   for layer in model.layers:
     all_weights = []
+
     for i, weights in enumerate(layer.get_weights()):
       input_size = np.prod(layer.input.shape.as_list()[1:])
       if (len(layer.get_weights()) == 3 and i > 0): # pointwise kernel and bias
@@ -118,6 +119,7 @@ def test_qnetwork():
 
   for layer in model.layers:
     for i, weights in enumerate(layer.get_weights()):
+
       w = np.sum(weights)
       all_weights.append(w)
 
@@ -219,18 +221,21 @@ def test_qconv1d(layer_cls):
       depthwise_quantizer=quantized_bits(6, 2, 1, alpha=1.0),
       pointwise_quantizer=quantized_bits(4, 0, 1, alpha=1.0),
       bias_quantizer=quantized_bits(4, 0, 1),
-      name='qsepconv1d')(
+      name='qconv1d')(
           x)
     model = Model(inputs=x, outputs=y)
 
   # Extract model operations
   model_ops = extract_model_operations(model)
 
+  # Check the input layer model operation was found correctly
+  assert model_ops['qconv1d']['type'][0] != 'null'
+
   # Assertion about the number of operations for this (Separable)Conv1D layer
   if layer_cls == "QConv1D":
     assert model_ops['qconv1d']['number_of_operations'] == 32
   else:
-    assert model_ops['qsepconv1d']['number_of_operations'] == 30
+    assert model_ops['qconv1d']['number_of_operations'] == 30
 
   # Print qstats to make sure it works with Conv1D layer
   print_qstats(model)
