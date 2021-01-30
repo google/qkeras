@@ -75,10 +75,14 @@ http://arxiv.org/abs/2006.10159
 
 - QDepthwiseConv2D
 
-- QSeparableConv1D
+- QSeparableConv1D (depthwise + pointwise convolution, without
+quantizing the activation values after the depthwise step)
 
-- QSeparableConv2D (depthwise + pointwise expanded, extended from
-MobileNet SeparableConv2D implementation)
+- QSeparableConv2D (depthwise + pointwise convolution, without
+quantizing the activation values after the depthwise step)
+
+- QMobileNetSeparableConv2D (extended from MobileNet SeparableConv2D
+implementation, quantizes the activation values after the depthwise step)
 
 - QConv2DTranspose
 
