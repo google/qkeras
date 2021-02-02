@@ -84,7 +84,7 @@ from qkeras.utils import model_quantize
 
 REGISTERED_LAYERS = ["Dense", "Conv1D", "Conv2D", "DepthwiseConv2D",
                      "SimpleRNN", "LSTM", "GRU", "Bidirectional",
-                     "Conv2DTranspose"]
+                     "Conv2DTranspose", "SeparableConv1D", "SeparableConv2D"]
 
 Q_LAYERS = list(map(lambda x : 'Q' + x, REGISTERED_LAYERS))
 
@@ -235,6 +235,13 @@ class AutoQKHyperModel(HyperModel):
       index = 1
       q_list = list(bq.keys())
       q_dict = bq
+    elif "pointwise_kernel" in head: # limit is same as kernel
+      # pointwise kernel quantizers
+      field_name = "pointwise_kernel"
+      kq = self.quantization_config["pointwise_kernel"]
+      index = 2
+      q_list = list(kq.keys())
+      q_dict = kq
     elif "recurrent_kernel" in head: # limit is same as kernel
       # recurrent kernel quantizers
       field_name = "recurrent_kernel"
@@ -372,6 +379,11 @@ class AutoQKHyperModel(HyperModel):
             hp, layer.name + "_recurrent_kernel", layer.name, layer.__class__.__name__,
             is_kernel=True)
 
+        if layer.__class__.__name__ in ["SeparableConv1D", "SeparableConv2D"]:
+          pointwise_quantizer, _ = self._get_quantizer(
+            hp, layer.name + "_pointwise_kernel", layer.name, layer.__class__.__name__,
+            is_kernel=True)
+
     if self.tune_filters == "block" and filter_sweep_enabled:
       network_filters = hp.Choice(
           "network_filters",
@@ -405,7 +417,9 @@ class AutoQKHyperModel(HyperModel):
       if layer.__class__.__name__ in REGISTERED_LAYERS:
         # difference between depthwise and the rest is just the name
         # of the kernel.
-        if layer.__class__.__name__ == "DepthwiseConv2D":
+        if layer.__class__.__name__ in [
+            "DepthwiseConv2D", "SeparableConv1D", "SeparableConv2D"
+        ]:
           kernel_name = "depthwise_quantizer"
         else:
           kernel_name = "kernel_quantizer"
@@ -426,7 +440,10 @@ class AutoQKHyperModel(HyperModel):
         if (
             self.tune_filters in ["layer", "block"] and
             not self.tune_filters_exceptions.search(layer.name) and
-            layer.__class__.__name__ in ["Dense", "Conv1D", "Conv2D", "Conv2DTranspose"]
+            layer.__class__.__name__ in [
+                "Dense", "Conv1D", "Conv2D", "Conv2DTranspose",
+                "SeparableConv1D", "SeparableConv2D"
+            ]
         ):
           if self.tune_filters == "layer":
             layer_filters = hp.Choice(
@@ -439,13 +456,19 @@ class AutoQKHyperModel(HyperModel):
 
           if layer.__class__.__name__ == "Dense":
             layer.units = max(int(layer.units * layer_filters), 1)
-          elif layer.__class__.__name__ in ["Conv1D", "Conv2D", "Conv2DTranspose"]:
+          elif layer.__class__.__name__ in [
+              "Conv1D", "Conv2D", "Conv2DTranspose",
+              "SeparableConv1D", "SeparableConv2D"
+          ]:
             layer.filters = max(int(layer.filters * layer_filters), 1)
 
         layer_d[kernel_name] = kernel_quantizer
 
         if layer.__class__.__name__ in SEQUENCE_LAYERS:
           layer_d['recurrent_quantizer'] = recurrent_quantizer
+        
+        if layer.__class__.__name__ in ["SeparableConv1D", "SeparableConv2D"]:
+          layer_d['pointwise_quantizer'] = pointwise_quantizer
 
         if layer.__class__.__name__ in ["LSTM", "GRU", "Bidirectional"]:
           layer_d['recurrent_activation'], _  = self._get_quantizer(
