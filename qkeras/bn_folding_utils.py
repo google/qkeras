@@ -24,6 +24,7 @@ from six.moves import range
 from tensorflow.keras.models import Model
 
 from .qconvolutional import QConv2D
+from .qconvolutional import QDepthwiseConv2D
 from .qtools import generate_layer_data_type_map as gen_map
 from .qtools import qgraph
 

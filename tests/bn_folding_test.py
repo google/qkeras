@@ -172,7 +172,8 @@ def get_debug_model(model):
 def generate_dataset(train_size=10,
                      batch_size=5,
                      input_shape=(3, 3, 1),
-                     num_class=2):
+                     num_class=2,
+                     output_shape=None):
   """create tf.data.Dataset with shape: (N,) + input_shape."""
 
   x_train = np.random.randint(
@@ -180,8 +181,11 @@ def generate_dataset(train_size=10,
   x_train = np.random.rand(
       train_size, input_shape[0], input_shape[1], input_shape[2])
 
-  y_train = np.random.randint(num_class, size=train_size)
-  y_train = to_categorical(y_train, num_class)
+  if output_shape:
+    y_train = np.random.random_sample((train_size,) + output_shape)
+  else:
+    y_train = np.random.randint(num_class, size=train_size)
+    y_train = to_categorical(y_train, num_class)
 
   train_ds = tf.data.Dataset.from_tensor_slices((x_train, y_train))
   train_ds = train_ds.batch(batch_size)
@@ -259,13 +263,21 @@ def test_convert_folded_model_to_normal():
   def _get_sequantial_folded_model(x_shape):
     x = x_in = layers.Input(x_shape, name="input")
     x = QConv2DBatchnorm(
-        filters=2, kernel_size=(2, 2), strides=(4, 4),
+        filters=2, kernel_size=(2, 2), strides=(2, 2),
         kernel_initializer="ones", bias_initializer="zeros", use_bias=False,
         kernel_quantizer=kernel_quantizer, beta_initializer="zeros",
         gamma_initializer="ones", moving_mean_initializer="zeros",
         moving_variance_initializer="ones", folding_mode=folding_mode,
         ema_freeze_delay=ema_freeze_delay,
         name="foldconv2d")(x)
+    x = QDepthwiseConv2DBatchnorm(
+        kernel_size=(2, 2),
+        strides=(1, 1),
+        use_bias=False,
+        depthwise_quantizer=kernel_quantizer,
+        folded_mode=folding_mode,
+        ema_freeze_delay=ema_freeze_delay,
+        name="folddepthwiseconv2d")(x)
     model = Model(inputs=[x_in], outputs=[x])
     model.layers[1].set_weights([
         kernel, gamma, beta, folded_kernel_quantized, folded_bias_quantized,
@@ -289,36 +301,55 @@ def test_convert_folded_model_to_normal():
         moving_variance_initializer="ones", folding_mode=folding_mode,
         ema_freeze_delay=ema_freeze_delay,
         name="foldconv2d")(x)
-    x1 = x
-    x2 = layers.Flatten(name="flatten")(x)
-    x2 = layers.Dense(2, use_bias=False, kernel_initializer="ones",
-                      name="dense")(x2)
-    model = Model(inputs=[x_in], outputs=[x1, x2])
+    x = layers.Flatten(name="flatten")(x)
+    x = layers.Dense(2, use_bias=False, kernel_initializer="ones",
+                     name="dense")(x)
+    model = Model(inputs=[x_in], outputs=[x])
     model.layers[4].set_weights([
         kernel, gamma, beta, folded_kernel_quantized, folded_bias_quantized,
         iteration, moving_mean, moving_variance
     ])
     return model
 
-  seq_model = _get_sequantial_folded_model(x_shape)
+  seq_model = _get_sequantial_folded_model((4, 4, 1))
   nonseq_model = _get_nonseq_folded_model(x_shape)
 
   for model in [nonseq_model, seq_model]:
-    weight1 = None
-    weight2 = None
+
+    # preparing data for testing if model prediction matches
+
+    output_shape = model.output_shape[1:]
+    input_shape = model.input_shape[1:]
+    train_ds = generate_dataset(train_size=10, batch_size=5,
+                                input_shape=input_shape,
+                                output_shape=output_shape)
+
+    # convert model with folded layers to a model with coresspoinding QConv2D
+    # or QDepthwiseConv2D layers
     cvt_model = bn_folding_utils.convert_folded_model_to_normal(model)
-    for layer in model.layers:
-      if layer.__class__.__name__ == "QConv2DBatchnorm":
-        weight1 = layer.get_folded_quantized_weight()
-        break
 
-    for layer in cvt_model.layers:
-      if layer.__class__.__name__ == "QConv2D":
-        weight2 = layer.get_weights()
-        break
+    for layer_type in ["QConv2DBatchnorm", "QDepthwiseConv2DBatchnorm"]:
+      weight1 = None
+      weight2 = None
+      for layer in model.layers:
+        if layer.__class__.__name__ == layer_type:
+          weight1 = layer.get_folded_quantized_weight()
+          break
 
-    assert_equal(weight1[0], weight2[0])
-    assert_equal(weight1[1], weight2[1])
+      for layer in cvt_model.layers:
+        if layer.__class__.__name__ == layer_type[:-9]:
+          weight2 = layer.get_weights()
+          break
+
+      # test if the corresponding layers have identical weights
+      if weight1 and weight2:
+        assert_equal(weight1[0], weight2[0])
+        assert_equal(weight1[1], weight2[1])
+
+    # test if the predictions of the two models are identical
+    pred1 = model.predict(train_ds)
+    pred2 = cvt_model.predict(train_ds)
+    assert_equal(pred1, pred2)
 
 
 def test_loading():

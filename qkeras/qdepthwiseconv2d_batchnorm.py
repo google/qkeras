@@ -372,5 +372,5 @@ class QDepthwiseConv2DBatchnorm(QDepthwiseConv2D):
     return self.quantizers
 
   def get_folded_quantized_weight(self):
-    return [self.folded_kernel_quantized.numpy(),
+    return [self.folded_depthwise_kernel_quantized.numpy(),
             self.folded_bias_quantized.numpy()]
