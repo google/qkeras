@@ -2,8 +2,6 @@
 
 [github.com/google/qkeras](https://github.com/google/qkeras)
 
-[![Build Status](https://travis-ci.org/google/qkeras.svg?branch=master)](https://travis-ci.org/google/qkeras)
-
 QKeras 0.8 highlights:
 
 - Automatic quantization using QKeras;
