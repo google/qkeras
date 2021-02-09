@@ -71,7 +71,7 @@ class Mux(IMultiplier):
                      output_quantizer)
     self.output.is_signed = self.input.is_signed | self.weights.is_signed
 
-    if weight_quantizer.name in ["binary", "ternary", "stochastic_ternary"]:
+    if any(s in weight_quantizer.name for s in ["binary", "ternary"]):
       self.output.bits = input_quantizer.bits
       self.output.int_bits = input_quantizer.int_bits
       if not input_quantizer.is_signed and weight_quantizer.is_signed:
@@ -80,7 +80,7 @@ class Mux(IMultiplier):
       # multiplier factor for gate counts
       # gate_factor is the relative energy of given gate comparing
       # to an Add gate, giving that Add gate is 1
-      if weight_quantizer.name == "binary":
+      if "binary" in weight_quantizer.name:
         self.gate_factor = 0.3
       else:
         self.gate_factor = 2 * 0.3
