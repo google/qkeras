@@ -71,7 +71,7 @@ class Mux(IMultiplier):
                      output_quantizer)
     self.output.is_signed = self.input.is_signed | self.weights.is_signed
 
-    if weight_quantizer.name in ["binary", "ternary"]:
+    if weight_quantizer.name in ["binary", "ternary", "stochastic_ternary"]:
       self.output.bits = input_quantizer.bits
       self.output.int_bits = input_quantizer.int_bits
       if not input_quantizer.is_signed and weight_quantizer.is_signed:
