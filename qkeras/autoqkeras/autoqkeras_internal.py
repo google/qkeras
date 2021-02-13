@@ -22,6 +22,7 @@ import json
 import os
 import re
 import copy
+from absl import logging
 
 # Temporary fix for a KerasTuner bug introduced by cl/347827925
 try:
@@ -113,6 +114,9 @@ class AutoQKHyperModel(HyperModel):
          autoqkeras
        quantization_config: dictionary containing configuration of
          quantizers for kernel, bias and activation.
+       extend_model_metrics: If to append the trial size and score metrics to
+         model metrics, which are used for AutoQKeras to determine the quality
+         of a model.
 
      Returns:
        quantized model in trial and boosted accuracy function compiled
@@ -124,7 +128,7 @@ class AutoQKHyperModel(HyperModel):
       transfer_weights=False, frozen_layers=None, activation_bits=4, limit=None,
       tune_filters="none", tune_filters_exceptions=None,
       layer_indexes=None, learning_rate_optimizer=False,
-      head_name=None, quantization_config=None
+      head_name=None, quantization_config=None, extend_model_metrics=True,
   ):
     self.model = model
     self.metrics = metrics
@@ -138,6 +142,7 @@ class AutoQKHyperModel(HyperModel):
     self.frozen_layers = frozen_layers if frozen_layers else []
     self.activation_bits = activation_bits
     self.head_name = head_name
+    self.extend_model_metrics = extend_model_metrics
     # make sure we have at least 3 elements in list
     # first one for kernel, second one for bias and thid one for activations.
     #
@@ -466,7 +471,7 @@ class AutoQKHyperModel(HyperModel):
 
         if layer.__class__.__name__ in SEQUENCE_LAYERS:
           layer_d['recurrent_quantizer'] = recurrent_quantizer
-        
+
         if layer.__class__.__name__ in ["SeparableConv1D", "SeparableConv2D"]:
           layer_d['pointwise_quantizer'] = pointwise_quantizer
 
@@ -658,31 +663,36 @@ class AutoQKHyperModel(HyperModel):
 
     q_model.summary()
 
+    metrics = self.metrics
+
     # extend metrics by including score and trial_size metrics
-    ext_metrics = copy.deepcopy(self.metrics)
-    if isinstance(ext_metrics, dict):
-      # for dictionary, add trial_size_metric and score metric to target output
-      if not self.head_name:
-        # if head_name not provided, find the first metric from the dict
-        score_key = list(ext_metrics.keys())[0]
+    if self.extend_model_metrics:
+      ext_metrics = copy.deepcopy(metrics)
+      if isinstance(ext_metrics, dict):
+        # for dict, add trial_size_metric and score metric to target output
+        if not self.head_name:
+          # if head_name not provided, find the first metric from the dict
+          score_key = list(ext_metrics.keys())[0]
+        else:
+          # find the metric assoicated with the head_name
+          score_key = self.head_name
+        score_metric = ext_metrics[score_key]
+        if isinstance(score_metric, list):
+          score_metric += [self.trial_size_metric(self.trial_size), self.score]
+        else:
+          score_metric = [score_metric]
+          score_metric += [self.trial_size_metric(self.trial_size), self.score]
+        ext_metrics[score_key] = score_metric
       else:
-        # find the metric assoicated with the head_name
-        score_key = self.head_name
-      score_metric = ext_metrics[score_key]
-      if isinstance(score_metric, list):
-        score_metric += [self.trial_size_metric(self.trial_size), self.score]
-      else:
-        score_metric = [score_metric]
-        score_metric += [self.trial_size_metric(self.trial_size), self.score]
-      ext_metrics[score_key] = score_metric
-    else:
-      ext_metrics += [
-          self.trial_size_metric(self.trial_size),
-          self.score]
+        ext_metrics += [
+            self.trial_size_metric(self.trial_size),
+            self.score]
+      metrics = ext_metrics
+
     q_model.compile(
         optimizer=optimizer,
         loss=self.model.loss,
-        metrics=ext_metrics
+        metrics=metrics
     )
     self.q_model = q_model
 
@@ -743,6 +753,7 @@ class AutoQKeras:
        goal: Metric to compute secondary goal of search (bits or energy)
        output_dir: name of output directory to store results.
        mode: random, hyperband or bayesian used by kerastuner.
+       custom_tuner: The Keras Tuner class to use to search hyperparams
        transfer_weights: if true, transfer weights from unquantized model.
        frozen_layers: if true, these layers will not be quantized but
          weights transferred from original model.
