@@ -29,9 +29,9 @@ import numpy as np
 import os
 import six
 import re
+import networkx as nx
 import tensorflow as tf
 import tensorflow.keras.backend as K
-
 from tensorflow.keras import initializers
 
 from tensorflow.keras.models import Model
@@ -63,6 +63,7 @@ from .qconvolutional import QSeparableConv1D
 from .qconvolutional import QSeparableConv2D
 from .qconvolutional import QDepthwiseConv2D
 from .qnormalization import QBatchNormalization
+from .qtools import qgraph
 from .quantizers import binary
 from .quantizers import bernoulli
 from .quantizers import get_weight_scale
@@ -224,42 +225,93 @@ def get_config(quantizer_config, layer, layer_class, parameter=None):
   return quantizer
 
 
-def find_layers_to_fold(model):
-  """Find conv/dense layers that need to be folded with following bn layers.
+def convert_to_folded_model(model):
+  """Find conv/dense layers followed by bn layers and fold them.
 
   Args:
     model: input model
 
   Returns:
     new model without bn layers
-    list of layers that need to be folded
+    list of layers being folded
 
-  Note: currently only supports sequential model
+  Note: supports sequential and non-sequential model
   """
 
-  # TODO(lishanok): extends this function to non-sequential model
-  layers = list(model.layers)
+  fold_model = clone_model(model)
+
+  (graph, _) = qgraph.GenerateGraphFromModel(
+      fold_model, "quantized_bits(8, 0, 1)", "quantized_bits(8, 0, 1)")
+
+  qgraph.GraphAddSingleSourceSingleSink(graph)
+  qgraph.GraphRemoveNodeWithNodeType(graph, "InputLayer")
+  qgraph.GraphPropagateActivationsToEdges(graph)
+
+  # Find the Batchnorm nodes to be deleted and mark them
+  bn_nodes_to_delete = []
   layers_to_fold = []
+  for node_id in nx.topological_sort(graph):
+    layer_input_tensors = []
+    node = graph.nodes[node_id]
+    layer = node["layer"][0]
+    if layer:
+      successor_ids = list(graph.successors(node_id))
+      is_single = len(successor_ids) == 1
+      successor_layer = graph.nodes[successor_ids[0]]["layer"][0]
+      followed_by_bn = (successor_layer.__class__.__name__ ==
+                        "BatchNormalization")
+      # TODO(lishanok): extend to QDense types
+      is_foldable = layer.__class__.__name__ in [
+          "Conv2D", "DepthwiseConv2D"
+      ] and is_single and followed_by_bn
 
-  prev_layer = None
-  prev_x = layers[0].output
+      if is_foldable:
+        # remove the batchnorm node from the graph
+        bn_nodes_to_delete.append(successor_ids[0])
+        layers_to_fold.append(layer.name)
 
-  for i in range(1, len(layers)):
-    layer = layers[i]
+  # delete the marked nodes
+  for node_id in bn_nodes_to_delete:
+    qgraph.GraphRemoveNode(graph, node_id)
 
-    if layer.__class__.__name__ not in ["BatchNormalization",
-                                        "QBatchNormalization"]:
-      x = layer(prev_x)
-      prev_x = x
-      prev_layer = layer
-    else:
-      # current layer is a bn layer; mark prev layer in the to_fold list
-      if prev_layer.__class__.__name__ in [
-          "Conv2D", "Dense", "QConv2D", "QDense", "DepthwiseConv2D",
-          "QDepthwiseConv2D"]:
-        layers_to_fold.append(prev_layer.name)
+  # Modify model according to the graph
+  model_outputs = []
+  x = model_inputs = fold_model.inputs
 
-  new_model = Model(inputs=model.inputs, outputs=x)
+  for node_id in nx.topological_sort(graph):
+    layer_input_tensors = []
+    node = graph.nodes[node_id]
+
+    layer = node["layer"][0]
+    if layer:
+      # get layer input tensors from graph edge
+      for parent_node_id in graph.predecessors(node_id):
+        edge = graph.edges[(parent_node_id, node_id)]
+        input_tensor = edge["tensor"]
+        layer_input_tensors.append(input_tensor)
+
+      # we call the layer to get output tensor
+      if len(layer_input_tensors) == 1:
+        layer_input_tensors = layer_input_tensors[0].deref()
+      else:
+        layer_input_tensors = [t.deref() for t in layer_input_tensors]
+
+      x = layer(layer_input_tensors)
+
+      # replace edge tensors between the predecessor and successor
+      for u, v in graph.edges(node_id):
+        # u is current layer node, v is successor layer node
+        # graph[u][v] is the edge between the two nodes
+        # Replace the tensor on this edge so that the input tensor for the
+        # successor layer can be updated accordingly.
+        graph[u][v]["tensor"] = x.ref()
+
+        if v == -2 and x not in model_outputs:
+          # When it is output layer, add the output tensor of this layer
+          # into model outputs.
+          model_outputs.append(x)
+
+  new_model = Model(inputs=model_inputs, outputs=model_outputs)
 
   return new_model, layers_to_fold
 
@@ -354,7 +406,7 @@ def model_quantize(model,
 
   if enable_bn_folding:
     # remove bn layers from the model and find a list of layers to fold
-    model, layers_to_fold = find_layers_to_fold(model)
+    model, layers_to_fold = convert_to_folded_model(model)
     if len(layers_to_fold) == 0:
       # no layers to fold, no need to perform folding
       enable_bn_folding = False

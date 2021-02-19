@@ -26,6 +26,7 @@ from tensorflow.keras.models import *
 from qkeras import *
 from qkeras.utils import get_model_sparsity
 from qkeras.utils import model_quantize
+from qkeras.utils import convert_to_folded_model
 
 
 def create_quantized_network():
@@ -109,6 +110,36 @@ def test_get_po2_model_sparsity():
     qmodel = set_network_sparsity(qmodel, set_sparsity)
     calc_sparsity = get_model_sparsity(qmodel)
     assert np.abs(calc_sparsity - 0) < 0.01
+
+
+def test_convert_to_folded_model():
+  """Test convert_to_folded_model to work properly on non-sequential model."""
+
+  def get_add_model():
+    x = x_in = Input(shape=(4, 4, 1), name="input")
+    x1 = Conv2D(4, kernel_size=(2, 2), padding="valid", strides=(1, 1),
+                name="conv2d_1")(x)
+    x1 = BatchNormalization(name="bn_1")(x1)
+    x1 = Activation("relu", name="relu_1")(x1)
+    x2 = Conv2D(4, kernel_size=(2, 2), padding="valid", strides=(1, 1),
+                name="conv2d_2")(x)
+    x2 = BatchNormalization(name="bn_2")(x2)
+    x2 = Activation("relu", name="relu_2")(x2)
+    x = Add(name="add")([x1, x2])
+    x = Softmax()(x)
+
+    return Model(inputs=[x_in], outputs=[x])
+
+  model = get_add_model()
+
+  fmodel, _ = convert_to_folded_model(model)
+
+  assert fmodel.layers[1].name == "conv2d_1"
+  assert fmodel.layers[2].name == "conv2d_2"
+  assert fmodel.layers[3].name == "relu_1"
+  assert fmodel.layers[4].name == "relu_2"
+  assert fmodel.layers[5].name == "add"
+
 
 if __name__ == "__main__":
   pytest.main([__file__])
