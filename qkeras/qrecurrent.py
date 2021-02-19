@@ -49,11 +49,12 @@ class QSimpleRNNCell(SimpleRNNCell):
 
   Most of these parameters follow the implementation of SimpleRNNCell in
   Keras, with the exception of kernel_quantizer, recurrent_quantizer,
-  and bias_quantizer.
+  bias_quantizer, and state_quantizer.
 
   kernel_quantizer: quantizer function/class for kernel
   recurrent_quantizer: quantizer function/class for recurrent kernel
   bias_quantizer: quantizer function/class for bias
+  state_quantizer: quantizer function/class for states
 
   We refer the reader to the documentation of SimpleRNNCell in Keras for the
   other parameters.
@@ -75,6 +76,7 @@ class QSimpleRNNCell(SimpleRNNCell):
                kernel_quantizer=None,
                recurrent_quantizer=None,
                bias_quantizer=None,
+               state_quantizer=None,
                dropout=0.,
                recurrent_dropout=0.,
                **kwargs):
@@ -82,15 +84,16 @@ class QSimpleRNNCell(SimpleRNNCell):
     self.kernel_quantizer = kernel_quantizer
     self.recurrent_quantizer = recurrent_quantizer
     self.bias_quantizer = bias_quantizer
+    self.state_quantizer = state_quantizer
 
     self.kernel_quantizer_internal = get_quantizer(self.kernel_quantizer)
     self.recurrent_quantizer_internal = get_quantizer(self.recurrent_quantizer)
     self.bias_quantizer_internal = get_quantizer(self.bias_quantizer)
+    self.state_quantizer_internal = get_quantizer(self.state_quantizer)
 
     self.quantizers = [
-      self.kernel_quantizer_internal,
-      self.recurrent_quantizer_internal,
-      self.bias_quantizer_internal
+        self.kernel_quantizer_internal, self.recurrent_quantizer_internal,
+        self.bias_quantizer_internal, self.state_quantizer_internal
     ]
 
     if hasattr(self.kernel_quantizer_internal, "_set_trainable_parameter"):
@@ -138,9 +141,15 @@ class QSimpleRNNCell(SimpleRNNCell):
 
   def call(self, inputs, states, training=None):
     prev_output = states[0] if nest.is_sequence(states) else states
+
     dp_mask = self.get_dropout_mask_for_cell(inputs, training)
     rec_dp_mask = self.get_recurrent_dropout_mask_for_cell(
         prev_output, training)
+
+    if self.state_quantizer:
+      quantized_prev_output = self.state_quantizer_internal(prev_output)
+    else:
+      quantized_prev_output = prev_output
 
     if self.kernel_quantizer:
       quantized_kernel = self.kernel_quantizer_internal(self.kernel)
@@ -161,14 +170,14 @@ class QSimpleRNNCell(SimpleRNNCell):
       h = K.bias_add(h, quantized_bias)
 
     if rec_dp_mask is not None:
-      prev_output = prev_output * rec_dp_mask
+      quantized_prev_output = quantized_prev_output * rec_dp_mask
 
     if self.recurrent_quantizer:
       quantized_recurrent = self.recurrent_quantizer_internal(self.recurrent_kernel)
     else:
       quantized_recurrent = self.recurrent_kernel
 
-    output = h + K.dot(prev_output, quantized_recurrent)
+    output = h + K.dot(quantized_prev_output, quantized_recurrent)
 
     if self.activation is not None:
       output = self.activation(output)
@@ -181,7 +190,9 @@ class QSimpleRNNCell(SimpleRNNCell):
         "recurrent_quantizer":
             constraints.serialize(self.recurrent_quantizer_internal),
         "bias_quantizer":
-            constraints.serialize(self.bias_quantizer_internal)
+            constraints.serialize(self.bias_quantizer_internal),
+        "state_quantizer":
+            constraints.serialize(self.state_quantizer_internal)
     }
     base_config = super(QSimpleRNNCell, self).get_config()
     return dict(list(base_config.items()) + list(config.items()))
@@ -193,12 +204,13 @@ class QSimpleRNN(RNN, PrunableLayer):
 
   Most of these parameters follow the implementation of SimpleRNN in
   Keras, with the exception of kernel_quantizer, recurrent_quantizer,
-  and bias_quantizer.
+  bias_quantizer and state_quantizer.
 
 
   kernel_quantizer: quantizer function/class for kernel
   recurrent_quantizer: quantizer function/class for recurrent kernel
   bias_quantizer: quantizer function/class for bias
+  state_quantizer: quantizer function/class for states
 
 
   We refer the reader to the documentation of SimpleRNN in Keras for the
@@ -223,6 +235,7 @@ class QSimpleRNN(RNN, PrunableLayer):
                kernel_quantizer=None,
                recurrent_quantizer=None,
                bias_quantizer=None,
+               state_quantizer=None,
                dropout=0.,
                recurrent_dropout=0.,
                return_sequences=False,
@@ -254,6 +267,7 @@ class QSimpleRNN(RNN, PrunableLayer):
         kernel_quantizer=kernel_quantizer,
         recurrent_quantizer=recurrent_quantizer,
         bias_quantizer=bias_quantizer,
+        state_quantizer=state_quantizer,
         dropout=dropout,
         recurrent_dropout=recurrent_dropout,
         dtype=kwargs.get('dtype'),
@@ -343,6 +357,10 @@ class QSimpleRNN(RNN, PrunableLayer):
     return self.cell.bias_quantizer_internal
 
   @property
+  def state_quantizer_internal(self):
+    return self.cell.state_quantizer_internal
+
+  @property
   def kernel_quantizer(self):
     return self.cell.kernel_quantizer
 
@@ -353,6 +371,10 @@ class QSimpleRNN(RNN, PrunableLayer):
   @property
   def bias_quantizer(self):
     return self.cell.bias_quantizer
+
+  @property
+  def state_quantizer(self):
+    return self.cell.state_quantizer
 
   @property
   def dropout(self):
@@ -396,6 +418,8 @@ class QSimpleRNN(RNN, PrunableLayer):
             constraints.serialize(self.recurrent_quantizer_internal),
         "bias_quantizer":
             constraints.serialize(self.bias_quantizer_internal),
+        "state_quantizer":
+            constraints.serialize(self.state_quantizer_internal),
         'dropout':
             self.dropout,
         'recurrent_dropout':
@@ -413,6 +437,8 @@ class QSimpleRNN(RNN, PrunableLayer):
             str(self.recurrent_quantizer_internal),
         "bias_quantizer":
             str(self.bias_quantizer_internal),
+        "state_quantizer":
+            str(self.state_quantizer_internal),
         "activation":
             str(self.activation)
     }
@@ -430,13 +456,13 @@ class QLSTMCell(LSTMCell):
 
   Most of these parameters follow the implementation of LSTMCell in
   Keras, with the exception of kernel_quantizer, recurrent_quantizer,
-  and bias_quantizer.
+  bias_quantizer, state_quantizer.
 
 
   kernel_quantizer: quantizer function/class for kernel
   recurrent_quantizer: quantizer function/class for recurrent kernel
   bias_quantizer: quantizer function/class for bias
-
+  state_quantizer: quantizer function/class for states
 
   We refer the reader to the documentation of LSTMCell in Keras for the
   other parameters.
@@ -461,6 +487,7 @@ class QLSTMCell(LSTMCell):
                kernel_quantizer=None,
                recurrent_quantizer=None,
                bias_quantizer=None,
+               state_quantizer=None,
                dropout=0.,
                recurrent_dropout=0.,
                implementation=1,
@@ -468,15 +495,18 @@ class QLSTMCell(LSTMCell):
     self.kernel_quantizer = kernel_quantizer
     self.recurrent_quantizer = recurrent_quantizer
     self.bias_quantizer = bias_quantizer
+    self.state_quantizer = state_quantizer
 
     self.kernel_quantizer_internal = get_quantizer(self.kernel_quantizer)
     self.recurrent_quantizer_internal = get_quantizer(self.recurrent_quantizer)
     self.bias_quantizer_internal = get_quantizer(self.bias_quantizer)
+    self.state_quantizer_internal = get_quantizer(self.state_quantizer)
 
     self.quantizers = [
       self.kernel_quantizer_internal,
       self.recurrent_quantizer_internal,
-      self.bias_quantizer_internal
+      self.bias_quantizer_internal,
+      self.state_quantizer_internal,
     ]
 
     if hasattr(self.kernel_quantizer_internal, "_set_trainable_parameter"):
@@ -552,8 +582,15 @@ class QLSTMCell(LSTMCell):
     return c, o
 
   def call(self, inputs, states, training=None):
-    h_tm1 = states[0]  # previous memory state
-    c_tm1 = states[1]  # previous carry state
+    h_tm1_tmp = states[0]  # previous memory state
+    c_tm1_tmp = states[1]  # previous carry state
+
+    if self.state_quantizer:
+      c_tm1 = self.state_quantizer_internal(c_tm1_tmp)
+      h_tm1 = self.state_quantizer_internal(h_tm1_tmp)
+    else:
+      c_tm1 = c_tm1_tmp
+      h_tm1 = h_tm1_tmp
 
     dp_mask = self.get_dropout_mask_for_cell(inputs, training, count=4)
     rec_dp_mask = self.get_recurrent_dropout_mask_for_cell(
@@ -631,7 +668,9 @@ class QLSTMCell(LSTMCell):
         "recurrent_quantizer":
             constraints.serialize(self.recurrent_quantizer_internal),
         "bias_quantizer":
-            constraints.serialize(self.bias_quantizer_internal)
+            constraints.serialize(self.bias_quantizer_internal),
+        "state_quantizer":
+            constraints.serialize(self.state_quantizer_internal)
     }
     base_config = super(QLSTMCell, self).get_config()
     return dict(list(base_config.items()) + list(config.items()))
@@ -643,13 +682,13 @@ class QLSTM(RNN, PrunableLayer):
 
   Most of these parameters follow the implementation of LSTM in
   Keras, with the exception of kernel_quantizer, recurrent_quantizer,
-  and bias_quantizer.
+  bias_quantizer, state_quantizer.
 
 
   kernel_quantizer: quantizer function/class for kernel
   recurrent_quantizer: quantizer function/class for recurrent kernel
   bias_quantizer: quantizer function/class for bias
-
+  state_quantizer: quantizer function/class for states
 
   We refer the reader to the documentation of LSTM in Keras for the
   other parameters.
@@ -675,6 +714,7 @@ class QLSTM(RNN, PrunableLayer):
                kernel_quantizer=None,
                recurrent_quantizer=None,
                bias_quantizer=None,
+               state_quantizer=None,
                dropout=0.,
                recurrent_dropout=0.,
                implementation=1,
@@ -713,6 +753,7 @@ class QLSTM(RNN, PrunableLayer):
         kernel_quantizer=kernel_quantizer,
         recurrent_quantizer=recurrent_quantizer,
         bias_quantizer=bias_quantizer,
+        state_quantizer=state_quantizer,
         dropout=dropout,
         recurrent_dropout=recurrent_dropout,
         implementation=implementation,
@@ -811,6 +852,10 @@ class QLSTM(RNN, PrunableLayer):
     return self.cell.bias_quantizer_internal
 
   @property
+  def state_quantizer_internal(self):
+    return self.cell.state_quantizer_internal
+
+  @property
   def kernel_quantizer(self):
     return self.cell.kernel_quantizer
 
@@ -821,6 +866,10 @@ class QLSTM(RNN, PrunableLayer):
   @property
   def bias_quantizer(self):
     return self.cell.bias_quantizer
+
+  @property
+  def state_quantizer(self):
+    return self.cell.state_quantizer
 
   @property
   def dropout(self):
@@ -872,6 +921,8 @@ class QLSTM(RNN, PrunableLayer):
             constraints.serialize(self.recurrent_quantizer_internal),
         "bias_quantizer":
             constraints.serialize(self.bias_quantizer_internal),
+        "state_quantizer":
+            constraints.serialize(self.state_quantizer_internal),
         'dropout':
             self.dropout,
         'recurrent_dropout':
@@ -891,6 +942,8 @@ class QLSTM(RNN, PrunableLayer):
             str(self.recurrent_quantizer_internal),
         "bias_quantizer":
             str(self.bias_quantizer_internal),
+        "state_quantizer":
+            str(self.state_quantizer_internal),
         "activation":
             str(self.activation),
         "recurrent_activation":
@@ -910,12 +963,13 @@ class QGRUCell(GRUCell):
 
   Most of these parameters follow the implementation of GRUCell in
   Keras, with the exception of kernel_quantizer, recurrent_quantizer,
-  and bias_quantizer.
+  bias_quantizer and state_quantizer.
 
 
   kernel_quantizer: quantizer function/class for kernel
   recurrent_quantizer: quantizer function/class for recurrent kernel
   bias_quantizer: quantizer function/class for bias
+  state_quantizer: quantizer function/class for states
 
 
   We refer the reader to the documentation of GRUCell in Keras for the
@@ -939,6 +993,7 @@ class QGRUCell(GRUCell):
                kernel_quantizer=None,
                recurrent_quantizer=None,
                bias_quantizer=None,
+               state_quantizer=None,
                dropout=0.,
                recurrent_dropout=0.,
                implementation=1,
@@ -948,15 +1003,18 @@ class QGRUCell(GRUCell):
     self.kernel_quantizer = kernel_quantizer
     self.recurrent_quantizer = recurrent_quantizer
     self.bias_quantizer = bias_quantizer
+    self.state_quantizer = state_quantizer
 
     self.kernel_quantizer_internal = get_quantizer(self.kernel_quantizer)
     self.recurrent_quantizer_internal = get_quantizer(self.recurrent_quantizer)
     self.bias_quantizer_internal = get_quantizer(self.bias_quantizer)
+    self.state_quantizer_internal = get_quantizer(self.state_quantizer)
 
     self.quantizers = [
       self.kernel_quantizer_internal,
       self.recurrent_quantizer_internal,
-      self.bias_quantizer_internal
+      self.bias_quantizer_internal,
+      self.state_quantizer_internal
     ]
 
     if hasattr(self.kernel_quantizer_internal, "_set_trainable_parameter"):
@@ -1008,11 +1066,17 @@ class QGRUCell(GRUCell):
       **kwargs)
 
   def call(self, inputs, states, training=None):
-    h_tm1 = states[0] if nest.is_sequence(states) else states  # previous memory
+    # previous memory
+    h_tm1_tmp = states[0] if nest.is_sequence(states) else states
 
     dp_mask = self.get_dropout_mask_for_cell(inputs, training, count=3)
     rec_dp_mask = self.get_recurrent_dropout_mask_for_cell(
-        h_tm1, training, count=3)
+        h_tm1_tmp, training, count=3)
+
+    if self.state_quantizer:
+      h_tm1 = self.state_quantizer_internal(h_tm1_tmp)
+    else:
+      h_tm1 = h_tm1_tmp
 
     if self.kernel_quantizer:
       quantized_kernel = self.kernel_quantizer_internal(self.kernel)
@@ -1129,7 +1193,9 @@ class QGRUCell(GRUCell):
         "recurrent_quantizer":
             constraints.serialize(self.recurrent_quantizer_internal),
         "bias_quantizer":
-            constraints.serialize(self.bias_quantizer_internal)
+            constraints.serialize(self.bias_quantizer_internal),
+        "state_quantizer":
+            constraints.serialize(self.state_quantizer_internal)
     }
     base_config = super(QGRUCell, self).get_config()
     return dict(list(base_config.items()) + list(config.items()))
@@ -1141,12 +1207,13 @@ class QGRU(RNN, PrunableLayer):
 
   Most of these parameters follow the implementation of GRU in
   Keras, with the exception of kernel_quantizer, recurrent_quantizer,
-  and bias_quantizer.
+  bias_quantizer and state_quantizer.
 
 
   kernel_quantizer: quantizer function/class for kernel
   recurrent_quantizer: quantizer function/class for recurrent kernel
   bias_quantizer: quantizer function/class for bias
+  state_quantizer: quantizer function/class for states
 
 
   We refer the reader to the documentation of GRU in Keras for the
@@ -1172,6 +1239,7 @@ class QGRU(RNN, PrunableLayer):
                kernel_quantizer=None,
                recurrent_quantizer=None,
                bias_quantizer=None,
+               state_quantizer=None,
                dropout=0.,
                recurrent_dropout=0.,
                implementation=1,
@@ -1210,6 +1278,7 @@ class QGRU(RNN, PrunableLayer):
         kernel_quantizer=kernel_quantizer,
         recurrent_quantizer=recurrent_quantizer,
         bias_quantizer=bias_quantizer,
+        state_quantizer=state_quantizer,
         dropout=dropout,
         recurrent_dropout=recurrent_dropout,
         implementation=implementation,
@@ -1305,6 +1374,10 @@ class QGRU(RNN, PrunableLayer):
     return self.cell.bias_quantizer_internal
 
   @property
+  def state_quantizer_internal(self):
+    return self.cell.state_quantizer_internal
+
+  @property
   def kernel_quantizer(self):
     return self.cell.kernel_quantizer
 
@@ -1315,6 +1388,10 @@ class QGRU(RNN, PrunableLayer):
   @property
   def bias_quantizer(self):
     return self.cell.bias_quantizer
+
+  @property
+  def state_quantizer(self):
+    return self.cell.state_quantizer
 
   @property
   def dropout(self):
@@ -1368,6 +1445,8 @@ class QGRU(RNN, PrunableLayer):
             constraints.serialize(self.recurrent_quantizer_internal),
         "bias_quantizer":
             constraints.serialize(self.bias_quantizer_internal),
+        "state_quantizer":
+            constraints.serialize(self.state_quantizer_internal),
         'dropout':
             self.dropout,
         'recurrent_dropout':
@@ -1389,6 +1468,8 @@ class QGRU(RNN, PrunableLayer):
             str(self.recurrent_quantizer_internal),
         "bias_quantizer":
             str(self.bias_quantizer_internal),
+        "state_quantizer":
+            str(self.state_quantizer_internal),
         "activation":
             str(self.activation),
         "recurrent_activation":

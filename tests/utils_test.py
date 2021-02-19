@@ -134,10 +134,6 @@ def test_convert_to_folded_model():
 
   fmodel, _ = convert_to_folded_model(model)
 
-  assert fmodel.layers[1].name == "conv2d_1"
-  assert fmodel.layers[2].name == "conv2d_2"
-  assert fmodel.layers[3].name == "relu_1"
-  assert fmodel.layers[4].name == "relu_2"
   assert fmodel.layers[5].name == "add"
 
 

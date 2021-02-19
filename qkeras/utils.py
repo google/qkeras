@@ -132,7 +132,15 @@ def model_save_quantized_weights(model, filename=None):
     if hasattr(layer, "get_quantizers"):
       weights = []
       signs = []
-      for quantizer, weight in zip(layer.get_quantizers(), layer.get_weights()):
+
+      if layer.__class__.__name__ in ["QSimpleRNN", "QLSTM", "QGRU"]:
+        qs = layer.get_quantizers()[:-1]
+        ws = layer.get_weights()
+      else:
+        qs = layer.get_quantizers()
+        ws = layer.get_weights()
+
+      for quantizer, weight in zip(qs, ws):
         if quantizer:
           weight = tf.constant(weight)
           weight = tf.keras.backend.eval(quantizer(weight))
@@ -432,6 +440,8 @@ def model_quantize(model,
           quantizer_config, layer, q_name, "bias_quantizer")
     else:
       bias_quantizer = None
+    state_quantizer = get_config(
+            quantizer_config, layer, q_name, "state_quantizer")
 
     # this is to avoid unwanted transformations
     if kernel_quantizer is None:
@@ -440,6 +450,7 @@ def model_quantize(model,
     layer["config"]["kernel_quantizer"] = kernel_quantizer
     layer["config"]["recurrent_quantizer"] = recurrent_quantizer
     layer["config"]["bias_quantizer"] = bias_quantizer
+    layer["config"]["state_quantizer"] = state_quantizer
 
     # if activation is present, add activation here
     activation = get_config(
