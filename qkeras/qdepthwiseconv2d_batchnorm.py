@@ -127,7 +127,8 @@ class QDepthwiseConv2DBatchnorm(QDepthwiseConv2D):
         depthwise_quantizer=depthwise_quantizer,
         bias_quantizer=bias_quantizer,
         depthwise_range=depthwise_range,
-        bias_range=bias_range)
+        bias_range=bias_range,
+        name=name)
 
     # initialization of batchnorm part of the composite layer
     self.batchnorm = layers.BatchNormalization(
@@ -139,43 +140,15 @@ class QDepthwiseConv2DBatchnorm(QDepthwiseConv2D):
         beta_regularizer=beta_regularizer,
         gamma_regularizer=gamma_regularizer,
         beta_constraint=beta_constraint,
-        gamma_constraint=gamma_constraint)
+        gamma_constraint=gamma_constraint,
+        fused=False)
 
     self.ema_freeze_delay = ema_freeze_delay
     assert folding_mode in ["ema_stats_folding", "batch_stats_folding"]
     self.folding_mode = folding_mode
-    self._name = name
 
   def build(self, input_shape):
     super(QDepthwiseConv2DBatchnorm, self).build(input_shape)
-
-    # create untrainable folded weights that can export later for zpm
-    if self.data_format == "channels_first":
-      channel_axis = 1
-    else:
-      channel_axis = 3
-    input_dim = int(input_shape[channel_axis])
-    depthwise_kernel_shape = (self.kernel_size[0], self.kernel_size[1],
-                              input_dim, self.depth_multiplier)
-
-    # folded quantized kernel and bias
-    self.folded_depthwise_kernel_quantized = self.add_weight(
-        name="folded_depthwise_kernel_quantized",
-        shape=depthwise_kernel_shape,
-        initializer=self.depthwise_initializer,
-        regularizer=self.depthwise_regularizer,
-        constraint=self.depthwise_constraint,
-        trainable=False,
-        dtype=self.dtype)
-
-    self.folded_bias_quantized = self.add_weight(
-        name="folded_bias_quantized",
-        shape=(input_dim * self.depth_multiplier,),
-        initializer=self.bias_initializer,
-        regularizer=self.bias_regularizer,
-        constraint=self.bias_constraint,
-        trainable=False,
-        dtype=self.dtype)
 
     # If start training from scratch, self._iteration (i.e., training_steps)
     # is initialized with -1. When loading ckpt, it can load the number of
@@ -190,7 +163,7 @@ class QDepthwiseConv2DBatchnorm(QDepthwiseConv2D):
     training = self.batchnorm._get_training_value(training)  # pylint: disable=protected-access
 
     # checking if to update batchnorm params
-    if self.ema_freeze_delay is None or self.ema_freeze_delay < 0:
+    if (self.ema_freeze_delay is None) or (self.ema_freeze_delay < 0):
       # if ema_freeze_delay is None or a negative value, do not freeze bn stats
       bn_training = tf.cast(training, dtype=bool)
     else:
@@ -216,108 +189,93 @@ class QDepthwiseConv2DBatchnorm(QDepthwiseConv2D):
       bias = 0
 
     _ = self.batchnorm(conv_outputs, training=bn_training)
-    if training is True:
-      # The following operation is only performed during training
 
-      self._iteration.assign_add(tf_utils.smart_cond(
-          training, lambda: tf.constant(1, tf.int64),
-          lambda: tf.constant(0, tf.int64)))
+    self._iteration.assign_add(tf_utils.smart_cond(
+        training, lambda: tf.constant(1, tf.int64),
+        lambda: tf.constant(0, tf.int64)))
 
-      # calcuate mean and variance from current batch
-      bn_shape = conv_outputs.shape
-      ndims = len(bn_shape)
-      reduction_axes = [i for i in range(ndims) if i not in self.batchnorm.axis]
-      keep_dims = len(self.batchnorm.axis) > 1
-      mean, variance = self.batchnorm._moments(  # pylint: disable=protected-access
-          math_ops.cast(conv_outputs, self.batchnorm._param_dtype),  # pylint: disable=protected-access
-          reduction_axes,
-          keep_dims=keep_dims)
-      gamma = self.batchnorm.gamma
-      beta = self.batchnorm.beta
-      moving_mean = self.batchnorm.moving_mean
-      moving_variance = self.batchnorm.moving_variance
+    # calcuate mean and variance from current batch
+    bn_shape = conv_outputs.shape
+    ndims = len(bn_shape)
+    reduction_axes = [i for i in range(ndims) if i not in self.batchnorm.axis]
+    keep_dims = len(self.batchnorm.axis) > 1
+    mean, variance = self.batchnorm._moments(  # pylint: disable=protected-access
+        math_ops.cast(conv_outputs, self.batchnorm._param_dtype),  # pylint: disable=protected-access
+        reduction_axes,
+        keep_dims=keep_dims)
+    gamma = self.batchnorm.gamma
+    beta = self.batchnorm.beta
+    moving_mean = self.batchnorm.moving_mean
+    moving_variance = self.batchnorm.moving_variance
 
-      if self.folding_mode == "batch_stats_folding":
-        # using batch mean and variance in the initial training stage
-        # after sufficient training, switch to moving mean and variance
-        new_mean = tf_utils.smart_cond(
-            bn_training, lambda: mean, lambda: moving_mean)
-        new_variance = tf_utils.smart_cond(
-            bn_training, lambda: variance, lambda: moving_variance)
+    if self.folding_mode not in ["batch_stats_folding", "ema_stats_folding"]:
+      assert ValueError("mode {} not supported!".format(self.folding_mode))
 
-        # get the inversion factor so that we replace division by multiplication
-        inv = math_ops.rsqrt(new_variance + self.batchnorm.epsilon)
-        if gamma is not None:
-          inv *= gamma
-        # fold bias with bn stats
-        folded_bias = inv * (bias - new_mean) + beta
+    mv_inv = math_ops.rsqrt(moving_variance + self.batchnorm.epsilon)
+    batch_inv = math_ops.rsqrt(variance + self.batchnorm.epsilon)
 
-      elif self.folding_mode == "ema_stats_folding":
-        # We always scale the weights with a correction factor to the long term
-        # statistics prior to quantization. This ensures that there is no jitter
-        # in the quantized weights due to batch to batch variation. During the
-        # initial phase of training, we undo the scaling of the weights so that
-        # outputs are identical to regular batch normalization. We also modify
-        # the bias terms correspondingly. After sufficient training, switch from
-        # using batch statistics to long term moving averages for batch
-        # normalization.
+    if gamma is not None:
+      mv_inv *= gamma
+      batch_inv *= gamma
 
-        # use batch stats for calcuating bias before bn freeze, and use moving
-        # stats after bn freeze
-        mv_inv = math_ops.rsqrt(moving_variance + self.batchnorm.epsilon)
-        batch_inv = math_ops.rsqrt(variance + self.batchnorm.epsilon)
+    folded_bias = tf_utils.smart_cond(
+        bn_training,
+        lambda: batch_inv * (bias - mean) + beta,
+        lambda: mv_inv * (bias - moving_mean) + beta)
 
-        if gamma is not None:
-          mv_inv *= gamma
-          batch_inv *= gamma
-        folded_bias = tf_utils.smart_cond(
-            bn_training,
-            lambda: batch_inv * (bias - mean) + beta,
-            lambda: mv_inv * (bias - moving_mean) + beta)
-        # moving stats is always used to fold kernel in tflite; before bn freeze
-        # an additional correction factor will be applied to the depthwiseconv2d
-        # output
-        inv = mv_inv
-      else:
-        assert ValueError
+    if self.folding_mode == "batch_stats_folding":
+      # using batch mean and variance in the initial training stage
+      # after sufficient training, switch to moving mean and variance
+      inv = tf_utils.smart_cond(bn_training, lambda: batch_inv, lambda: mv_inv)
 
-      # for DepthwiseConv2D inv needs to be broadcasted to the last 2 dimensions
-      # of the kernels
-      depthwise_weights_shape = [
-          depthwise_kernel.get_shape().as_list()[2],
-          depthwise_kernel.get_shape().as_list()[3]
-      ]
-      inv = array_ops.reshape(inv, depthwise_weights_shape)
-      # wrap conv kernel with bn parameters
-      folded_depthwise_kernel = inv * depthwise_kernel
-      # quantize the folded kernel
-      if self.depthwise_quantizer is not None:
-        q_folded_depthwise_kernel = self.depthwise_quantizer_internal(
-            folded_depthwise_kernel)
-      else:
-        q_folded_depthwise_kernel = folded_depthwise_kernel
+    elif self.folding_mode == "ema_stats_folding":
+      # We always scale the weights with a correction factor to the long term
+      # statistics prior to quantization. This ensures that there is no jitter
+      # in the quantized weights due to batch to batch variation. During the
+      # initial phase of training, we undo the scaling of the weights so that
+      # outputs are identical to regular batch normalization. We also modify
+      # the bias terms correspondingly. After sufficient training, switch from
+      # using batch statistics to long term moving averages for batch
+      # normalization.
 
-      # If loaded from a ckpt, bias_quantizer is the ckpt value
-      # Else if bias_quantizer not specified, bias
-      #   quantizer is None and we need to calculate bias quantizer
-      #   type according to accumulator type. User can call
-      #   bn_folding_utils.populate_bias_quantizer_for_folded_layers(
-      #      model, input_quantizer_list]) to populate such bias quantizer.
-      if self.bias_quantizer_internal is not None:
-        q_folded_bias = self.bias_quantizer_internal(folded_bias)
-      else:
-        q_folded_bias = folded_bias
+      # use batch stats for calcuating bias before bn freeze, and use moving
+      # stats after bn freeze
 
-      # set value for the folded weights
-      self.folded_depthwise_kernel_quantized.assign(
-          q_folded_depthwise_kernel, read_value=False)
-      self.folded_bias_quantized.assign(q_folded_bias, read_value=False)
+      # moving stats is always used to fold kernel in tflite; before bn freeze
+      # an additional correction factor will be applied to the depthwiseconv2d
+      # output
+      inv = mv_inv
 
-      applied_kernel = q_folded_depthwise_kernel
-      applied_bias = q_folded_bias
+    # for DepthwiseConv2D inv needs to be broadcasted to the last 2 dimensions
+    # of the kernels
+    depthwise_weights_shape = [
+        depthwise_kernel.get_shape().as_list()[2],
+        depthwise_kernel.get_shape().as_list()[3]
+    ]
+    inv = array_ops.reshape(inv, depthwise_weights_shape)
+    # wrap conv kernel with bn parameters
+    folded_depthwise_kernel = inv * depthwise_kernel
+    # quantize the folded kernel
+    if self.depthwise_quantizer is not None:
+      q_folded_depthwise_kernel = self.depthwise_quantizer_internal(
+          folded_depthwise_kernel)
     else:
-      applied_kernel = self.folded_depthwise_kernel_quantized
-      applied_bias = self.folded_bias_quantized
+      q_folded_depthwise_kernel = folded_depthwise_kernel
+
+    # If loaded from a ckpt, bias_quantizer is the ckpt value
+    # Else if bias_quantizer not specified, bias
+    #   quantizer is None and we need to calculate bias quantizer
+    #   type according to accumulator type. User can call
+    #   bn_folding_utils.populate_bias_quantizer_for_folded_layers(
+    #      model, input_quantizer_list]) to populate such bias quantizer.
+    if self.bias_quantizer is not None:
+      q_folded_bias = self.bias_quantizer_internal(folded_bias)
+    else:
+      q_folded_bias = folded_bias
+
+    applied_kernel = q_folded_depthwise_kernel
+    applied_bias = q_folded_bias
+
     # calculate depthwise_conv2d output using the quantized folded kernel
     folded_outputs = tf.keras.backend.depthwise_conv2d(
         inputs,
@@ -340,6 +298,7 @@ class QDepthwiseConv2DBatchnorm(QDepthwiseConv2D):
         folded_outputs,
         applied_bias,
         data_format=self.data_format)
+
     if self.activation is not None:
       return self.activation(folded_outputs)
 
@@ -371,6 +330,44 @@ class QDepthwiseConv2DBatchnorm(QDepthwiseConv2D):
   def get_quantizers(self):
     return self.quantizers
 
-  def get_folded_quantized_weight(self):
-    return [self.folded_depthwise_kernel_quantized.numpy(),
-            self.folded_bias_quantized.numpy()]
+  def get_folded_weights(self):
+    """Function to get the batchnorm folded weights.
+
+    This function converts the weights by folding batchnorm parameters into
+    the weight of QDepthwiseConv2d. The high-level equation:
+
+    W_fold = gamma * W / sqrt(variance + epsilon)
+    bias_fold = gamma * (bias - moving_mean) / sqrt(variance + epsilon) + beta
+    """
+
+    depthwise_kernel = self.depthwise_kernel
+
+    if self.use_bias:
+      bias = self.bias
+    else:
+      bias = 0
+
+    # get Batchnorm stats
+    gamma = self.batchnorm.gamma
+    beta = self.batchnorm.beta
+    moving_mean = self.batchnorm.moving_mean
+    moving_variance = self.batchnorm.moving_variance
+
+    # get the inversion factor so that we replace division by multiplication
+    inv = math_ops.rsqrt(moving_variance + self.batchnorm.epsilon)
+    if gamma is not None:
+      inv *= gamma
+    # fold bias with bn stats
+    folded_bias = inv * (bias - moving_mean) + beta
+
+    # for DepthwiseConv2D inv needs to be broadcasted to the last 2 dimensions
+    # of the kernels
+    depthwise_weights_shape = [
+        depthwise_kernel.get_shape().as_list()[2],
+        depthwise_kernel.get_shape().as_list()[3]
+    ]
+    inv = array_ops.reshape(inv, depthwise_weights_shape)
+    # wrap conv kernel with bn parameters
+    folded_depthwise_kernel = inv * depthwise_kernel
+
+    return [folded_depthwise_kernel, folded_bias]

@@ -33,6 +33,7 @@ from tensorflow.python.ops import math_ops
 tf.compat.v2.enable_v2_behavior()
 
 
+# TODO(lishanok): Create an abstract folding parent class
 class QConv2DBatchnorm(QConv2D):
   """Fold batchnormalization with a previous qconv2d layer."""
 
@@ -81,7 +82,7 @@ class QConv2DBatchnorm(QConv2D):
       name=None,
 
       # other params
-      ema_freeze_delay=300000,
+      ema_freeze_delay=None,
       folding_mode="ema_stats_folding",
       **kwargs):
     """Initialize a composite layer that folds conv2d and batch normalization.
@@ -125,7 +126,8 @@ class QConv2DBatchnorm(QConv2D):
         kernel_constraint=kernel_constraint,
         bias_constraint=bias_constraint,
         kernel_quantizer=kernel_quantizer,
-        bias_quantizer=bias_quantizer)
+        bias_quantizer=bias_quantizer,
+        name=name)
 
     # initialization of batchnorm part of the composite layer
     self.batchnorm = layers.BatchNormalization(
@@ -136,38 +138,15 @@ class QConv2DBatchnorm(QConv2D):
         moving_variance_initializer=moving_variance_initializer,
         beta_regularizer=beta_regularizer,
         gamma_regularizer=gamma_regularizer,
-        beta_constraint=beta_constraint, gamma_constraint=gamma_constraint)
+        beta_constraint=beta_constraint, gamma_constraint=gamma_constraint,
+        fused=False)
 
     self.ema_freeze_delay = ema_freeze_delay
     assert folding_mode in ["ema_stats_folding", "batch_stats_folding"]
     self.folding_mode = folding_mode
-    self._name = name
 
   def build(self, input_shape):
     super(QConv2DBatchnorm, self).build(input_shape)
-
-    # create untrainable folded weights that can export later for zpm
-    input_channel = self._get_input_channel(input_shape)
-    kernel_shape = self.kernel_size + (input_channel // self.groups,
-                                       self.filters)
-    # folded quantized kernel and bias
-    self.folded_kernel_quantized = self.add_weight(
-        name="folded_kernel_quantized",
-        shape=kernel_shape,
-        initializer=self.kernel_initializer,
-        regularizer=self.kernel_regularizer,
-        constraint=self.kernel_constraint,
-        trainable=False,
-        dtype=self.dtype)
-
-    self.folded_bias_quantized = self.add_weight(
-        name="folded_bias_quantized",
-        shape=(self.filters,),
-        initializer=self.bias_initializer,
-        regularizer=self.bias_regularizer,
-        constraint=self.bias_constraint,
-        trainable=False,
-        dtype=self.dtype)
 
     # self._iteration (i.e., training_steps) is initialized with -1. When
     # loading ckpt, it can load the number of training steps that have been
@@ -182,7 +161,7 @@ class QConv2DBatchnorm(QConv2D):
     training = self.batchnorm._get_training_value(training)  # pylint: disable=protected-access
 
     # checking if to update batchnorm params
-    if self.ema_freeze_delay is None or self.ema_freeze_delay < 0:
+    if (self.ema_freeze_delay is None) or (self.ema_freeze_delay < 0):
       # if ema_freeze_delay is None or a negative value, do not freeze bn stats
       bn_training = tf.cast(training, dtype=bool)
     else:
@@ -208,99 +187,91 @@ class QConv2DBatchnorm(QConv2D):
       bias = 0
 
     _ = self.batchnorm(conv_outputs, training=bn_training)
-    if training is True:
-      # The following operation is only performed during training
 
-      self._iteration.assign_add(tf_utils.smart_cond(
-          training, lambda: tf.constant(1, tf.int64),
-          lambda: tf.constant(0, tf.int64)))
+    self._iteration.assign_add(tf_utils.smart_cond(
+        training, lambda: tf.constant(1, tf.int64),
+        lambda: tf.constant(0, tf.int64)))
 
-      # calcuate mean and variance from current batch
-      bn_shape = conv_outputs.shape
-      ndims = len(bn_shape)
-      reduction_axes = [i for i in range(ndims) if i not in self.batchnorm.axis]
-      keep_dims = len(self.batchnorm.axis) > 1
-      mean, variance = self.batchnorm._moments(  # pylint: disable=protected-access
-          math_ops.cast(conv_outputs, self.batchnorm._param_dtype),  # pylint: disable=protected-access
-          reduction_axes,
-          keep_dims=keep_dims)
-      # get batchnorm weights
-      gamma = self.batchnorm.gamma
-      beta = self.batchnorm.beta
-      moving_mean = self.batchnorm.moving_mean
-      moving_variance = self.batchnorm.moving_variance
+    # calcuate mean and variance from current batch
+    bn_shape = conv_outputs.shape
+    ndims = len(bn_shape)
+    reduction_axes = [i for i in range(ndims) if i not in self.batchnorm.axis]
+    keep_dims = len(self.batchnorm.axis) > 1
+    mean, variance = self.batchnorm._moments(  # pylint: disable=protected-access
+        math_ops.cast(conv_outputs, self.batchnorm._param_dtype),  # pylint: disable=protected-access
+        reduction_axes,
+        keep_dims=keep_dims)
+    # get batchnorm weights
+    gamma = self.batchnorm.gamma
+    beta = self.batchnorm.beta
+    moving_mean = self.batchnorm.moving_mean
+    moving_variance = self.batchnorm.moving_variance
 
-      if self.folding_mode == "batch_stats_folding":
-        # using batch mean and variance in the initial training stage
-        # after sufficient training, switch to moving mean and variance
-        new_mean = tf_utils.smart_cond(
-            bn_training, lambda: mean, lambda: moving_mean)
-        new_variance = tf_utils.smart_cond(
-            bn_training, lambda: variance, lambda: moving_variance)
+    if self.folding_mode == "batch_stats_folding":
+      # using batch mean and variance in the initial training stage
+      # after sufficient training, switch to moving mean and variance
+      new_mean = tf_utils.smart_cond(
+          bn_training, lambda: mean, lambda: moving_mean)
+      new_variance = tf_utils.smart_cond(
+          bn_training, lambda: variance, lambda: moving_variance)
 
-        # get the inversion factor so that we replace division by multiplication
-        inv = math_ops.rsqrt(new_variance + self.batchnorm.epsilon)
-        if gamma is not None:
-          inv *= gamma
-        # fold bias with bn stats
-        folded_bias = inv * (bias - new_mean) + beta
+      # get the inversion factor so that we replace division by multiplication
+      inv = math_ops.rsqrt(new_variance + self.batchnorm.epsilon)
+      if gamma is not None:
+        inv *= gamma
+      # fold bias with bn stats
+      folded_bias = inv * (bias - new_mean) + beta
 
-      elif self.folding_mode == "ema_stats_folding":
-        # We always scale the weights with a correction factor to the long term
-        # statistics prior to quantization. This ensures that there is no jitter
-        # in the quantized weights due to batch to batch variation. During the
-        # initial phase of training, we undo the scaling of the weights so that
-        # outputs are identical to regular batch normalization. We also modify
-        # the bias terms correspondingly. After sufficient training, switch from
-        # using batch statistics to long term moving averages for batch
-        # normalization.
+    elif self.folding_mode == "ema_stats_folding":
+      # We always scale the weights with a correction factor to the long term
+      # statistics prior to quantization. This ensures that there is no jitter
+      # in the quantized weights due to batch to batch variation. During the
+      # initial phase of training, we undo the scaling of the weights so that
+      # outputs are identical to regular batch normalization. We also modify
+      # the bias terms correspondingly. After sufficient training, switch from
+      # using batch statistics to long term moving averages for batch
+      # normalization.
 
-        # use batch stats for calcuating bias before bn freeze, and use moving
-        # stats after bn freeze
-        mv_inv = math_ops.rsqrt(moving_variance + self.batchnorm.epsilon)
-        batch_inv = math_ops.rsqrt(variance + self.batchnorm.epsilon)
+      # use batch stats for calcuating bias before bn freeze, and use moving
+      # stats after bn freeze
+      mv_inv = math_ops.rsqrt(moving_variance + self.batchnorm.epsilon)
+      batch_inv = math_ops.rsqrt(variance + self.batchnorm.epsilon)
 
-        if gamma is not None:
-          mv_inv *= gamma
-          batch_inv *= gamma
-        folded_bias = tf_utils.smart_cond(
-            bn_training,
-            lambda: batch_inv * (bias - mean) + beta,
-            lambda: mv_inv * (bias - moving_mean) + beta)
-        # moving stats is always used to fold kernel in tflite; before bn freeze
-        # an additional correction factor will be applied to the conv2d output
-        inv = mv_inv
-      else:
-        assert ValueError
-
-      # wrap conv kernel with bn parameters
-      folded_kernel = inv * kernel
-      # quantize the folded kernel
-      if self.kernel_quantizer is not None:
-        q_folded_kernel = self.kernel_quantizer_internal(folded_kernel)
-      else:
-        q_folded_kernel = folded_kernel
-
-      # If loaded from a ckpt, bias_quantizer is the ckpt value
-      # Else if bias_quantizer not specified, bias
-      #   quantizer is None and we need to calculate bias quantizer
-      #   type according to accumulator type. User can call
-      #   bn_folding_utils.populate_bias_quantizer_from_accumulator(
-      #      model, input_quantizer_list]) to populate such bias quantizer.
-      if self.bias_quantizer_internal is not None:
-        q_folded_bias = self.bias_quantizer_internal(folded_bias)
-      else:
-        q_folded_bias = folded_bias
-
-      # set value for the folded weights
-      self.folded_kernel_quantized.assign(q_folded_kernel, read_value=False)
-      self.folded_bias_quantized.assign(q_folded_bias, read_value=False)
-
-      applied_kernel = q_folded_kernel
-      applied_bias = q_folded_bias
+      if gamma is not None:
+        mv_inv *= gamma
+        batch_inv *= gamma
+      folded_bias = tf_utils.smart_cond(
+          bn_training,
+          lambda: batch_inv * (bias - mean) + beta,
+          lambda: mv_inv * (bias - moving_mean) + beta)
+      # moving stats is always used to fold kernel in tflite; before bn freeze
+      # an additional correction factor will be applied to the conv2d output
+      inv = mv_inv
     else:
-      applied_kernel = self.folded_kernel_quantized
-      applied_bias = self.folded_bias_quantized
+      assert ValueError
+
+    # wrap conv kernel with bn parameters
+    folded_kernel = inv * kernel
+    # quantize the folded kernel
+    if self.kernel_quantizer is not None:
+      q_folded_kernel = self.kernel_quantizer_internal(folded_kernel)
+    else:
+      q_folded_kernel = folded_kernel
+
+    # If loaded from a ckpt, bias_quantizer is the ckpt value
+    # Else if bias_quantizer not specified, bias
+    #   quantizer is None and we need to calculate bias quantizer
+    #   type according to accumulator type. User can call
+    #   bn_folding_utils.populate_bias_quantizer_from_accumulator(
+    #      model, input_quantizer_list]) to populate such bias quantizer.
+    if self.bias_quantizer_internal is not None:
+      q_folded_bias = self.bias_quantizer_internal(folded_bias)
+    else:
+      q_folded_bias = folded_bias
+
+    applied_kernel = q_folded_kernel
+    applied_bias = q_folded_bias
+
     # calculate conv2d output using the quantized folded kernel
     folded_outputs = tf.keras.backend.conv2d(
         inputs,
@@ -353,6 +324,34 @@ class QConv2DBatchnorm(QConv2D):
   def get_quantizers(self):
     return self.quantizers
 
-  def get_folded_quantized_weight(self):
-    return [self.folded_kernel_quantized.numpy(),
-            self.folded_bias_quantized.numpy()]
+  def get_folded_weights(self):
+    """Function to get the batchnorm folded weights.
+
+    This function converts the weights by folding batchnorm parameters into
+    the weight of QConv2D. The high-level equation:
+
+    W_fold = gamma * W / sqrt(variance + epsilon)
+    bias_fold = gamma * (bias - moving_mean) / sqrt(variance + epsilon) + beta
+    """
+
+    kernel = self.kernel
+    if self.use_bias:
+      bias = self.bias
+    else:
+      bias = 0
+
+    # get batchnorm weights and moving stats
+    gamma = self.batchnorm.gamma
+    beta = self.batchnorm.beta
+    moving_mean = self.batchnorm.moving_mean
+    moving_variance = self.batchnorm.moving_variance
+    # get the inversion factor so that we replace division by multiplication
+    inv = math_ops.rsqrt(moving_variance + self.batchnorm.epsilon)
+    if gamma is not None:
+      inv *= gamma
+
+    # wrap conv kernel and bias with bn parameters
+    folded_kernel = inv * kernel
+    folded_bias = inv * (bias - moving_mean) + beta
+
+    return [folded_kernel, folded_bias]

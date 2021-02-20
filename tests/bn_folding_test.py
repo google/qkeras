@@ -22,7 +22,6 @@ import numpy as np
 from numpy.testing import assert_allclose
 from numpy.testing import assert_equal
 from numpy.testing import assert_raises
-from numpy.testing import assert_equal
 import tempfile
 import tensorflow as tf
 from tensorflow.keras import layers
@@ -235,8 +234,8 @@ def run_training(model, epochs, loss_fn, loss_metric, optimizer,
   return output_predictions
 
 
-def test_convert_folded_model_to_normal():
-  """Test if convert_folded_model_to_normal works properly.
+def test_unfold_model():
+  """Test if unfold_model works properly.
 
   Convert a folded model to a normal model. The kernel/bias weight in
   the normal model should be the same as the folded kernel/bias in the folded
@@ -245,7 +244,7 @@ def test_convert_folded_model_to_normal():
   """
 
   x_shape = (2, 2, 1)
-  kernel_quantizer = None
+  kernel_quantizer = "quantized_bits(4, 0, 1)"
   folding_mode = "batch_stats_folding"
   ema_freeze_delay = 10
   kernel = np.array([[[[1., 1.]], [[1., 0.]]], [[[1., 1.]], [[0., 1.]]]])
@@ -254,11 +253,6 @@ def test_convert_folded_model_to_normal():
   moving_mean = np.array([1., 1.])
   moving_variance = np.array([1., 2.])
   iteration = np.array(-1)
-  folded_kernel_quantized = np.array([[[[1.99900079, 0.706930101]],
-                                       [[1.99900079, 0]]],
-                                      [[[1.99900079, 0.706930101]],
-                                       [[0, 0.706930101]]]])
-  folded_bias_quantized = np.array([-1.99900079, 0.293069899])
 
   def _get_sequantial_folded_model(x_shape):
     x = x_in = layers.Input(x_shape, name="input")
@@ -280,8 +274,7 @@ def test_convert_folded_model_to_normal():
         name="folddepthwiseconv2d")(x)
     model = Model(inputs=[x_in], outputs=[x])
     model.layers[1].set_weights([
-        kernel, gamma, beta, folded_kernel_quantized, folded_bias_quantized,
-        iteration, moving_mean, moving_variance
+        kernel, gamma, beta, iteration, moving_mean, moving_variance
     ])
 
     return model
@@ -306,8 +299,7 @@ def test_convert_folded_model_to_normal():
                      name="dense")(x)
     model = Model(inputs=[x_in], outputs=[x])
     model.layers[4].set_weights([
-        kernel, gamma, beta, folded_kernel_quantized, folded_bias_quantized,
-        iteration, moving_mean, moving_variance
+        kernel, gamma, beta, iteration, moving_mean, moving_variance
     ])
     return model
 
@@ -326,14 +318,14 @@ def test_convert_folded_model_to_normal():
 
     # convert model with folded layers to a model with coresspoinding QConv2D
     # or QDepthwiseConv2D layers
-    cvt_model = bn_folding_utils.convert_folded_model_to_normal(model)
+    cvt_model = bn_folding_utils.unfold_model(model)
 
     for layer_type in ["QConv2DBatchnorm", "QDepthwiseConv2DBatchnorm"]:
       weight1 = None
       weight2 = None
       for layer in model.layers:
         if layer.__class__.__name__ == layer_type:
-          weight1 = layer.get_folded_quantized_weight()
+          weight1 = layer.get_folded_weights()
           break
 
       for layer in cvt_model.layers:
@@ -384,15 +376,15 @@ def test_loading():
   _, fname = tempfile.mkstemp(".h5")
   model_fold.save(fname)
   model_loaded = qkeras_utils.load_qmodel(fname)
-  weight1 = model_fold.layers[1].get_folded_quantized_weight()
-  weight2 = model_loaded.layers[1].get_folded_quantized_weight()
-  assert_equal(weight1[0], weight2[0])
-  assert_equal(weight1[1], weight2[1])
+  weight1 = model_fold.layers[1].get_folded_weights()
+  weight2 = model_loaded.layers[1].get_folded_weights()
+  assert_equal(np.array(weight1[0]), np.array(weight2[0]))
+  assert_equal(np.array(weight1[1]), np.array(weight2[1]))
 
   # test convert a folded model to a normal model for zpm
   # the kernel/bias weight in the normal model should be the same as the folded
   # kernel/bias in the folded model
-  normal_model = bn_folding_utils.convert_folded_model_to_normal(model_fold)
+  normal_model = bn_folding_utils.unfold_model(model_fold)
   weight2 = normal_model.layers[1].get_weights()
 
   assert_equal(weight1[0], weight2[0])
@@ -414,11 +406,7 @@ def test_same_training_and_prediction():
   moving_mean = np.array([1., 1.])
   moving_variance = np.array([1., 2.])
   iteration = np.array(-1)
-  folded_kernel_quantized = np.array([[[[1.99900079, 0.706930101]],
-                                       [[1.99900079, 0]]],
-                                      [[[1.99900079, 0.706930101]],
-                                       [[0, 0.706930101]]]])
-  folded_bias_quantized = np.array([-1.99900079, 0.293069899])
+
   train_ds = generate_dataset(train_size=10, batch_size=10, input_shape=x_shape,
                               num_class=2)
 
@@ -433,12 +421,10 @@ def test_same_training_and_prediction():
   unfold_model.layers[2].set_weights(
       [gamma, beta, moving_mean, moving_variance])
   fold_model_batch.layers[1].set_weights([
-      kernel, gamma, beta, folded_kernel_quantized, folded_bias_quantized,
-      iteration, moving_mean, moving_variance
+      kernel, gamma, beta, iteration, moving_mean, moving_variance
   ])
   fold_model_ema.layers[1].set_weights([
-      kernel, gamma, beta, folded_kernel_quantized, folded_bias_quantized,
-      iteration, moving_mean, moving_variance
+      kernel, gamma, beta, iteration, moving_mean, moving_variance
   ])
 
   # check if prediction is the same
@@ -473,12 +459,10 @@ def test_same_training_and_prediction():
   unfold_model.layers[2].set_weights(
       [gamma, beta, moving_mean, moving_variance])
   fold_model_batch.layers[1].set_weights([
-      kernel, gamma, beta, folded_kernel_quantized, folded_bias_quantized,
-      iteration, moving_mean, moving_variance
+      kernel, gamma, beta, iteration, moving_mean, moving_variance
   ])
   fold_model_ema.layers[1].set_weights([
-      kernel, gamma, beta, folded_kernel_quantized, folded_bias_quantized,
-      iteration, moving_mean, moving_variance
+      kernel, gamma, beta, iteration, moving_mean, moving_variance
   ])
   y1 = run_training(
       unfold_model,
@@ -573,8 +557,7 @@ def test_same_training_and_prediction():
 
   # set weights
   fold_model.layers[1].set_weights([
-      depthwise_kernel, gamma, beta, folded_depthwise_kernel_quantized,
-      folded_bias_quantized, iteration, moving_mean, moving_variance])
+      depthwise_kernel, gamma, beta, iteration, moving_mean, moving_variance])
   fold_model.layers[3].set_weights([dense_weight])
 
   model.layers[1].set_weights([depthwise_kernel])
@@ -604,8 +587,7 @@ def test_same_training_and_prediction():
       input_shape, num_class=num_class, depthwise_quantizer=depthwise_quantizer,
       folding_mode=folding_mode, ema_freeze_delay=ema_freeze_delay)
   fold_model.layers[1].set_weights([
-      depthwise_kernel, gamma, beta, folded_depthwise_kernel_quantized,
-      folded_bias_quantized, iteration, moving_mean, moving_variance])
+      depthwise_kernel, gamma, beta, iteration, moving_mean, moving_variance])
   fold_model.layers[3].set_weights([dense_weight])
   model.layers[1].set_weights([depthwise_kernel])
   model.layers[2].set_weights([gamma, beta, moving_mean, moving_variance])

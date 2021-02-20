@@ -129,7 +129,8 @@ def model_save_quantized_weights(model, filename=None):
 
   print("... quantizing model")
   for layer in model.layers:
-    if hasattr(layer, "get_quantizers"):
+    if hasattr(layer, "get_quantizers") and layer.__class__.__name__ not in [
+        "QConv2DBatchnorm", "QDepthwiseConv2DBatchnorm"]:
       weights = []
       signs = []
 
@@ -188,6 +189,10 @@ def model_save_quantized_weights(model, filename=None):
         saved_weights[layer.name]["signs"] = signs
 
       layer.set_weights(weights)
+    elif layer.__class__.__name__ in [
+        "QConv2DBatchnorm", "QDepthwiseConv2DBatchnorm"]:
+      print(" ", layer.name, " cannot be quantized because weights will"
+            "be folded before quantization.")
     else:
       if layer.get_weights():
         print(" ", layer.name, "has not been quantized")
@@ -364,8 +369,8 @@ def model_quantize(model,
     "QBatchNormalization": {}
   }
 
-  In the case of "QBidirectional", we can follow the same form as above. 
-  The specified configuration will be used for both forward and backwards 
+  In the case of "QBidirectional", we can follow the same form as above.
+  The specified configuration will be used for both forward and backwards
   layer.
   {
     "Bidirectional" : {
@@ -907,7 +912,7 @@ def get_model_sparsity(model, per_layer=False, allow_list=None):
         "QDense", "Dense", "QConv1D", "Conv1D", "QConv2D", "Conv2D",
         "QDepthwiseConv2D", "DepthwiseConv2D",
         "QSeparableConv1D", "SeparableConv1D",
-        "QSeparableConv2D", "SeparableConv2D", "QOctaveConv2D", 
+        "QSeparableConv2D", "SeparableConv2D", "QOctaveConv2D",
         "QSimpleRNN", "RNN", "QLSTM", "QGRU",
         "QConv2DTranspose", "Conv2DTranspose",
         "QConv2DBatchnorm", "QDepthwiseConv2DBatchnorm",
@@ -921,8 +926,14 @@ def get_model_sparsity(model, per_layer=False, allow_list=None):
   all_weights = []
   for layer in model.layers:
     if hasattr(layer, "quantizers") and layer.__class__.__name__ in allow_list:
+      if layer.__class__.__name__ in [
+          "QConv2DBatchnorm", "QDepthwiseConv2DBatchnorm"]:
+        weights_to_examine = layer.get_folded_weights()
+      else:
+        weights_to_examine = layer.get_weights()
+
       layer_weights = []
-      for weight in layer.get_weights():
+      for weight in weights_to_examine:
         layer_weights.append(weight.ravel())
         all_weights.append(weight.ravel())
       layer_weights = np.concatenate(layer_weights)
@@ -977,13 +988,21 @@ def quantized_model_debug(model, X_test, plot=False):
       plt.title(layer.name + "(output)")
       plt.show()
     alpha = None
-    for i, weights in enumerate(layer.get_weights()):
+
+    if layer.__class__.__name__ not in [
+        "QConv2DBatchnorm", "QDepthwiseConv2DBatchnorm"]:
+      weights_to_examine = layer.get_weights()
+    else:
+      weights_to_examine = layer.get_folded_weights()
+
+    for i, weights in enumerate(weights_to_examine):
       if hasattr(layer, "get_quantizers") and layer.get_quantizers()[i]:
         weights = K.eval(layer.get_quantizers()[i](K.constant(weights)))
         if i == 0 and layer.__class__.__name__ in [
             "QConv1D", "QConv2D", "QConv2DTranspose", "QDense",
             "QSimpleRNN", "QLSTM", "QGRU",
-            "QSeparableConv1D", "QSeparableConv2D"
+            "QSeparableConv1D", "QSeparableConv2D",
+            "QConv2DBatchnorm", "QDepthwiseConv2DBatchnorm"
         ]:
           alpha = get_weight_scale(layer.get_quantizers()[i], weights)
           # if alpha is 0, let's remove all weights.

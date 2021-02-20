@@ -49,7 +49,7 @@ from .quantizers import quantized_bits
 from .quantizers import quantized_relu
 from .quantizers import quantized_tanh
 from .quantizers import quantized_ulaw
-from .bn_folding_utils import convert_folded_model_to_normal
+from .bn_folding_utils import unfold_model
 from .utils import get_model_sparsity
 
 
@@ -91,7 +91,7 @@ def analyze_accumulator(in_model, x, verbose=False):
 
   # this function converts a folded model to a "normal" model. It replace folded
   # layers (e.g., QConv2dBatchnorm) layer with qconv2d layer whenever possible.
-  model = convert_folded_model_to_normal(in_model)
+  model = unfold_model(in_model)
 
   acc_sizes = {}
 
@@ -161,7 +161,7 @@ def analyze_accumulator_from_sample(
 
   # this function converts a folded model to a "normal" model. It replace folded
   # layers (e.g., QConv2DBatchnorm) layer with qconv2d layer whenever possible.
-  model = convert_folded_model_to_normal(in_model)
+  model = unfold_model(in_model)
 
   # get layer names of quantized layers (QDense and QConv2D)
   layer_names = [
@@ -358,7 +358,7 @@ def create_activation_cache(model):
 def extract_model_operations(in_model):
   """Determines types of operations for convolutions."""
 
-  model = convert_folded_model_to_normal(in_model)
+  model = unfold_model(in_model)
   cache_q = create_activation_cache(model)
   cache_o = {}
 
