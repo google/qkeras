@@ -1763,7 +1763,7 @@ class quantized_sigmoid(BaseQuantizer):  # pylint: disable=invalid-name
     """Get the minimum value that quantized_sigmoid can represent."""
     unsigned_bits = self.bits - 1
     if unsigned_bits > 0:
-      return -max(0.0, np.power(2.0, self.integer))
+      return min(0.0, -np.power(2.0, self.integer))
     else:
       return 0.0
 
