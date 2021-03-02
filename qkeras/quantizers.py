@@ -1670,11 +1670,10 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
     non_sign_bits = self.bits - 1
     m = pow(2, non_sign_bits)
     m_i = pow(2, self.integer)
-    p = _sigmoid(x / m_i) * m
+    p = tf.keras.backend.tanh(x / m_i) * m
     xq = m_i * tf.keras.backend.clip(
-        2.0 *
-        (_round_through(p, self.use_stochastic_rounding) / m) - 1.0, -1.0 +
-        (1.0 * self.symmetric) / m, 1.0 - 1.0 / m)
+        (_round_through(p, self.use_stochastic_rounding) / m),
+        -1.0 + (1.0 * self.symmetric) / m, 1.0 - 1.0 / m)
     return xq
 
   def max(self):
