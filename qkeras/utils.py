@@ -71,6 +71,7 @@ from .quantizers import quantized_bits
 from .quantizers import quantized_relu
 from .quantizers import quantized_ulaw
 from .quantizers import quantized_tanh
+from .quantizers import quantized_sigmoid
 from .quantizers import quantized_po2
 from .quantizers import quantized_relu_po2
 from .quantizers import stochastic_binary
@@ -208,7 +209,7 @@ def quantize_activation(layer_config, activation_bits):
   str_act_bits = str(activation_bits)
   # relu -> quantized_relu(bits)
   # tanh -> quantized_tanh(bits)
-  #
+  # sigmoid -> quantized_sigmoid(bits)
   # more to come later
   if layer_config.get("activation", None) is None:
     return
@@ -225,6 +226,8 @@ def quantize_activation(layer_config, activation_bits):
     layer_config["activation"] = "quantized_relu(" + str_act_bits + ")"
   elif a_name == "tanh":
     layer_config["activation"] = "quantized_tanh(" + str_act_bits + ")"
+  elif a_name == "sigmoid":
+    layer_config["activation"] = "quantized_sigmoid(" + str_act_bits + ")"
 
 
 def get_config(quantizer_config, layer, layer_class, parameter=None):
@@ -402,7 +405,8 @@ def model_quantize(model,
   Arguments:
     model: model to be quantized
     quantizer_config: dictionary (as above) with quantized parameters
-    activation_bits: number of bits for quantized_relu, quantized_tanh
+    activation_bits: number of bits for quantized_relu, quantized_tanh,
+      quantized_sigmoid
     custom_objects: dictionary following keras recommendations for json
       translation.
     transfer_weights: if true, weights are to be transfered from model to
@@ -777,6 +781,7 @@ def _add_supported_quantized_objects(custom_objects):
   custom_objects["quantized_relu"] = quantized_relu
   custom_objects["quantized_ulaw"] = quantized_ulaw
   custom_objects["quantized_tanh"] = quantized_tanh
+  custom_objects["quantized_sigmoid"] = quantized_sigmoid
   custom_objects["quantized_po2"] = quantized_po2
   custom_objects["quantized_relu_po2"] = quantized_relu_po2
 
