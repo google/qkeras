@@ -1645,13 +1645,15 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
     symmetric: if true, we will have the same number of values for positive
                and negative numbers.
     use_stochastic_rounding: if true, we perform stochastic rounding.
+    use_real_tanh: if true, use the tanh function from tf.keras.backend,
+                if false, use tanh that is defined by 2 * sigmoid(x) - 1
 
   Returns:
     Function that performs tanh + quantization to bits in the range -1.0 to 1.0.
   """
 
   def __init__(self, bits=8, integer=0, symmetric=0,
-               use_stochastic_rounding=False):
+               use_stochastic_rounding=False, use_real_tanh=False):
     super(quantized_tanh, self).__init__()
     self.bits = bits
     self.integer = integer
@@ -1670,10 +1672,15 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
     non_sign_bits = self.bits - 1
     m = pow(2, non_sign_bits)
     m_i = pow(2, self.integer)
-    p = tf.keras.backend.tanh(x / m_i) * m
+    if not use_real_tanh:
+      xi = 2.0 * (_round_through(_sigmoid(x / m_i) * m,
+        self.use_stochastic_rounding) / m) - 1.0
+    else:
+      xi = (_round_through(tf.keras.backend.tanh(x / m_i) * m,
+      self.use_stochastic_rounding) / m)
+
     xq = m_i * tf.keras.backend.clip(
-        (_round_through(p, self.use_stochastic_rounding) / m),
-        -1.0 + (1.0 * self.symmetric) / m, 1.0 - 1.0 / m)
+        xi, -1.0 + (1.0 * self.symmetric) / m, 1.0 - 1.0 / m)
     return xq
 
   def max(self):
