@@ -1659,6 +1659,7 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
     self.integer = integer
     self.symmetric = symmetric
     self.use_stochastic_rounding = use_stochastic_rounding
+    self.use_real_tanh = use_real_tanh
 
   def __str__(self):
     flags = [str(self.bits), str(self.integer)]
