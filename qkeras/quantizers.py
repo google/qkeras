@@ -1672,7 +1672,7 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
     non_sign_bits = self.bits - 1
     m = pow(2, non_sign_bits)
     m_i = pow(2, self.integer)
-    if not use_real_tanh:
+    if not self.use_real_tanh:
       xi = 2.0 * (_round_through(_sigmoid(x / m_i) * m,
         self.use_stochastic_rounding) / m) - 1.0
     else:
