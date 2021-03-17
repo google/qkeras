@@ -1709,13 +1709,8 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
 class quantized_sigmoid(BaseQuantizer):  # pylint: disable=invalid-name
   """Computes a quantized sigmoid to a number of bits.
 
-  Modified from:
-
-  [https://github.com/BertMoons/QuantizedNeuralNetworks-Keras-Tensorflow]
-
   Attributes:
     bits: number of bits to perform quantization.
-    integer: number of bits to the left of the decimal point.
     symmetric: if true, we will have the same number of values for positive
                and negative numbers.
     use_stochastic_rounding: if true, we perform stochastic rounding.
@@ -1724,16 +1719,15 @@ class quantized_sigmoid(BaseQuantizer):  # pylint: disable=invalid-name
     Function that performs sigmoid + quantization to bits in the range 0.0 to 1.0.
   """
 
-  def __init__(self, bits=8, integer=0, symmetric=0,
+  def __init__(self, bits=8, symmetric=0,
                use_stochastic_rounding=False):
     super(quantized_sigmoid, self).__init__()
     self.bits = bits
-    self.integer = integer
     self.symmetric = symmetric
     self.use_stochastic_rounding = use_stochastic_rounding
 
   def __str__(self):
-    flags = [str(self.bits), str(self.integer)]
+    flags = [str(self.bits)]
     if self.symmetric or self.use_stochastic_rounding:
       flags.append(str(int(self.symmetric)))
     if self.use_stochastic_rounding:
@@ -1753,19 +1747,11 @@ class quantized_sigmoid(BaseQuantizer):  # pylint: disable=invalid-name
 
   def max(self):
     """Get the maximum value that quantized_sigmoid can represent."""
-    unsigned_bits = self.bits - 1
-    if unsigned_bits > 0:
-      return max(1.0, np.power(2.0, self.integer))
-    else:
-      return 1.0
+    return 1.0
 
   def min(self):
     """Get the minimum value that quantized_sigmoid can represent."""
-    unsigned_bits = self.bits - 1
-    if unsigned_bits > 0:
-      return min(0.0, -np.power(2.0, self.integer))
-    else:
-      return 0.0
+    return 0.0
 
   @classmethod
   def from_config(cls, config):
@@ -1774,7 +1760,6 @@ class quantized_sigmoid(BaseQuantizer):  # pylint: disable=invalid-name
   def get_config(self):
     config = {
         "bits": self.bits,
-        "integer": self.integer,
         "symmetric": self.symmetric,
         "use_stochastic_rounding": self.use_stochastic_rounding
     }
