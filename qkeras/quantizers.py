@@ -1737,9 +1737,8 @@ class quantized_sigmoid(BaseQuantizer):  # pylint: disable=invalid-name
   def __call__(self, x):
     non_sign_bits = self.bits - 1
     m = K.cast_to_floatx(K.pow(2, non_sign_bits))
-    m_i = K.cast_to_floatx(K.pow(2, self.integer))
-    p = _sigmoid(x / m_i) * m
-    xq = m_i * K.clip(
+    p = _sigmoid(x) * m
+    xq = K.clip(
         (_round_through(p, self.use_stochastic_rounding) / m),
         (1.0 * self.symmetric) / m,
         1.0 - 1.0 / m)
