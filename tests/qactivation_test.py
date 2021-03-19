@@ -242,41 +242,38 @@ def test_hard_sigmoid():
             6,
             "hard",
             np.array(
-                [[-0.5       , -0.3888889 , -0.2777778 , -0.16666667, -0.05555556,
-        0.05555556,  0.16666667,  0.2777778 ,  0.3888889 ,  0.5       ]],
+                [[-1.  , -0.75, -0.5 , -0.25,  0.  ,  0.25,  0.5 ,  0.75]],
                 dtype=K.floatx()),
-            np.array([[0.25   , 0.3125 , 0.34375, 0.40625, 0.4375 , 0.5    , 0.5625 ,
-       0.59375, 0.65625, 0.6875 ]],
+            np.array([0.   , 0.125, 0.25 , 0.375, 0.5  , 0.625, 0.75 , 0.875]],
                      dtype=K.floatx()),
         ),
         (
             6,
             "smooth",
             np.array(
-                [[-0.5       , -0.3888889 , -0.2777778 , -0.16666667, -0.05555556,
-        0.05555556,  0.16666667,  0.2777778 ,  0.3888889 ,  0.5       ]],
+                [[-1.  , -0.75, -0.5 , -0.25,  0.  ,  0.25,  0.5 ,  0.75]],
                 dtype=K.floatx()),
-            np.array([[0.40625, 0.4375 , 0.4375 , 0.46875, 0.46875, 0.5    , 0.53125,
-       0.53125, 0.5625 , 0.5625 ]],
+            np.array([[0.3125 , 0.375  , 0.40625, 0.4375 , 0.5    , 0.5625 , 0.59375,
+       0.625  ]],
                      dtype=K.floatx()),
         ),
         (
             6,
             "real",
             np.array(
-                [[-0.5       , -0.3888889 , -0.2777778 , -0.16666667, -0.05555556,
-        0.05555556,  0.16666667,  0.2777778 ,  0.3888889 ,  0.5       ]],
+                [[-1.  , -0.75, -0.5 , -0.25,  0.  ,  0.25,  0.5 ,  0.75]],
                 dtype=K.floatx()),
-            np.array([[0.375  , 0.40625, 0.4375 , 0.4375 , 0.46875, 0.5    , 0.53125,
-       0.5625 , 0.5625 , 0.59375]],
+            np.array([[0.28125, 0.3125 , 0.375  , 0.4375 , 0.5    , 0.5625 , 0.625  ,      0.6875 ]],
                      dtype=K.floatx()),
         ),
     ])
 def test_quantized_sigmoid(bits, sigmoid_type, test_values, expected_values):
-  """Test quantized_sigmoid function."""
+  """Test quantized_sigmoid function with three different sigmoid variants."""
   qkeras.quantizers.set_internal_sigmoid(sigmoid_type)
   x = K.placeholder(ndim=2)
   f = K.function([x], [quantized_sigmoid(bits)(x)])
+  qkeras.quantizers.set_internal_sigmoid("hard")
+
   result = f([test_values])[0]
   assert_allclose(result, expected_values, rtol=1e-05)
 
