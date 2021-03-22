@@ -17,20 +17,15 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import logging
-import warnings
-
-import numpy as np
 import six
 import re
-from six.moves import range
+import numpy as np
 import tensorflow.compat.v2 as tf
-from tensorflow.keras import initializers
 import tensorflow.keras.backend as K
+from six.moves import range
+from tensorflow.keras import initializers
 from tensorflow.keras.utils import deserialize_keras_object
-#from tensorflow.python.keras.utils import tf_utils
 from tensorflow.python.framework import smart_cond as tf_utils
-
 from .safe_eval import safe_eval
 
 #
@@ -332,6 +327,11 @@ def _ceil_through(x):
 
   return x + tf.stop_gradient(-x + tf.ceil(x))
 
+
+def _floor_through(x):
+  """Computes the floor operation using straight through estimator."""
+
+  return x + tf.stop_gradient(-x + tf.floor(x))
 
 
 def _create_variable_name(attr_name, var_name=None):
@@ -1706,13 +1706,13 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
     }
     return config
 
-
 def _clip_power_of_two(x_abs,
                        min_exp,
                        max_exp,
                        max_value,
                        quadratic_approximation=False,
-                       use_stochastic_rounding=False):
+                       use_stochastic_rounding=False,
+                       log2_rounding="rnd"):
   """Clips a tensor using power-of-two quantizer.
 
 
@@ -1725,6 +1725,8 @@ def _clip_power_of_two(x_abs,
       approximation is applied.
     use_stochastic_rounding: An boolean representing whether the stochastic
       rounding method is applied.
+    log2_rounding: log2 rounding mode. "rnd" and "floor" currently
+      supported, corresponding to tf.round and tf.floor respectively.
 
   Returns:
     A tensor object, the values are clipped by min_exp and max_exp.
@@ -1744,28 +1746,25 @@ def _clip_power_of_two(x_abs,
                         tf.ones_like(x_filter) * max_value, x_filter)
 
   def power_of_two_clip(x_abs, min_exp, max_exp, quadratic_approximation,
-                        use_stochastic_rounding):
+                        use_stochastic_rounding, log2_rounding):
+    assert log2_rounding in ["rnd", "floor"]
+
     if quadratic_approximation:
       q_factor = 2.0
+      x_input = tf.sqrt(x_abs)
     else:
       q_factor = 1.0
+      x_input = x_abs
 
-    if use_stochastic_rounding:
-      if quadratic_approximation:
-        x_log2 = tf_utils.smart_cond(
-            K.learning_phase(),
-            lambda: stochastic_round_po2(tf.sqrt(x_abs)),
-            lambda: _round_through(tf.keras.backend.log(tf.sqrt(x_abs)) / log2))
-      else:
-        x_log2 = tf_utils.smart_cond(
-            K.learning_phase(),
-            lambda: stochastic_round_po2(x_abs),
-            lambda: _round_through(tf.keras.backend.log(x_abs) / log2))
+    if log2_rounding == "floor":
+      x_log2 = _floor_through(tf.keras.backend.log(x_input) / log2)
+    elif use_stochastic_rounding:
+      x_log2 = tf_utils.smart_cond(
+          K.learning_phase(),
+          lambda: stochastic_round_po2(x_input),
+          lambda: _round_through(tf.keras.backend.log(x_input) / log2))
     else:
-      if quadratic_approximation:
-        x_log2 = _round_through(tf.keras.backend.log(tf.sqrt(x_abs)) / log2)
-      else:
-        x_log2 = _round_through(tf.keras.backend.log(x_abs) / log2)
+      x_log2 = _round_through(tf.keras.backend.log(x_input) / log2)
 
     x_clipped = q_factor * tf.keras.backend.clip(x_log2, min_exp, max_exp)
     return x_clipped
@@ -1774,7 +1773,7 @@ def _clip_power_of_two(x_abs,
       x_abs < eps,
       tf.ones_like(x_abs) * min_exp,
       power_of_two_clip(x_filter, min_exp, max_exp, quadratic_approximation,
-                        use_stochastic_rounding))
+                        use_stochastic_rounding, log2_rounding))
 
   return x_clipped
 
@@ -1842,6 +1841,8 @@ class quantized_po2(BaseQuantizer):  # pylint: disable=invalid-name
       stochastic rounding and forces the mean of x to be x statstically.
     quadratic_approximation: A boolean, default is False if True, it forces the
       exponent to be even number that closted to x.
+    log2_rounding: A string, log2 rounding mode. "rnd" and "floor" currently
+      supported, corresponding to tf.round and tf.floor respectively.
     qnoise_factor: float. a scalar from 0 to 1 that represents the level of
       quantization noise to add. This controls the amount of the quantization
       noise to add to the outputs by changing the weighted sum of
@@ -1859,6 +1860,7 @@ class quantized_po2(BaseQuantizer):  # pylint: disable=invalid-name
                max_value=None,
                use_stochastic_rounding=False,
                quadratic_approximation=False,
+               log2_rounding="rnd",
                qnoise_factor=1.0,
                var_name=None,
                use_ste=True,
@@ -1867,6 +1869,7 @@ class quantized_po2(BaseQuantizer):  # pylint: disable=invalid-name
     self.bits = bits
     self.max_value = max_value
     self.use_stochastic_rounding = use_stochastic_rounding
+    self.log2_rounding = log2_rounding
     # if True, round to the exponent for sqrt(x),
     # so that the return value can be divided by two without remainder.
     self.quadratic_approximation = quadratic_approximation
@@ -1901,7 +1904,8 @@ class quantized_po2(BaseQuantizer):  # pylint: disable=invalid-name
     x_clipped = _clip_power_of_two(x_abs, self._min_exp, self._max_exp,
                                    self.max_value,
                                    self.quadratic_approximation,
-                                   self.use_stochastic_rounding)
+                                   self.use_stochastic_rounding,
+                                   self.log2_rounding)
     xq = x_sign * pow(2.0, x_clipped)
 
     if self.use_ste:
@@ -1940,6 +1944,8 @@ class quantized_po2(BaseQuantizer):  # pylint: disable=invalid-name
         quadratic_approximation:
           if True, the exponent is enforced to be even number, which is
           the closest one to x.
+        log2_rounding:
+          A string, Log2 rounding mode
     """
     config = {
         "bits":
@@ -1952,7 +1958,9 @@ class quantized_po2(BaseQuantizer):  # pylint: disable=invalid-name
             self.quadratic_approximation,
         "qnoise_factor":
             self.qnoise_factor.numpy() if isinstance(
-                self.qnoise_factor, tf.Variable) else self.qnoise_factor
+                self.qnoise_factor, tf.Variable) else self.qnoise_factor,
+        "log2_rounding":
+            self.log2_rounding
     }
     return config
 
@@ -1969,6 +1977,8 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
       stochastic rounding and forces the mean of x to be x statstically.
     quadratic_approximation: A boolean, default is False if True, it forces the
       exponent to be even number that is closest to x.
+    log2_rounding: A string, log2 rounding mode. "rnd" and "floor" currently
+      supported, corresponding to tf.round and tf.floor respectively.
     qnoise_factor: float. a scalar from 0 to 1 that represents the level of
       quantization noise to add. This controls the amount of the quantization
       noise to add to the outputs by changing the weighted sum of
@@ -1987,6 +1997,7 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
                negative_slope=0,
                use_stochastic_rounding=False,
                quadratic_approximation=False,
+               log2_rounding="rnd",
                qnoise_factor=1.0,
                var_name=None,
                use_ste=True,
@@ -1996,6 +2007,7 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
     self.max_value = max_value
     self.negative_slope = negative_slope
     self.use_stochastic_rounding = use_stochastic_rounding
+    self.log2_rounding = log2_rounding
     # if True, round to the exponent for sqrt(x),
     # so that the return value can be divided by two without remainder.
     self.quadratic_approximation = quadratic_approximation
@@ -2046,14 +2058,16 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
         self._min_exp, self._max_exp,
         self.max_value,
         self.quadratic_approximation,
-        self.use_stochastic_rounding)
+        self.use_stochastic_rounding,
+        self.log2_rounding)
 
     x_neg_clipped = _clip_power_of_two(
         K.relu(-x_original) * self.negative_slope,
         self._min_exp, self._max_exp,
         self.max_value,
         self.quadratic_approximation,
-        self.use_stochastic_rounding)
+        self.use_stochastic_rounding,
+        self.log2_rounding)
 
     xq = tf.where(
         tf.logical_or(x_original >= 0.0, self.negative_slope == 0.0),
@@ -2099,6 +2113,9 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
         quadratic_approximation:
           if True, the exponent is enforced to be even number, which is
           the closest one to x.
+        log2_rounding:
+          A string, Log2 rounding mode
+
     """
 
     config = {
@@ -2114,7 +2131,9 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
             self.quadratic_approximation,
         "qnoise_factor":
             self.qnoise_factor.numpy() if isinstance(
-                self.qnoise_factor, tf.Variable) else self.qnoise_factor
+                self.qnoise_factor, tf.Variable) else self.qnoise_factor,
+        "log2_rounding":
+            self.log2_rounding
     }
     return config
 
