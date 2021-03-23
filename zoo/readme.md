@@ -1,0 +1,21 @@
+# QKeras neural network zoo
+#### Collection of pre-trained neural networks 
+This folder contains a collection of networks written using two different frameworks: qkeras and larq. 
+Each network can be built and tested using a randomly generated dataset, the output will consists of two measurements:
+- Mean MSE, calculate the mean MSE between all the output for both networks
+- Absolute errors, calculates how many times the class predicted by one network does
+    not coincide with the class predicted by the other network
+
+The folder is divided in:
+- network_name.py is the class to build and test the networks.
+- utils.pyt contains share methods betweenh all the classes.
+- results.txt are the results of the comparison between the networks.
+- ./qkeras_models contains the .json qkeras saved models.
+- ./larq_models contains the .json larq saved models.
+- ./weights please put the downloaded weights here, link to download weights is provided in the network class.
+
+Link to the folder with all weights: https://drive.google.com/drive/folders/1pGZ6dGWvJyc9aH-TOQohm0PhORihQZ5I?usp=sharing
+
+An example can by run with:
+```python 
+ python3 quicknet.py
