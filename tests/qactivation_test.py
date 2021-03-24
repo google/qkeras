@@ -38,7 +38,7 @@ from qkeras import ternary
 
 @pytest.mark.parametrize(
     'bits, max_value, use_stochastic_rounding, quadratic_approximation, '
-    'test_values, expected_values', [
+    'log2_rounding, test_values, expected_values', [
         # bits=4 without max_value. Therefore the max exponent is 4 when
         # quadratic approximiation is enabled. The max and min values from this
         # quantization function are 16 and -16 respectively.
@@ -47,6 +47,7 @@ from qkeras import ternary
             None,
             0,
             1,
+            "rnd",
             np.array(
                 [[-10.0, -0.25, 0.25, 1.0, 1.99, 2.0, 5.0, 10.0, 16.0, 32.0]],
                 dtype=K.floatx()),
@@ -62,10 +63,11 @@ from qkeras import ternary
             0.5,
             0,
             0,
+            "rnd",
             np.array([[-7, -0.12, -0.03, 0.01, 5]], dtype=K.floatx()),
             np.array([[-0.5, -0.125, -0.0625, 0.0625, 0.5]], dtype=K.floatx()),
         ),
-        (8, None, 0, 0,
+        (8, None, 0, 0, "rnd",
          np.array(
              [[-3, -2, -1.5, -0.5, -0.033, 0.5, 0.667, 1, 1.5, 4, 10]],
              dtype=K.floatx()),
@@ -73,7 +75,7 @@ from qkeras import ternary
              [[-4, -2, -2, -0.5, -0.03125, 0.5, 0.5, 1, 2, 4, 8]],
              dtype=K.floatx()),
         ),
-        (4, None, 0, 0,
+        (4, None, 0, 0, "rnd",
          np.array(
              [[-16, -7, -0.12, -0.03, 0, 0.01, 5, 10]],
              dtype=K.floatx()),
@@ -81,15 +83,15 @@ from qkeras import ternary
              [[-8, -8, -0.125, -0.0625, 0.0625, 0.0625, 4, 8]],
              dtype=K.floatx()),
         ),
-        (3, 0.5, 0, 0,
+        (3, 0.5, 0, 0, "rnd",
          np.array([[-7, -0.12, -0.03, 0.01, 5]], dtype=K.floatx()),
          np.array([[-0.5, -0.125, -0.0625, 0.0625, 0.5]], dtype=K.floatx()),
         ),
-        (4, 4, 0, 0,
+        (4, 4, 0, 0, "rnd",
          np.array([[-7, -0.12, -0.03, 0, 0.01, 5]], dtype=K.floatx()),
          np.array([[-4, -0.125, -0.0625, 0.0625, 0.0625, 4]], dtype=K.floatx()),
         ),
-        (4, None, 0, 1,
+        (4, None, 0, 1, "rnd",
          np.array(
              [[0.01, 0.03, 0.06, 0.5, 1, 2, 5, 10, 16, 32]],
              dtype=K.floatx()),
@@ -97,7 +99,15 @@ from qkeras import ternary
              [[0.015625, 0.015625, 0.0625, 0.25, 1, 1, 4, 16, 16, 16]],
              dtype=K.floatx()),
         ),
-        (4, None, 0, 1,
+        (4, None, 0, 1, "rnd",
+         np.array(
+             [[-32, -16, -10, -5, -2, -1, -0.5, -0.03, -0.01]],
+             dtype=K.floatx()),
+         np.array(
+             [[-16, -16, -16, -4, -1, -1, -0.25, -0.015625, -0.015625]],
+             dtype=K.floatx()),
+        ),
+        (4, None, 0, 1, "floor",
          np.array(
              [[-32, -16, -10, -5, -2, -1, -0.5, -0.03, -0.01]],
              dtype=K.floatx()),
@@ -110,6 +120,7 @@ def test_quantized_po2(bits,
                        max_value,
                        use_stochastic_rounding,
                        quadratic_approximation,
+                       log2_rounding,
                        test_values,
                        expected_values):
   """Test quantized_po2 function."""
