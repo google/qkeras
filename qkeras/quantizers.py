@@ -1719,30 +1719,22 @@ class quantized_sigmoid(BaseQuantizer):  # pylint: disable=invalid-name
     Function that performs sigmoid + quantization to bits in the range 0.0 to 1.0.
   """
 
-  def __init__(self, bits=8, symmetric=0,
+  def __init__(self, bits=8,
                use_stochastic_rounding=False):
     super(quantized_sigmoid, self).__init__()
     self.bits = bits
-    self.symmetric = symmetric
     self.use_stochastic_rounding = use_stochastic_rounding
 
   def __str__(self):
     flags = [str(self.bits)]
-    if self.symmetric or self.use_stochastic_rounding:
-      flags.append(str(int(self.symmetric)))
     if self.use_stochastic_rounding:
       flags.append(str(int(self.use_stochastic_rounding)))
     return "quantized_sigmoid(" + ",".join(flags) + ")"
 
   def __call__(self, x):
-    non_sign_bits = self.bits - 1
-    m = K.cast_to_floatx(K.pow(2, non_sign_bits))
+    m = K.cast_to_floatx(K.pow(2, self.bits))
     p = _sigmoid(x) * m
-    xq = K.clip(
-        (_round_through(p, self.use_stochastic_rounding) / m),
-        (1.0 * self.symmetric) / m,
-        1.0 - 1.0 / m)
-    return xq
+    return (_round_through(p, self.use_stochastic_rounding) / m)
 
   def max(self):
     """Get the maximum value that quantized_sigmoid can represent."""
@@ -1759,7 +1751,6 @@ class quantized_sigmoid(BaseQuantizer):  # pylint: disable=invalid-name
   def get_config(self):
     config = {
         "bits": self.bits,
-        "symmetric": self.symmetric,
         "use_stochastic_rounding": self.use_stochastic_rounding
     }
     return config
