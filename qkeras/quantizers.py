@@ -1706,7 +1706,6 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
     }
     return config
 
-<<<<<<< HEAD
 class quantized_sigmoid(BaseQuantizer):  # pylint: disable=invalid-name
   """Computes a quantized sigmoid to a number of bits.
 
@@ -1766,8 +1765,6 @@ class quantized_sigmoid(BaseQuantizer):  # pylint: disable=invalid-name
     return config
 
 
-=======
->>>>>>> aae2031a866f7366defc143c308fadb53e6af22d
 def _clip_power_of_two(x_abs,
                        min_exp,
                        max_exp,
