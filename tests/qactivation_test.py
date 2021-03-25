@@ -284,10 +284,11 @@ def test_hard_sigmoid():
     ])
 def test_quantized_sigmoid(bits, sigmoid_type, use_real_sigmoid, test_values, expected_values):
   """Test quantized_sigmoid function with three different sigmoid variants."""
+  previous_sigmoid = _sigmoid  # store the previous sigmoid type
   set_internal_sigmoid(sigmoid_type)
   x = K.placeholder(ndim=2)
   f = K.function([x], [quantized_sigmoid(bits, use_real_sigmoid=use_real_sigmoid)(x)])
-  set_internal_sigmoid("hard")
+  _sigmoid = previous_sigmoid  #restore sigmoid to the type it was before
 
   result = f([test_values])[0]
   assert_allclose(result, expected_values, rtol=1e-05)
