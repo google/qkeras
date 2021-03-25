@@ -201,7 +201,7 @@ def binary_sigmoid(x):
 # we use a version of approximated sigmoid everywhere in this code.
 # we can set it to hard_sigmoid(x) or smooth_sigmoid(x).
 
-_sigmoid = smooth_sigmoid
+_sigmoid = hard_sigmoid
 
 
 def set_internal_sigmoid(mode):
