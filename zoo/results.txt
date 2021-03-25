@@ -8,6 +8,10 @@ BiRealNet:
 	Mean MSE for biRealNet -> 8.4-05
 	Absolute errors for biRealNet -> 6
 
+Binary ResNEt e18:
+	Mean MSE for quickNet -> 0.0
+	Absolute errors for quickNet -> 0
+
 Quicknet:
 	Mean MSE for quickNet -> 5.6e-18
 	Absolute errors for quickNet -> 0
