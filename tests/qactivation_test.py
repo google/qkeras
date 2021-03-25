@@ -23,12 +23,15 @@ from numpy.testing import assert_allclose
 import pytest
 from tensorflow.keras import backend as K
 
+import google3
+from google3.third_party.qkeras import set_internal_sigmoid
 from qkeras import binary
 from qkeras import hard_sigmoid
 from qkeras import quantized_bits
 from qkeras import quantized_po2
 from qkeras import quantized_relu
 from qkeras import quantized_relu_po2
+from qkeras import quantized_sigmoid
 from qkeras import smooth_sigmoid
 from qkeras import stochastic_binary
 from qkeras import stochastic_ternary
@@ -36,7 +39,7 @@ from qkeras import ternary
 
 @pytest.mark.parametrize(
     'bits, max_value, use_stochastic_rounding, quadratic_approximation, '
-    'test_values, expected_values', [
+    'log2_rounding, test_values, expected_values', [
         # bits=4 without max_value. Therefore the max exponent is 4 when
         # quadratic approximiation is enabled. The max and min values from this
         # quantization function are 16 and -16 respectively.
@@ -45,6 +48,7 @@ from qkeras import ternary
             None,
             0,
             1,
+            "rnd",
             np.array(
                 [[-10.0, -0.25, 0.25, 1.0, 1.99, 2.0, 5.0, 10.0, 16.0, 32.0]],
                 dtype=K.floatx()),
@@ -60,10 +64,11 @@ from qkeras import ternary
             0.5,
             0,
             0,
+            "rnd",
             np.array([[-7, -0.12, -0.03, 0.01, 5]], dtype=K.floatx()),
             np.array([[-0.5, -0.125, -0.0625, 0.0625, 0.5]], dtype=K.floatx()),
         ),
-        (8, None, 0, 0,
+        (8, None, 0, 0, "rnd",
          np.array(
              [[-3, -2, -1.5, -0.5, -0.033, 0.5, 0.667, 1, 1.5, 4, 10]],
              dtype=K.floatx()),
@@ -71,7 +76,7 @@ from qkeras import ternary
              [[-4, -2, -2, -0.5, -0.03125, 0.5, 0.5, 1, 2, 4, 8]],
              dtype=K.floatx()),
         ),
-        (4, None, 0, 0,
+        (4, None, 0, 0, "rnd",
          np.array(
              [[-16, -7, -0.12, -0.03, 0, 0.01, 5, 10]],
              dtype=K.floatx()),
@@ -79,15 +84,15 @@ from qkeras import ternary
              [[-8, -8, -0.125, -0.0625, 0.0625, 0.0625, 4, 8]],
              dtype=K.floatx()),
         ),
-        (3, 0.5, 0, 0,
+        (3, 0.5, 0, 0, "rnd",
          np.array([[-7, -0.12, -0.03, 0.01, 5]], dtype=K.floatx()),
          np.array([[-0.5, -0.125, -0.0625, 0.0625, 0.5]], dtype=K.floatx()),
         ),
-        (4, 4, 0, 0,
+        (4, 4, 0, 0, "rnd",
          np.array([[-7, -0.12, -0.03, 0, 0.01, 5]], dtype=K.floatx()),
          np.array([[-4, -0.125, -0.0625, 0.0625, 0.0625, 4]], dtype=K.floatx()),
         ),
-        (4, None, 0, 1,
+        (4, None, 0, 1, "rnd",
          np.array(
              [[0.01, 0.03, 0.06, 0.5, 1, 2, 5, 10, 16, 32]],
              dtype=K.floatx()),
@@ -95,7 +100,15 @@ from qkeras import ternary
              [[0.015625, 0.015625, 0.0625, 0.25, 1, 1, 4, 16, 16, 16]],
              dtype=K.floatx()),
         ),
-        (4, None, 0, 1,
+        (4, None, 0, 1, "rnd",
+         np.array(
+             [[-32, -16, -10, -5, -2, -1, -0.5, -0.03, -0.01]],
+             dtype=K.floatx()),
+         np.array(
+             [[-16, -16, -16, -4, -1, -1, -0.25, -0.015625, -0.015625]],
+             dtype=K.floatx()),
+        ),
+        (4, None, 0, 1, "floor",
          np.array(
              [[-32, -16, -10, -5, -2, -1, -0.5, -0.03, -0.01]],
              dtype=K.floatx()),
@@ -108,6 +121,7 @@ def test_quantized_po2(bits,
                        max_value,
                        use_stochastic_rounding,
                        quadratic_approximation,
+                       log2_rounding,
                        test_values,
                        expected_values):
   """Test quantized_po2 function."""
@@ -233,6 +247,52 @@ def test_hard_sigmoid():
   result = f([test_values])[0]
   expected = sigmoid(test_values)
   assert_allclose(result, expected, rtol=1e-05)
+
+@pytest.mark.parametrize(
+    'bits, sigmoid_type, use_real_sigmoid, test_values, expected_values', [
+        (
+            6,
+            "hard",
+            False,
+            np.array(
+                [[-1.  , -0.75, -0.5 , -0.25,  0.  ,  0.25,  0.5 ,  0.75]],
+                dtype=K.floatx()),
+            np.array([[0.   , 0.125, 0.25 , 0.375, 0.5  , 0.625, 0.75 , 0.875]],
+                     dtype=K.floatx()),
+        ),
+        (
+            6,
+            "smooth",
+            False,
+            np.array(
+                [[-1.  , -0.75, -0.5 , -0.25,  0.  ,  0.25,  0.5 ,  0.75]],
+                dtype=K.floatx()),
+            np.array([[0.3125  , 0.359375, 0.40625 , 0.453125, 0.5     , 0.546875,
+            0.59375 , 0.640625]],
+                     dtype=K.floatx()),
+        ),
+        (
+            6,
+            "real",
+            True,
+            np.array(
+                [[-1.  , -0.75, -0.5 , -0.25,  0.  ,  0.25,  0.5 ,  0.75]],
+                dtype=K.floatx()),
+            np.array([[0.265625, 0.328125, 0.375   , 0.4375  , 0.5     , 0.5625  ,
+            0.625   , 0.671875 ]],
+                     dtype=K.floatx()),
+        ),
+    ])
+def test_quantized_sigmoid(bits, sigmoid_type, test_values, expected_values):
+  """Test quantized_sigmoid function with three different sigmoid variants."""
+  set_internal_sigmoid(sigmoid_type)
+  x = K.placeholder(ndim=2)
+  f = K.function([x], [quantized_sigmoid(bits, use_real_sigmoid=use_real_sigmoid)(x)])
+  set_internal_sigmoid("hard")
+
+  result = f([test_values])[0]
+  assert_allclose(result, expected_values, rtol=1e-05)
+
 
 
 @pytest.mark.parametrize(
@@ -366,7 +426,7 @@ def test_binary(use_01, alpha, test_values, expected_values):
 def test_stochastic_round_quantized_po2(test_values, expected_values):
   K.set_learning_phase(1)
   np.random.seed(666)
-  x = K.placeholder(ndim=2) 
+  x = K.placeholder(ndim=2)
   q = quantized_po2(use_stochastic_rounding=True)
   f = K.function([x], [q(x)])
   res = f([test_values])[0]
@@ -456,7 +516,7 @@ def test_stochastic_binary_inference_mode(alpha, test_values, expected_values):
     (
         0.01,
         "auto_po2",
-        8, 
+        8,
         np.array([-0.979, -0.877, -0.639, -0.586, -0.23 ,  0.154,  0.327,  0.603,
             0.83 ,  0.986]).astype(np.float32),
         np.array([0.007812, 0.007812, 0.007812, 0.003906, 0.003906, 0.003906,
