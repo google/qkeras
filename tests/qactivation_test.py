@@ -282,7 +282,7 @@ def test_hard_sigmoid():
                      dtype=K.floatx()),
         ),
     ])
-def test_quantized_sigmoid(bits, sigmoid_type, test_values, expected_values):
+def test_quantized_sigmoid(bits, sigmoid_type, use_real_sigmoid, test_values, expected_values):
   """Test quantized_sigmoid function with three different sigmoid variants."""
   set_internal_sigmoid(sigmoid_type)
   x = K.placeholder(ndim=2)
