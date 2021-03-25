@@ -24,6 +24,7 @@ import pytest
 from tensorflow.keras import backend as K
 
 from qkeras import set_internal_sigmoid
+from qkeras.quantizers import _sigmoid
 from qkeras import binary
 from qkeras import hard_sigmoid
 from qkeras import quantized_bits
@@ -288,7 +289,7 @@ def test_quantized_sigmoid(bits, sigmoid_type, use_real_sigmoid, test_values, ex
   set_internal_sigmoid(sigmoid_type)
   x = K.placeholder(ndim=2)
   f = K.function([x], [quantized_sigmoid(bits, use_real_sigmoid=use_real_sigmoid)(x)])
-  _sigmoid = previous_sigmoid  #restore sigmoid to the type it was before
+  _sigmoid = previous_sigmoid  # restore sigmoid to the type it was before
 
   result = f([test_values])[0]
   assert_allclose(result, expected_values, rtol=1e-05)
