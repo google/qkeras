@@ -285,6 +285,7 @@ def test_hard_sigmoid():
     ])
 def test_quantized_sigmoid(bits, sigmoid_type, use_real_sigmoid, test_values, expected_values):
   """Test quantized_sigmoid function with three different sigmoid variants."""
+  global _sigmoid
   previous_sigmoid = _sigmoid  # store the previous sigmoid type
   set_internal_sigmoid(sigmoid_type)
   x = K.placeholder(ndim=2)
