@@ -1706,6 +1706,7 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
     }
     return config
 
+
 class quantized_sigmoid(BaseQuantizer):  # pylint: disable=invalid-name
   """Computes a quantized sigmoid to a number of bits.
 
