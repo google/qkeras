@@ -23,6 +23,7 @@ from numpy.testing import assert_allclose
 import pytest
 from tensorflow.keras import backend as K
 
+import google3
 from google3.third_party.qkeras import set_internal_sigmoid
 from qkeras import binary
 from qkeras import hard_sigmoid
