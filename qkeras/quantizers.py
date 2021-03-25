@@ -1711,6 +1711,7 @@ class quantized_sigmoid(BaseQuantizer):  # pylint: disable=invalid-name
 
   Attributes:
     bits: number of bits to perform quantization.
+    use_real_sigmoid: if true, will use the sigmoid from Keras backend
     use_stochastic_rounding: if true, we perform stochastic rounding.
 
   Returns:
@@ -1718,20 +1719,28 @@ class quantized_sigmoid(BaseQuantizer):  # pylint: disable=invalid-name
   """
 
   def __init__(self, bits=8,
+               use_real_sigmoid=False,
                use_stochastic_rounding=False):
     super(quantized_sigmoid, self).__init__()
     self.bits = bits
+    self.use_real_sigmoid = use_real_sigmoid
     self.use_stochastic_rounding = use_stochastic_rounding
 
   def __str__(self):
     flags = [str(self.bits)]
+    if self.use_real_sigmoid:
+      flags.append(str(int(self.use_real_sigmoid)))
     if self.use_stochastic_rounding:
       flags.append(str(int(self.use_stochastic_rounding)))
     return "quantized_sigmoid(" + ",".join(flags) + ")"
 
   def __call__(self, x):
+    x = K.cast_to_floatx(x)
     m = K.cast_to_floatx(K.pow(2, self.bits))
-    p = _sigmoid(x) * m
+    if self.use_real_sigmoid:
+      p = K.sigmoid(x) * m
+    else:
+      p = _sigmoid(x) * m
     return (_round_through(p, self.use_stochastic_rounding) / m)
 
   def max(self):
@@ -1749,6 +1758,7 @@ class quantized_sigmoid(BaseQuantizer):  # pylint: disable=invalid-name
   def get_config(self):
     config = {
         "bits": self.bits,
+        "use_real_sigmoid": self.use_real_sigmoid,
         "use_stochastic_rounding": self.use_stochastic_rounding
     }
     return config
