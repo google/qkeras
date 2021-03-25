@@ -284,10 +284,18 @@ def test_hard_sigmoid():
     ])
 def test_quantized_sigmoid(bits, sigmoid_type, use_real_sigmoid, test_values, expected_values):
   """Test quantized_sigmoid function with three different sigmoid variants."""
+  # store previous sigmoid type
+  if quantized_sigmoid(4)(1.0).numpy() == 1.0:
+    previous_sigmoid = "hard"
+  elif quantized_sigmoid(4)(2.5).numpy() == 1.0:
+    previous_sigmoid = "smooth"
+  else:
+    previous_sigmoid = "real"
+
   set_internal_sigmoid(sigmoid_type)
   x = K.placeholder(ndim=2)
   f = K.function([x], [quantized_sigmoid(bits, use_real_sigmoid=use_real_sigmoid)(x)])
-  set_internal_sigmoid("hard")
+  set_internal_sigmoid(previous_sigmoid)
 
   result = f([test_values])[0]
   assert_allclose(result, expected_values, rtol=1e-05)
