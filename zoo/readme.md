@@ -1,21 +1,3 @@
-###############################################################################
-# .. attention::
-#
-# Copyright(c) 2021 Francesco Loro, Master Degree Student Università degli studi di Padova.
-# All rights reserved.
-#
-# This software component is licensed by Apache License Version 2.0
-# http://www.apache.org/licenses/
-# Same as QKeras
-# You may not use this file except in compliance with# the License.
-#
-###############################################################################
-
-__author__ = "Francesco Loro"
-__email__ = "francesco.official@gmail.com"
-__supervisor__ = "Danilo Pau"
-__email__ = "danilo.pau@st.com"
-
 # QKeras neural network zoo
 #### Collection of pre-trained neural networks 
 This folder contains a collection of networks written using two different frameworks: qkeras and larq. 
