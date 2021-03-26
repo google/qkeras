@@ -285,9 +285,9 @@ def test_hard_sigmoid():
 def test_quantized_sigmoid(bits, sigmoid_type, use_real_sigmoid, test_values, expected_values):
   """Test quantized_sigmoid function with three different sigmoid variants."""
   # store previous sigmoid type
-  if quantized_sigmoid(4)(np.float(1.0)).numpy() == 1.0:
+  if quantized_sigmoid(4)(K.cast_to_floatx([1.0])).numpy()[0] == 1.0:
     previous_sigmoid = "hard"
-  elif quantized_sigmoid(4)(np.float(2.5)).numpy() == 1.0:
+  elif quantized_sigmoid(4)(K.cast_to_floatx([2.5])).numpy()[0] == 1.0:
     previous_sigmoid = "smooth"
   else:
     previous_sigmoid = "real"
