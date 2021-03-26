@@ -20,10 +20,10 @@ import numpy as np
 from tqdm import tqdm
 import os
 import json
-#import cv2
+import cv2
 
-path_to_larq = "./larq_models"
-path_to_qkeras = "./qkeras_models"
+PATH_TO_LARQ = "./larq_models"
+PATH_TO_QKERAS = "./qkeras_models"
 
 
 def calculate_MSE(res_qkeras, res_larq):
@@ -95,18 +95,18 @@ def dump_network_to_json(qkeras_network, larq_network, network_name):
     :param network_name: name of the network
     """
     network = qkeras_network.to_json()
-    with open(os.path.join(path_to_qkeras, network_name + ".json"), "w") \
+    with open(os.path.join(PATH_TO_QKERAS, network_name + ".json"), "w") \
             as outfile:
         json.dump(network, outfile)
     print("Network:", network_name, "successfully saved into:",
-          os.path.join(path_to_qkeras, network_name))
+          os.path.join(PATH_TO_QKERAS, network_name))
 
     network = larq_network.to_json()
-    with open(os.path.join(path_to_larq, network_name + ".json"), "w") \
+    with open(os.path.join(PATH_TO_LARQ, network_name + ".json"), "w") \
             as outfile:
         json.dump(network, outfile)
     print("Network:", network_name, "successfully saved into:",
-          os.path.join(path_to_larq, str(network_name)))
+          os.path.join(PATH_TO_LARQ, str(network_name)))
 
 
 def loadImageNetData(path, image_num=1000):

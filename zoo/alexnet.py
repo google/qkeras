@@ -17,7 +17,7 @@ __supervisor__ = "Danilo Pau"
 __email__ = "danilo.pau@st.com"
 
 # Download pretrained weight from:
-# Alexnet -> https://github.com/larq/zoo/releases/download/binary_alexnet-v0.2.0/binary_alexnet_weights.h5
+# Alexnet -> https://drive.google.com/file/d/1-65sB1xnJuOoPhL00TYY0s3Fov0zxBHJ/view?usp=sharing
 
 import qkeras as q
 import tensorflow as tf
@@ -25,18 +25,20 @@ import larq as lq
 from utils import compare_network, create_random_dataset, dump_network_to_json
 
 # Define path to the pre-trained weights
-path_alexnet = "./weigths/binary_alexnet_weights.h5"
-alexnet_name = "alexNet"
+PATH_ALEXNET = "weights/binary_alexnet_weights.h5"
+ALEXNET_NAME = "alexNet"
 
 
-class alexnet():
+class AlexNet:
   """
   Class to create and load weights of: alexnet
+  Attributes:
+        network_name: Name of the network
   """
 
   def __init__(self):
-    self.__weights_path = path_alexnet
-    self.network_name = alexnet_name
+    self.__weights_path = PATH_ALEXNET
+    self.network_name = ALEXNET_NAME
 
   @staticmethod
   def add_qkeras_conv_block(model, filters_num, kernel_size, pool,
@@ -172,11 +174,11 @@ if __name__ == "__main__":
   # Create a random dataset with 100 samples
   random_data = create_random_dataset(100)
 
-  network = alexnet()
+  network = AlexNet()
   qkeras_network, larq_network = network.build()
   # Compare mean MSE and Absolute error of the the networks
   compare_network(qkeras_network=qkeras_network, larq_network=larq_network,
-                  dataset=random_data, network_name=alexnet_name)
+                  dataset=random_data, network_name=ALEXNET_NAME)
   dump_network_to_json(qkeras_network=qkeras_network,
                        larq_network=larq_network,
-                       network_name=alexnet_name)
+                       network_name=ALEXNET_NAME)

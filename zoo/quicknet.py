@@ -17,9 +17,9 @@ __supervisor__ = "Danilo Pau"
 __email__ = "danilo.pau@st.com"
 
 # Download pretrained weight from:
-# QuickNet -> https://github.com/larq/zoo/releases/download/quicknet-v1.0/quicknet_weights.h5
-# QuickNetSmall -> https://github.com/larq/zoo/releases/download/quicknet-v1.0/quicknet_small_weights.h5
-# QuickNetLarge -> https://github.com/larq/zoo/releases/download/quicknet-v1.0/quicknet_large_weights.h5
+# QuickNet -> https://drive.google.com/file/d/1-JieqQOWmQ4sA8_A4akfS84O8xFT9_x8/view?usp=sharing
+# QuickNetSmall -> https://drive.google.com/file/d/1-N7GTBYI1dkibbxG-lKtvnRtEpveFGj_/view?usp=sharing
+# QuickNetLarge -> https://drive.google.com/file/d/1-Nm-kAYagGche_31eKDuvH2l9i9ANygN/view?usp=sharing
 
 import qkeras as q
 import tensorflow as tf
@@ -28,38 +28,39 @@ from utils import compare_network, create_random_dataset, dump_network_to_json
 
 
 # Define path to the pre-trained weights
-path_quicknet = "./weigths/quicknet_weights.h5"
-path_quicknet_small = "./weigths/quicknet_small_weights.h5"
-path_quicknet_large = "./weigths/quicknet_large_weights.h5"
-quicknet_large_name = ["quickNet_large"]
-quicknet_small_name = ["quickNet_small"]
-quicknet_name = ["quickNet"]
+PATH_QUICKNET = "./weights/quicknet_weights.h5"
+PATH_QUICKNET_SMALL = "weights/quicknet_small_weights.h5"
+PATH_QUICKNET_LARGE = "weights/quicknet_large_weights.h5"
+QUICKNET_LARGE_NAME = "quickNet_large"
+QUICKNET_SMALL_NAME = "quickNet_small"
+QUICKNET_NAME = "quickNet"
 
 
-class quicknet():
+class QuickNet:
   """
   Class to create and load weights of: quicknet, quicknet small and quicknet
   large networks. Select the size of the network from size param. If None size
   is provided creates the quicknet version.
-  :param size: size of the network
+  Attributes:
+        network_name: Name of the network
   """
 
   def __init__(self, size=None):
     if str(size).lower() == "large":
       self.__id = 0
       self.__filters = ((64, 128, 256, 512))
-      self.__weights_path = path_quicknet_large
-      self.network_name = quicknet_large_name
+      self.__weights_path = PATH_QUICKNET_LARGE
+      self.network_name = QUICKNET_LARGE_NAME
     elif str(size).lower() == "small":
       self.__id = 1
       self.__filters = ((32, 64, 256, 512))
-      self.__weights_path = path_quicknet_small
-      self.network_name = quicknet_small_name
+      self.__weights_path = PATH_QUICKNET_SMALL
+      self.network_name = QUICKNET_SMALL_NAME
     elif str(size) == "":
       self.__id = 2
       self.__filters = ((64, 128, 256, 512))
-      self.__weights_path = path_quicknet
-      self.network_name = quicknet_name
+      self.__weights_path = PATH_QUICKNET
+      self.network_name = QUICKNET_NAME
     else:
       raise NameError("name:", str, "not recognized")
 
@@ -334,7 +335,7 @@ if __name__ == "__main__":
   sizes = ["", "large", "small"]
 
   for size, name in zip(sizes, network_names):
-    network = quicknet(size)
+    network = QuickNet(size)
     qkeras_network, larq_network = network.build()
     # Compare mean MSE and Absolute error of the the networks
     compare_network(qkeras_network=qkeras_network, larq_network=larq_network,
