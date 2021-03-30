@@ -23,12 +23,14 @@ from numpy.testing import assert_allclose
 import pytest
 from tensorflow.keras import backend as K
 
+from qkeras import set_internal_sigmoid
 from qkeras import binary
 from qkeras import hard_sigmoid
 from qkeras import quantized_bits
 from qkeras import quantized_po2
 from qkeras import quantized_relu
 from qkeras import quantized_relu_po2
+from qkeras import quantized_sigmoid
 from qkeras import smooth_sigmoid
 from qkeras import stochastic_binary
 from qkeras import stochastic_ternary
@@ -245,6 +247,60 @@ def test_hard_sigmoid():
   expected = sigmoid(test_values)
   assert_allclose(result, expected, rtol=1e-05)
 
+@pytest.mark.parametrize(
+    'bits, sigmoid_type, use_real_sigmoid, test_values, expected_values', [
+        (
+            6,
+            "hard",
+            False,
+            np.array(
+                [[-1.  , -0.75, -0.5 , -0.25,  0.  ,  0.25,  0.5 ,  0.75]],
+                dtype=K.floatx()),
+            np.array([[0.   , 0.125, 0.25 , 0.375, 0.5  , 0.625, 0.75 , 0.875]],
+                     dtype=K.floatx()),
+        ),
+        (
+            6,
+            "smooth",
+            False,
+            np.array(
+                [[-1.  , -0.75, -0.5 , -0.25,  0.  ,  0.25,  0.5 ,  0.75]],
+                dtype=K.floatx()),
+            np.array([[0.3125  , 0.359375, 0.40625 , 0.453125, 0.5     , 0.546875,
+            0.59375 , 0.640625]],
+                     dtype=K.floatx()),
+        ),
+        (
+            6,
+            "real",
+            True,
+            np.array(
+                [[-1.  , -0.75, -0.5 , -0.25,  0.  ,  0.25,  0.5 ,  0.75]],
+                dtype=K.floatx()),
+            np.array([[0.265625, 0.328125, 0.375   , 0.4375  , 0.5     , 0.5625  ,
+            0.625   , 0.671875 ]],
+                     dtype=K.floatx()),
+        ),
+    ])
+def test_quantized_sigmoid(bits, sigmoid_type, use_real_sigmoid, test_values, expected_values):
+  """Test quantized_sigmoid function with three different sigmoid variants."""
+  # store previous sigmoid type
+  if quantized_sigmoid(4)(K.cast_to_floatx([1.0])).numpy()[0] == 1.0:
+    previous_sigmoid = "hard"
+  elif quantized_sigmoid(4)(K.cast_to_floatx([2.5])).numpy()[0] == 1.0:
+    previous_sigmoid = "smooth"
+  else:
+    previous_sigmoid = "real"
+
+  set_internal_sigmoid(sigmoid_type)
+  x = K.placeholder(ndim=2)
+  f = K.function([x], [quantized_sigmoid(bits, use_real_sigmoid=use_real_sigmoid)(x)])
+  set_internal_sigmoid(previous_sigmoid)
+
+  result = f([test_values])[0]
+  assert_allclose(result, expected_values, rtol=1e-05)
+
+
 
 @pytest.mark.parametrize(
     'bits, integer, use_sigmoid, test_values, expected_values', [
@@ -377,7 +433,7 @@ def test_binary(use_01, alpha, test_values, expected_values):
 def test_stochastic_round_quantized_po2(test_values, expected_values):
   K.set_learning_phase(1)
   np.random.seed(666)
-  x = K.placeholder(ndim=2) 
+  x = K.placeholder(ndim=2)
   q = quantized_po2(use_stochastic_rounding=True)
   f = K.function([x], [q(x)])
   res = f([test_values])[0]
@@ -467,7 +523,7 @@ def test_stochastic_binary_inference_mode(alpha, test_values, expected_values):
     (
         0.01,
         "auto_po2",
-        8, 
+        8,
         np.array([-0.979, -0.877, -0.639, -0.586, -0.23 ,  0.154,  0.327,  0.603,
             0.83 ,  0.986]).astype(np.float32),
         np.array([0.007812, 0.007812, 0.007812, 0.003906, 0.003906, 0.003906,

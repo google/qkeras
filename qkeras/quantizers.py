@@ -1706,6 +1706,65 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
     }
     return config
 
+
+class quantized_sigmoid(BaseQuantizer):  # pylint: disable=invalid-name
+  """Computes a quantized sigmoid to a number of bits.
+
+  Attributes:
+    bits: number of bits to perform quantization.
+    use_real_sigmoid: if true, will use the sigmoid from Keras backend
+    use_stochastic_rounding: if true, we perform stochastic rounding.
+
+  Returns:
+    Function that performs sigmoid + quantization to bits in the range 0.0 to 1.0.
+  """
+
+  def __init__(self, bits=8,
+               use_real_sigmoid=False,
+               use_stochastic_rounding=False):
+    super(quantized_sigmoid, self).__init__()
+    self.bits = bits
+    self.use_real_sigmoid = use_real_sigmoid
+    self.use_stochastic_rounding = use_stochastic_rounding
+
+  def __str__(self):
+    flags = [str(self.bits)]
+    if self.use_real_sigmoid:
+      flags.append(str(int(self.use_real_sigmoid)))
+    if self.use_stochastic_rounding:
+      flags.append(str(int(self.use_stochastic_rounding)))
+    return "quantized_sigmoid(" + ",".join(flags) + ")"
+
+  def __call__(self, x):
+    x = K.cast_to_floatx(x)
+    m = K.cast_to_floatx(K.pow(2, self.bits))
+    if self.use_real_sigmoid:
+      p = K.sigmoid(x) * m
+    else:
+      p = _sigmoid(x) * m
+    return (_round_through(p, self.use_stochastic_rounding) / m)
+
+  def max(self):
+    """Get the maximum value that quantized_sigmoid can represent."""
+    return 1.0
+
+  def min(self):
+    """Get the minimum value that quantized_sigmoid can represent."""
+    return 0.0
+
+  @classmethod
+  def from_config(cls, config):
+    return cls(**config)
+
+  def get_config(self):
+    config = {
+        "bits": self.bits,
+        "use_real_sigmoid": self.use_real_sigmoid,
+        "use_stochastic_rounding": self.use_stochastic_rounding
+    }
+    return config
+
+
 def _clip_power_of_two(x_abs,
                        min_exp,
                        max_exp,
@@ -1966,7 +2025,7 @@ class quantized_po2(BaseQuantizer):  # pylint: disable=invalid-name
 
 
 class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
-  """Quantizes x to the closest power of 2 when x > 0 
+  """Quantizes x to the closest power of 2 when x > 0
 
   Attributes:
     bits: An integer, the bits allocated for the exponent and its sign.
@@ -1988,7 +2047,7 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
     use_ste: Bool. Whether to use "straight-through estimator" (STE) method or
         not.
     use_variables: Bool. Whether to make the quantizer variables to be dynamic
-      tf.Variables or not.  
+      tf.Variables or not.
   """
 
   def __init__(self,
