@@ -23,8 +23,7 @@ from numpy.testing import assert_allclose
 import pytest
 from tensorflow.keras import backend as K
 
-import google3
-from google3.third_party.qkeras import set_internal_sigmoid
+from qkeras import set_internal_sigmoid
 from qkeras import binary
 from qkeras import hard_sigmoid
 from qkeras import quantized_bits
@@ -283,12 +282,20 @@ def test_hard_sigmoid():
                      dtype=K.floatx()),
         ),
     ])
-def test_quantized_sigmoid(bits, sigmoid_type, test_values, expected_values):
+def test_quantized_sigmoid(bits, sigmoid_type, use_real_sigmoid, test_values, expected_values):
   """Test quantized_sigmoid function with three different sigmoid variants."""
+  # store previous sigmoid type
+  if quantized_sigmoid(4)(K.cast_to_floatx([1.0])).numpy()[0] == 1.0:
+    previous_sigmoid = "hard"
+  elif quantized_sigmoid(4)(K.cast_to_floatx([2.5])).numpy()[0] == 1.0:
+    previous_sigmoid = "smooth"
+  else:
+    previous_sigmoid = "real"
+
   set_internal_sigmoid(sigmoid_type)
   x = K.placeholder(ndim=2)
   f = K.function([x], [quantized_sigmoid(bits, use_real_sigmoid=use_real_sigmoid)(x)])
-  set_internal_sigmoid("hard")
+  set_internal_sigmoid(previous_sigmoid)
 
   result = f([test_values])[0]
   assert_allclose(result, expected_values, rtol=1e-05)
