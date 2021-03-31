@@ -1646,7 +1646,7 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
                and negative numbers.
     use_stochastic_rounding: if true, we perform stochastic rounding.
     use_real_tanh: if true, use the tanh function from Keras backend,
-                if false, use tanh that is defined by 2 * sigmoid(x) - 1
+                if false, use tanh that is defined as 2 * sigmoid(x) - 1
 
   Returns:
     Function that performs tanh + quantization to bits in the range -1.0 to 1.0.
@@ -1667,6 +1667,8 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
       flags.append(str(int(self.symmetric)))
     if self.use_stochastic_rounding:
       flags.append(str(int(self.use_stochastic_rounding)))
+    if self.use_real_tanh:
+      flags.append(str(int(self.use_real_tanh)))
     return "quantized_tanh(" + ",".join(flags) + ")"
 
   def __call__(self, x):
