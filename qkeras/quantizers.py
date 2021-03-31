@@ -1645,7 +1645,7 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
     symmetric: if true, we will have the same number of values for positive
                and negative numbers.
     use_stochastic_rounding: if true, we perform stochastic rounding.
-    use_real_tanh: if true, use the tanh function from tf.keras.backend,
+    use_real_tanh: if true, use the tanh function from Keras backend,
                 if false, use tanh that is defined by 2 * sigmoid(x) - 1
 
   Returns:
@@ -1671,16 +1671,17 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
 
   def __call__(self, x):
     non_sign_bits = self.bits - 1
-    m = pow(2, non_sign_bits)
-    m_i = pow(2, self.integer)
+    x = K.cast_to_floatx(x)
+    m = K.cast_to_floatx(K.pow(2, non_sign_bits))
+    m_i = K.cast_to_floatx(K.pow(2, self.integer))
     if not self.use_real_tanh:
       xi = 2.0 * (_round_through(_sigmoid(x / m_i) * m,
-        self.use_stochastic_rounding) / m) - 1.0
+                  self.use_stochastic_rounding) / m) - 1.0
     else:
-      xi = (_round_through(tf.keras.backend.tanh(x / m_i) * m,
-      self.use_stochastic_rounding) / m)
+      xi = (_round_through(K.tanh(x / m_i) * m,
+            self.use_stochastic_rounding) / m)
 
-    xq = m_i * tf.keras.backend.clip(
+    xq = m_i * K.clip(
         xi, -1.0 + (1.0 * self.symmetric) / m, 1.0 - 1.0 / m)
     return xq
 
@@ -1709,7 +1710,8 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
         "bits": self.bits,
         "integer": self.integer,
         "symmetric": self.symmetric,
-        "use_stochastic_rounding": self.use_stochastic_rounding
+        "use_stochastic_rounding": self.use_stochastic_rounding,
+        "use_real_tanh": self.use_real_tanh
     }
     return config
 
