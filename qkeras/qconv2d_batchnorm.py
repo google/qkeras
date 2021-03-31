@@ -125,7 +125,8 @@ class QConv2DBatchnorm(QConv2D):
         kernel_constraint=kernel_constraint,
         bias_constraint=bias_constraint,
         kernel_quantizer=kernel_quantizer,
-        bias_quantizer=bias_quantizer)
+        bias_quantizer=bias_quantizer,
+        **kwargs)
 
     # initialization of batchnorm part of the composite layer
     self.batchnorm = layers.BatchNormalization(
