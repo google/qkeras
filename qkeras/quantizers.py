@@ -1643,10 +1643,10 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
     bits: number of bits to perform quantization.
     integer: number of bits to the left of the decimal point.
     symmetric: if true, we will have the same number of values for positive
-               and negative numbers.
+      and negative numbers.
     use_stochastic_rounding: if true, we perform stochastic rounding.
     use_real_tanh: if true, use the tanh function from Keras backend,
-                if false, use tanh that is defined as 2 * sigmoid(x) - 1
+      if false, use tanh that is defined as 2 * sigmoid(x) - 1
 
   Returns:
     Function that performs tanh + quantization to bits in the range -1.0 to 1.0.
