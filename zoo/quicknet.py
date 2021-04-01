@@ -38,15 +38,23 @@ QUICKNET_NAME = "quickNet"
 
 
 class QuickNet:
-  """
-  Class to create and load weights of: quicknet, quicknet small and quicknet
-  large networks. Select the size of the network from size param. If None size
+  """Class to create quicknet, quicknet small and quicknet large networks.
+
+  Select the size of the network from size param. If None size
   is provided creates the quicknet version.
   Attributes:
         network_name: Name of the network
   """
 
   def __init__(self, size=None):
+    """Constructor for the network
+
+    Attributes:
+      size: string to specify size of the network
+
+    Raises:
+      NameError: if the size is not one of these: "", "small", "large"
+    """
     if str(size).lower() == "large":
       self.__id = 0
       self.__filters = ((64, 128, 256, 512))
@@ -63,119 +71,140 @@ class QuickNet:
       self.__weights_path = PATH_QUICKNET
       self.network_name = QUICKNET_NAME
     else:
-      raise NameError("name:", str, "not recognized")
+      raise NameError("name:", str(size), "not recognized")
 
   @staticmethod
-  def add_qkeras_residual(model, filters_num):
-    """
+  def add_qkeras_residual(given_model, filters_num):
+    """Adds a sequence of layers to the given model
+
     Add a sequence of: Activation quantization, Quantized Conv2D,
     BatchNormalization to the given model
-    :param model: model where to add the sequence
-    :param filters_num: number of filters for QConv2D
-    :return: model plus the sequence
+
+    Args:
+      given_model: model where to add the sequence
+      filters_num: number of filters for Conv2D
+
+    Returns:
+      Given Model plus the sequence
     """
-    model.add(q.QActivation("binary"))
-    model.add(q.QConv2D(filters_num, (3, 3), activation="relu",
-                        kernel_quantizer="binary(alpha=1)",
-                        kernel_initializer="glorot_normal",
-                        padding="same", use_bias=False))
-    model.add(tf.keras.layers.BatchNormalization())
-    return model
+    given_model.add(q.QActivation("binary"))
+    given_model.add(q.QConv2D(filters_num, (3, 3), activation="relu",
+                              kernel_quantizer="binary(alpha=1)",
+                              kernel_initializer="glorot_normal",
+                              padding="same", use_bias=False))
+    given_model.add(tf.keras.layers.BatchNormalization())
+    return given_model
 
   @staticmethod
-  def add_qkeras_transistion(model, strides, filters_num):
-    """
+  def add_qkeras_transistion(given_model, strides, filters_num):
+    """Adds a sequence of layers to the given model
+
     Add a sequence of: Activation quantization, Quantized Conv2D,
     BatchNormalization to the given model
-    :param model: model where to add the sequence
-    :param strides: strides param for MaxPool2d and QConv2D
-    :param filters_num: number of filters for QConv2D
-    :return: model plus the sequence
+
+    Args:
+      given_model: model where to add the sequence
+      filters_num: number of filters for Conv2D
+      kernel_size: kernel size for Conv2D
+      strides: strides for Conv2D
+
+    Returns:
+      Given Model plus the sequence
     """
-    model.add(tf.keras.layers.Activation("relu"))
-    model.add(tf.keras.layers.MaxPool2D(pool_size=strides, strides=1))
-    model.add(tf.keras.layers.DepthwiseConv2D((3, 3), padding="same",
-                                              strides=strides, trainable=False,
-                                              use_bias=False))
-    model.add(q.QConv2D(filters_num, (1, 1), kernel_initializer="glorot_normal",
-                        use_bias=False))
-    model.add(tf.keras.layers.BatchNormalization())
-    return model
+    given_model.add(tf.keras.layers.Activation("relu"))
+    given_model.add(tf.keras.layers.MaxPool2D(pool_size=strides, strides=1))
+    given_model.add(tf.keras.layers.DepthwiseConv2D((3, 3), padding="same",
+                                                    strides=strides,
+                                                    trainable=False,
+                                                    use_bias=False))
+    given_model.add(q.QConv2D(filters_num, (1, 1),
+                              kernel_initializer="glorot_normal",
+                              use_bias=False))
+    given_model.add(tf.keras.layers.BatchNormalization())
+    return given_model
 
   @staticmethod
-  def add_larq_residual(model, filters_num):
+  def add_larq_residual(given_model, filters_num):
+    """Same method of add_qkeras_residual but for a larq network
     """
-    Same method of add_qkeras_residual but for a larq network
-    """
-    model.add(lq.layers.QuantConv2D(filters_num, (3, 3), activation="relu",
-                                    input_quantizer="ste_sign",
-                                    kernel_quantizer=
+    given_model.add(lq.layers.QuantConv2D(filters_num, (3, 3),
+                                          activation="relu",
+                                          input_quantizer="ste_sign",
+                                          kernel_quantizer=
                                     lq.quantizers.SteSign(clip_value=1.25),
-                                    kernel_constraint=
+                                          kernel_constraint=
                                     lq.constraints.WeightClip(clip_value=1.25),
-                                    kernel_initializer="glorot_normal",
-                                    padding="same", use_bias=False))
-    model.add(tf.keras.layers.BatchNormalization())
-    return model
+                                          kernel_initializer="glorot_normal",
+                                          padding="same", use_bias=False))
+    given_model.add(tf.keras.layers.BatchNormalization())
+    return given_model
 
   @staticmethod
-  def add_larq_transistion(model, strides, filters_num):
+  def add_larq_transistion(given_model, strides, filters_num):
+    """Same method of add_qkeras_transistion but for a larq network
     """
-    Same method of add_qkeras_transistion but for a larq network
-    """
-    model.add(tf.keras.layers.Activation("relu"))
-    model.add(tf.keras.layers.MaxPool2D(pool_size=strides, strides=1))
-    model.add(tf.keras.layers.DepthwiseConv2D((3, 3), padding="same",
-                                              strides=strides,
-                                              trainable=False,
-                                              use_bias=False))
-    model.add(lq.layers.QuantConv2D(filters_num, (1, 1),
-                                    kernel_initializer="glorot_normal",
-                                    use_bias=False))
-    model.add(tf.keras.layers.BatchNormalization())
-    return model
+    given_model.add(tf.keras.layers.Activation("relu"))
+    given_model.add(tf.keras.layers.MaxPool2D(pool_size=strides, strides=1))
+    given_model.add(tf.keras.layers.DepthwiseConv2D((3, 3), padding="same",
+                                                    strides=strides,
+                                                    trainable=False,
+                                                    use_bias=False))
+    given_model.add(lq.layers.QuantConv2D(filters_num, (1, 1),
+                                          kernel_initializer="glorot_normal",
+                                          use_bias=False))
+    given_model.add(tf.keras.layers.BatchNormalization())
+    return given_model
 
-  def add_qkeras_first_block(self, model):
-    """
+  def add_qkeras_first_block(self, given_model):
+    """Adds a sequence of layers to the given model
+
     Add a sequence of: Input, QConv2D, BatchNormalization, Activation,
     QdepthWiseConv2D, BatchNormalization, QConv2d, BatchNormalization
-    :param model: model where to add the sequence
-    :return: model plus the sequence
-    """
-    model.add(tf.keras.layers.InputLayer(input_shape=(224, 224, 3)))
-    model.add(q.QConv2D(self.__filters[0] // 4, (3, 3),
-                        kernel_initializer="he_normal",
-                        padding="same",
-                        strides=2, use_bias=False))
-    model.add(tf.keras.layers.BatchNormalization())
-    model.add(tf.keras.layers.Activation("relu"))
-    model.add(q.QDepthwiseConv2D((3, 3), padding="same", strides=2,
-                                 use_bias=False))
-    model.add(tf.keras.layers.BatchNormalization(scale=False,
-                                                 center=False))
-    model.add(q.QConv2D(self.__filters[0], 1,
-                        kernel_initializer="he_normal",
-                        use_bias=False))
-    model.add(tf.keras.layers.BatchNormalization())
-    return model
 
-  def add_qkeras_last_block(self, model):
+    Args:
+      given_model: model where to add the sequence
+
+    Returns:
+      Given Model plus the sequence
     """
+    given_model.add(tf.keras.layers.InputLayer(input_shape=(224, 224, 3)))
+    given_model.add(q.QConv2D(self.__filters[0] // 4, (3, 3),
+                              kernel_initializer="he_normal",
+                              padding="same",
+                              strides=2, use_bias=False))
+    given_model.add(tf.keras.layers.BatchNormalization())
+    given_model.add(tf.keras.layers.Activation("relu"))
+    given_model.add(q.QDepthwiseConv2D((3, 3), padding="same", strides=2,
+                                       use_bias=False))
+    given_model.add(tf.keras.layers.BatchNormalization(scale=False,
+                                                       center=False))
+    given_model.add(q.QConv2D(self.__filters[0], 1,
+                              kernel_initializer="he_normal",
+                              use_bias=False))
+    given_model.add(tf.keras.layers.BatchNormalization())
+    return given_model
+
+  def add_qkeras_last_block(self, given_model):
+    """Adds a sequence of layers to the given model
+
     Add a sequence of: Activation, AveragePooling2D, Flatten, Dense
-    :param model: model where to add the sequence
-    :return: model plus the sequence
+
+    Args:
+      given_model: model where to add the sequence
+
+    Returns:
+      Given Model plus the sequence
     """
-    model.add(tf.keras.layers.Activation("relu"))
-    model.add(tf.keras.layers.AveragePooling2D(pool_size=(7, 7)))
-    model.add(tf.keras.layers.Flatten())
-    model.add(q.QDense(1000, kernel_initializer="glorot_normal"))
-    model.add(tf.keras.layers.Activation("softmax", dtype="float32"))
-    model.load_weights(self.__weights_path)
-    return model
+    given_model.add(tf.keras.layers.Activation("relu"))
+    given_model.add(tf.keras.layers.AveragePooling2D(pool_size=(7, 7)))
+    given_model.add(tf.keras.layers.Flatten())
+    given_model.add(q.QDense(1000, kernel_initializer="glorot_normal"))
+    given_model.add(tf.keras.layers.Activation("softmax", dtype="float32"))
+    given_model.load_weights(self.__weights_path)
+    return given_model
 
   def add_larq_first_block(self, model):
-    """
-    Same method of add_qkeras_first_block but for a larq network
+    """Same method of add_qkeras_first_block but for a larq network
     """
     model.add(tf.keras.layers.InputLayer(input_shape=(224, 224, 3)))
     model.add(lq.layers.QuantConv2D(self.__filters[0] // 4, (3, 3),
@@ -193,21 +222,22 @@ class QuickNet:
                                     use_bias=False))
     model.add(tf.keras.layers.BatchNormalization())
 
-  def add_larq_last_block(self, model):
+  def add_larq_last_block(self, given_model):
+    """Same method of add_larq_first_block but for a larq network
     """
-    Same method of add_larq_first_block but for a larq network
-    """
-    model.add(tf.keras.layers.Activation("relu"))
-    model.add(tf.keras.layers.AveragePooling2D(pool_size=(7, 7)))
-    model.add(tf.keras.layers.Flatten())
-    model.add(lq.layers.QuantDense(1000, kernel_initializer="glorot_normal"))
-    model.add(tf.keras.layers.Activation("softmax", dtype="float32"))
-    model.load_weights(self.__weights_path)
+    given_model.add(tf.keras.layers.Activation("relu"))
+    given_model.add(tf.keras.layers.AveragePooling2D(pool_size=(7, 7)))
+    given_model.add(tf.keras.layers.Flatten())
+    given_model.add(lq.layers.QuantDense(1000,
+                                         kernel_initializer="glorot_normal"))
+    given_model.add(tf.keras.layers.Activation("softmax", dtype="float32"))
+    given_model.load_weights(self.__weights_path)
 
   def build(self):
-    """
-    Build the model based on its ID
-    :return: qkeras and larq models
+    """Build the model based on its ID
+
+    Returns:
+      Qkeras and larq models
     """
     if self.__id == 0:
       qkeras_network = self.build_larq_quicknet_large()
@@ -224,9 +254,10 @@ class QuickNet:
       return qkeras_network, larq_network
 
   def build_qkeras_quicknet_large(self):
-    """
-    Build the qkeras version of the quicknet large
-    :return: qkeras model of the quicknet large
+    """Build the qkeras version of the quicknet large
+
+    Returns:
+      Qkeras model of the quicknet large
     """
     # Input layer
     qkeras_quicknet = tf.keras.models.Sequential()
@@ -252,9 +283,10 @@ class QuickNet:
     return qkeras_quicknet
 
   def build_larq_quicknet_large(self):
-    """
-    Build the larq version of the quicknet large
-    :return: larq model of the quicknet large
+    """Build the larq version of the quicknet large
+
+    Returns:
+      larq model of the quicknet large
     """
     # Input layer
     larq_quicknet = tf.keras.models.Sequential()
@@ -280,9 +312,10 @@ class QuickNet:
     return larq_quicknet
 
   def build_qkeras_quicknet(self):
-    """
-    Build the qkeras version of the quicknet
-    :return: qkeras model of the quicknet
+    """Build the qkeras version of the quicknet
+
+    Returns:
+      qkeras model of the quicknet
     """
     # Input layer
     qkeras_quicknet = tf.keras.models.Sequential()
@@ -304,9 +337,10 @@ class QuickNet:
     return qkeras_quicknet
 
   def build_larq_quicknet(self):
-    """
-    Build the larq version of the quicknet
-    :return: larq model of the quicknet
+    """Build the larq version of the quicknet
+
+    Returns:
+      larq model of the quicknet
     """
     # Input layer
     larq_quicknet = tf.keras.models.Sequential()
@@ -332,7 +366,7 @@ if __name__ == "__main__":
   # Create a random dataset with 100 samples
   random_data = create_random_dataset(100)
 
-  network_names = ["quickNet", "quickNet_large", "quickNet_small"]
+  network_names = [QUICKNET_NAME, QUICKNET_LARGE_NAME, QUICKNET_SMALL_NAME]
   sizes = ["", "large", "small"]
 
   for size, name in zip(sizes, network_names):

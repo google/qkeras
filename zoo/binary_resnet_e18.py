@@ -31,8 +31,8 @@ RESNET_E18_NAME = "binary_resnet_e18"
 
 
 class ResNetE18:
-  """
-  Class to create and load weights of: resnet_e18
+  """Class to create and load weights of: resnet_e18
+
   Attributes:
         network_name: Name of the network
         filters: Number of filters for Conv2D
@@ -41,105 +41,102 @@ class ResNetE18:
   def __init__(self):
     self.__weights_path = PATH_RESNET_E18
     self.network_name = RESNET_E18_NAME
-    self.filters = (64,128,256,512)
+    self.filters = (64, 128, 256, 512)
 
   @staticmethod
-  def add_qkeras_quant_block(model, filters_num, strides=1):
-    """
+  def add_qkeras_quant_block(given_model, filters_num, strides=1):
+    """Adds a sequence of layers to the given model
+
     Add a sequence of: Activation quantization, Quantized Conv2D,
     Batch Normalization
-    :param model: model where to add the sequence
-    :param filters_num: number of filters for Cov2D
-    :param strides: strides for Conv2D
+
+    Args:
+      given_model: model where to add the sequence
+      filters_num: number of filters for Conv2D
+      strides: strides for Conv2D
+
+    Returns:
+      Given Model plus the sequence
     """
-    model.add(q.QActivation("binary(alpha=1)"))
-    model.add(
-      q.QConv2D(filters_num, kernel_size=3, strides=strides,
-                            padding="same",
-                            kernel_quantizer="binary(alpha=1)",
-                            kernel_initializer="glorot_normal",
-                            use_bias=False))
-    model.add(tf.keras.layers.BatchNormalization(momentum=0.9, epsilon=1e-5))
+    x = q.QActivation("binary(alpha=1)")(given_model)
+    x = q.QConv2D(filters_num, kernel_size=3, strides=strides,
+                  padding="same",
+                  kernel_quantizer="binary(alpha=1)",
+                  kernel_initializer="glorot_normal",
+                  use_bias=False)(x)
+    return tf.keras.layers.BatchNormalization(momentum=0.9, epsilon=1e-5)(x)
 
   @staticmethod
-  def add_qkeras_connection_block(model, filters_num):
+  def add_larq_quant_block(given_model, filters_num, strides=1):
+    """Same method of add_qkeras_quant_block but for a larq network
     """
-    Add a sequence of: Activation quantization, Quantized Conv2D, reshape,
-    Average Pooling, Conv2D, 2x BatchNormalization
-    :param model: model where to add the sequence
-    :param filters_num: number of filters for Cov2D
-    """
-    model.add(q.QActivation("binary(alpha=1)"))
-    model.add(
-      q.QConv2D(filters_num, (3, 3), strides=(2, 2), use_bias=False,
-                            padding="same",
-                            kernel_quantizer="binary(alpha=1)",
-                            kernel_constraint="weight_clip"))
-    shape_in = model.output_shape[1] * model.output_shape[2] * \
-               model.output_shape[3]
-    shape_out = (model.output_shape[1], model.output_shape[2],
-                 model.output_shape[3] // 2)
-    # Prepare shapes for reshape layers
-    model.add(tf.keras.layers.Flatten())
-    model.add(tf.keras.layers.Reshape(target_shape=(shape_in, 1)))
-    model.add(tf.keras.layers.AvgPool1D(1, strides=2, padding="same"))
-    model.add(tf.keras.layers.Reshape(target_shape=shape_out))
-    model.add(tf.keras.layers.Conv2D(filters_num, (1, 1), padding="same",
-                                     use_bias=False))
-    model.add(tf.keras.layers.BatchNormalization())
-    model.add(tf.keras.layers.BatchNormalization())
+    x = lq.layers.QuantConv2D(filters_num, kernel_size=3, strides=strides,
+                              padding="same",
+                              input_quantizer=lq.quantizers.SteSign(
+                                clip_value=1.25),
+                              kernel_quantizer=lq.quantizers.SteSign(
+                                clip_value=1.25),
+                              kernel_constraint=lq.constraints.WeightClip(
+                                clip_value=1.25),
+                              kernel_initializer="glorot_normal",
+                              use_bias=False)(given_model)
+    return tf.keras.layers.BatchNormalization(momentum=0.9, epsilon=1e-5)(x)
 
   @staticmethod
-  def add_larq_quant_block(model, filters_num, strides=1):
+  def add_qkeras_connection_block(given_model, filters_num):
+    """Adds a sequence of layers to the given model
+
+    Adds two sequences one of Activation quantization, Quantized Conv2D,
+    Batch Normalization the other of Average Pooling2D, Conv2D, BatchNorm
+
+    Args:
+      given_model: model where to add the sequence
+      filters_num: number of filters for Conv2D
+
+    Returns:
+      Given Model plus the sequence
     """
-   Same method of add_qkeras_quant_block but for a larq network
-   """
-    model.add(
-      lq.layers.QuantConv2D(filters_num, kernel_size=3, strides=strides,
-                            padding="same",
-                            input_quantizer=lq.quantizers.SteSign(
-                              clip_value=1.25),
-                            kernel_quantizer=lq.quantizers.SteSign(
-                              clip_value=1.25),
-                            kernel_constraint=lq.constraints.WeightClip(
-                              clip_value=1.25),
-                            kernel_initializer="glorot_normal",
-                            use_bias=False))
-    model.add(tf.keras.layers.BatchNormalization(momentum=0.9, epsilon=1e-5))
+    shortcut = given_model
+    shortcut = tf.keras.layers.AvgPool2D(2, strides=2, padding="same")(shortcut)
+    shortcut = tf.keras.layers.Conv2D(filters_num, (1, 1),
+                                      kernel_initializer="glorot_normal",
+                                      use_bias=False)(shortcut)
+    shortcut = tf.keras.layers.BatchNormalization(momentum=0.8)(shortcut)
+    x = q.QActivation("binary(alpha=1)")(given_model)
+    x = q.QConv2D(filters_num, (3, 3), strides=(2, 2),
+                  padding="same", use_bias=False,
+                  kernel_quantizer="binary(alpha=1)",
+                  kernel_constraint="weight_clip")(x)
+    x = tf.keras.layers.BatchNormalization(momentum=0.8)(x)
+    return tf.keras.layers.add([x, shortcut])
 
   @staticmethod
-  def add_larq_connection_block(model, filters_num):
+  def add_larq_connection_block(give_model, filters_num):
+    """Same method of add_qkeras_connection_block but for a larq network
     """
-    Same method of add_qkeras_connection_block but for a larq network
-    """
-    model.add(
-      lq.layers.QuantConv2D(filters_num, (3, 3), strides=(2, 2), use_bias=False,
-                            padding="same",
-                            input_quantizer=lq.quantizers.SteSign(
-                              clip_value=1.25),
-                            kernel_quantizer=lq.quantizers.SteSign(
-                              clip_value=1.25),
-                            kernel_constraint=lq.constraints.WeightClip(
-                              clip_value=1.25),))
-
-    shape_in = model.output_shape[1] * model.output_shape[2] * \
-               model.output_shape[3]
-    shape_out = (model.output_shape[1], model.output_shape[2],
-                 model.output_shape[3] // 2)
-    # Prepare shapes for reshape layers
-    model.add(tf.keras.layers.Flatten())
-    model.add(tf.keras.layers.Reshape(target_shape=(shape_in, 1)))
-    model.add(tf.keras.layers.AvgPool1D(1, strides=2, padding="same"))
-    model.add(tf.keras.layers.Reshape(target_shape=shape_out))
-    model.add(tf.keras.layers.Conv2D(filters_num, (1, 1), padding="same",
-                                     use_bias=False))
-    model.add(tf.keras.layers.BatchNormalization())
-    model.add(tf.keras.layers.BatchNormalization())
+    shortcut = give_model
+    shortcut = tf.keras.layers.AvgPool2D(2, strides=2, padding="same")(shortcut)
+    shortcut = tf.keras.layers.Conv2D(filters_num, (1, 1),
+                                      kernel_initializer="glorot_normal",
+                                      use_bias=False)(shortcut)
+    shortcut = tf.keras.layers.BatchNormalization(momentum=0.8)(shortcut)
+    x = lq.layers.QuantConv2D(filters_num, (3, 3), strides=(2, 2),
+                              use_bias=False,
+                              padding="same",
+                              input_quantizer=lq.quantizers.SteSign(
+                                clip_value=1.25),
+                              kernel_quantizer=lq.quantizers.SteSign(
+                                clip_value=1.25),
+                              kernel_constraint=lq.constraints.WeightClip(
+                                clip_value=1.25))(give_model)
+    x = tf.keras.layers.BatchNormalization(momentum=0.8)(x)
+    return tf.keras.layers.add([x, shortcut])
 
   def build(self):
-    """
-    Build the model
-    :return: qkeras and larq models
+    """Build the model
+
+    Returns:
+      qkeras and larq models
     """
     qkeras_network = self.build_qkeras_resnet_e18()
     print("\nQKeras network successfully created")
@@ -148,76 +145,97 @@ class ResNetE18:
     return qkeras_network, larq_network
 
   def build_qkeras_resnet_e18(self):
+    """Build the qkeras version of the resnet_e18
+
+    Returns:
+      qkeras model of the resnet_e18
     """
-    Build the qkeras version of the resnet_e18
-    :return: qkeras model of the resnet_e18
-    """
-    qkeras_resnet = tf.keras.models.Sequential()
-    qkeras_resnet.add(tf.keras.layers.InputLayer(input_shape=(224, 224, 3)))
-    qkeras_resnet.add(
-      tf.keras.layers.Conv2D(64, kernel_size=7, strides=2, padding="same",
-                             kernel_initializer="he_normal", use_bias=False))
-    qkeras_resnet.add(
-      tf.keras.layers.BatchNormalization(momentum=0.9, epsilon=1e-5))
-    qkeras_resnet.add(tf.keras.layers.Activation("relu"))
-    qkeras_resnet.add(tf.keras.layers.MaxPool2D(3, strides=2, padding="same"))
-    qkeras_resnet.add(
-      tf.keras.layers.BatchNormalization(momentum=0.9, epsilon=1e-5))
+    input_layer = tf.keras.Input(shape=(224, 224, 3))
+    qkeras_resnet = tf.keras.layers.Conv2D(64, kernel_size=7, strides=2,
+                                           padding="same",
+                                           kernel_initializer="he_normal",
+                                           use_bias=False)(
+      input_layer)
+    qkeras_resnet = tf.keras.layers.BatchNormalization(momentum=0.9,
+                                                       epsilon=1e-5) \
+      (qkeras_resnet)
+    qkeras_resnet = tf.keras.layers.Activation("relu")(qkeras_resnet)
+    qkeras_resnet = tf.keras.layers.MaxPool2D(3, strides=2, padding="same")(
+      qkeras_resnet)
+    qkeras_resnet = tf.keras.layers.BatchNormalization(momentum=0.9,
+                                                       epsilon=1e-5) \
+      (qkeras_resnet)
 
     for _ in range(0, 4):
-      self.add_qkeras_quant_block(qkeras_resnet, 64)
-    self.add_qkeras_connection_block(qkeras_resnet, 128)
-
+      qkeras_resnet = self.add_qkeras_quant_block(qkeras_resnet, 64)
+    qkeras_resnet = self.add_qkeras_connection_block(qkeras_resnet, 128)
     for i in range(1, 3):
       for _ in range(0, 3):
-        self.add_qkeras_quant_block(qkeras_resnet, filters_num=self.filters[i])
-      self.add_qkeras_connection_block(qkeras_resnet,
-                                     filters_num=self.filters[i + 1])
+        qkeras_resnet = self.add_qkeras_quant_block(qkeras_resnet,
+                                                    filters_num=self.filters[i])
+      qkeras_resnet = self.add_qkeras_connection_block(qkeras_resnet,
+                                                       filters_num=self.filters[
+                                                         i + 1])
     for _ in range(0, 3):
-      self.add_qkeras_quant_block(qkeras_resnet, filters_num=self.filters[-1])
-    qkeras_resnet.add(tf.keras.layers.Activation("relu"))
-    qkeras_resnet.add(tf.keras.layers.MaxPool2D(pool_size=7))
-    qkeras_resnet.add(tf.keras.layers.Flatten())
-    qkeras_resnet.add(
-      tf.keras.layers.Dense(1000, kernel_initializer="glorot_normal"))
-    qkeras_resnet.add(tf.keras.layers.Activation("softmax", dtype="float32"))
+      qkeras_resnet = self.add_qkeras_quant_block(qkeras_resnet,
+                                                  filters_num=self.filters[-1])
+
+    qkeras_resnet = tf.keras.layers.Activation("relu")(qkeras_resnet)
+
+    qkeras_resnet = tf.keras.layers.MaxPool2D(pool_size=7)(qkeras_resnet)
+    qkeras_resnet = tf.keras.layers.Flatten()(qkeras_resnet)
+    qkeras_resnet = tf.keras.layers.Dense(1000,
+                                          kernel_initializer="glorot_normal") \
+      (qkeras_resnet)
+    qkeras_resnet = tf.keras.layers.Activation("softmax", dtype="float32")(
+      qkeras_resnet)
+    qkeras_resnet = tf.keras.Model(inputs=input_layer, outputs=qkeras_resnet)
     qkeras_resnet.load_weights(self.__weights_path)
     return qkeras_resnet
 
-
   def build_larq_resnet_e18(self):
+    """Build the larq version of the resnet_e18
+
+    Returns:
+      Larq model of the resnet_e18
     """
-    Build the larq version of the resnet_e18
-    :return: larq model of the resnet_e18
-    """
-    larq_resnet = tf.keras.models.Sequential()
-    larq_resnet.add(tf.keras.layers.InputLayer(input_shape=(224, 224, 3)))
-    larq_resnet.add(
-      tf.keras.layers.Conv2D(64, kernel_size=7, strides=2, padding="same",
-                             kernel_initializer="he_normal", use_bias=False))
-    larq_resnet.add(
-      tf.keras.layers.BatchNormalization(momentum=0.9, epsilon=1e-5))
-    larq_resnet.add(tf.keras.layers.Activation("relu"))
-    larq_resnet.add(tf.keras.layers.MaxPool2D(3, strides=2, padding="same"))
-    larq_resnet.add(
-      tf.keras.layers.BatchNormalization(momentum=0.9, epsilon=1e-5))
+    input_layer = tf.keras.Input(shape=(224, 224, 3))
+    larq_resnet = tf.keras.layers.Conv2D(64, kernel_size=7, strides=2,
+                                         padding="same",
+                                         kernel_initializer="he_normal",
+                                         use_bias=False)(
+      input_layer)
+    larq_resnet = tf.keras.layers.BatchNormalization(momentum=0.9, epsilon=1e-5) \
+      (larq_resnet)
+    larq_resnet = tf.keras.layers.Activation("relu")(larq_resnet)
+    larq_resnet = tf.keras.layers.MaxPool2D(3, strides=2, padding="same")(
+      larq_resnet)
+    larq_resnet = tf.keras.layers.BatchNormalization(momentum=0.9, epsilon=1e-5) \
+      (larq_resnet)
 
     for _ in range(0, 4):
-      self.add_larq_quant_block(larq_resnet, 64)
-    self.add_larq_connection_block(larq_resnet, 128)
-
+      larq_resnet = self.add_larq_quant_block(larq_resnet, 64)
+    larq_resnet = self.add_larq_connection_block(larq_resnet, 128)
     for i in range(1, 3):
       for _ in range(0, 3):
-        self.add_larq_quant_block(larq_resnet, filters_num=self.filters[i])
-      self.add_larq_connection_block(larq_resnet, filters_num=self.filters[i+1])
+        larq_resnet = self.add_larq_quant_block(larq_resnet,
+                                                filters_num=self.filters[i])
+      larq_resnet = self.add_larq_connection_block(larq_resnet,
+                                                   filters_num=self.filters[
+                                                     i + 1])
     for _ in range(0, 3):
-      self.add_larq_quant_block(larq_resnet, filters_num=self.filters[-1])
-    larq_resnet.add(tf.keras.layers.Activation("relu"))
-    larq_resnet.add(tf.keras.layers.MaxPool2D(pool_size=7))
-    larq_resnet.add(tf.keras.layers.Flatten())
-    larq_resnet.add(
-      tf.keras.layers.Dense(1000, kernel_initializer="glorot_normal"))
-    larq_resnet.add(tf.keras.layers.Activation("softmax", dtype="float32"))
+      larq_resnet = self.add_larq_quant_block(larq_resnet,
+                                              filters_num=self.filters[-1])
+
+    larq_resnet = tf.keras.layers.Activation("relu")(larq_resnet)
+    larq_resnet = tf.keras.layers.MaxPool2D(pool_size=7)(larq_resnet)
+    larq_resnet = tf.keras.layers.Flatten()(larq_resnet)
+    larq_resnet = tf.keras.layers.Dense(1000,
+                                        kernel_initializer="glorot_normal") \
+      (larq_resnet)
+    larq_resnet = tf.keras.layers.Activation("softmax", dtype="float32")(
+      larq_resnet)
+    larq_resnet = tf.keras.Model(inputs=input_layer, outputs=larq_resnet)
     larq_resnet.load_weights(self.__weights_path)
     return larq_resnet
 

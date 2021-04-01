@@ -31,8 +31,8 @@ ALEXNET_NAME = "alexNet"
 
 
 class AlexNet:
-  """
-  Class to create and load weights of: alexnet
+  """Class to create and load weights of: alexnet
+
   Attributes:
         network_name: Name of the network
   """
@@ -42,77 +42,91 @@ class AlexNet:
     self.network_name = ALEXNET_NAME
 
   @staticmethod
-  def add_qkeras_conv_block(model, filters_num, kernel_size, pool,
+  def add_qkeras_conv_block(given_model, filters_num, kernel_size, pool,
                             qnt, strides=1):
-    """
+    """Adds a sequence of layers to the given model
+
     Add a sequence of: Activation quantization, Quantized Conv2D, MaxPooling
     and BatchNormalization to the given model
-    :param model: model where to add the sequence
-    :param filters_num: number of filters for Cov2D
-    :param kernel_size: kernel size for Cov2D
-    :param pool: boolean to decide if MaxPool is performed or not
-    :param qnt: boolean to decide if Activation quantization is performed
-                or not
-    :param strides: strides for Conv2D
-    :return: model plus the sequence
+
+    Args:
+      given_model: model where to add the sequence
+      filters_num: number of filters for Conv2D
+      kernel_size: kernel size for Conv2D
+      pool: boolean to decide if MaxPool is performed or not
+      qnt: boolean to decide if Activation quantization is performed
+           or not
+      strides: strides for Conv2D
+
+    Returns:
+      Given Model plus the sequence
     """
     if qnt:
-      model.add(q.QActivation("binary(alpha=1)"))
-    model.add(
+      given_model.add(q.QActivation("binary(alpha=1)"))
+    given_model.add(
       q.QConv2D(filters_num, kernel_size, strides=strides, padding="same",
                 use_bias=False, kernel_quantizer="binary(alpha=1)"))
     if pool:
-      model.add(tf.keras.layers.MaxPool2D(pool_size=3, strides=2))
-    model.add(tf.keras.layers.BatchNormalization(scale=False, momentum=0.9))
-    return model
+      given_model.add(tf.keras.layers.MaxPool2D(pool_size=3, strides=2))
+    given_model.add(tf.keras.layers.BatchNormalization(scale=False,
+                                                       momentum=0.9))
+    return given_model
 
   @staticmethod
-  def add_qkeras_dense_block(model, units):
+  def add_qkeras_dense_block(given_model, units):
+    """Adds a sequence of layers to the given model
+
+    Add a sequence of: Activation quantization, Quantized Dense and
+    Batch Normalization to the given model
+
+    Args:
+      given_model: model where to add the sequence
+      units: neurons of the Dense
+
+    Returns:
+      Given Model plus the sequence
     """
-    Add a sequence of: Activation quantization, Quantized Dense to the given
-    model
-    :param model: model where to add the sequence
-    :param units: neurons of the Dense
-    :return: model plus the sequence
-    """
-    model.add(q.QActivation("binary(alpha=1)"))
-    model.add(
+    given_model.add(q.QActivation("binary(alpha=1)"))
+    given_model.add(
       q.QDense(units, kernel_quantizer="binary(alpha=1)", use_bias=False))
-    model.add(tf.keras.layers.BatchNormalization(scale=False, momentum=0.9))
-    return model
+    given_model.add(tf.keras.layers.BatchNormalization(scale=False,
+                                                       momentum=0.9))
+    return given_model
 
   @staticmethod
-  def add_larq_conv_block(model, filters_num, kernel_size, pool, qnt, strides=1):
+  def add_larq_conv_block(given_model, filters_num, kernel_size, pool, qnt,
+                          strides=1):
+    """Same method of add_qkeras_conv_block but for a larq network
     """
-    Same method of add_qkeras_conv_block but for a larq network
-    """
-    model.add(
+    given_model.add(
       lq.layers.QuantConv2D(filters_num, kernel_size, strides=strides,
                             padding="same", use_bias=False,
                             input_quantizer=None if not qnt else "ste_sign",
                             kernel_quantizer="ste_sign",
                             kernel_constraint="weight_clip"))
     if pool:
-      model.add(tf.keras.layers.MaxPool2D(pool_size=3, strides=2))
-    model.add(tf.keras.layers.BatchNormalization(scale=False, momentum=0.9))
-    return model
+      given_model.add(tf.keras.layers.MaxPool2D(pool_size=3, strides=2))
+    given_model.add(tf.keras.layers.BatchNormalization(scale=False,
+                                                       momentum=0.9))
+    return given_model
 
   @staticmethod
-  def add_larq_dense_block(model, units):
+  def add_larq_dense_block(given_model, units):
+    """Same method of add_qkeras_dense_block but for a larq network
     """
-    Same method of add_qkeras_dense_block but for a larq network
-    """
-    model.add(lq.layers.QuantDense(units, use_bias=False,
-                                   input_quantizer="ste_sign",
-                                   kernel_quantizer="ste_sign",
-                                   kernel_constraint="weight_clip"))
-    model.add(tf.keras.layers.BatchNormalization(scale=False, momentum=0.9))
-    return model
+    given_model.add(lq.layers.QuantDense(units, use_bias=False,
+                                         input_quantizer="ste_sign",
+                                         kernel_quantizer="ste_sign",
+                                         kernel_constraint="weight_clip"))
+    given_model.add(tf.keras.layers.BatchNormalization(scale=False,
+                                                       momentum=0.9))
+    return given_model
 
   def build(self):
-    """
-    Build the model
-    :return: qkeras and larq models
+    """Build the model
+
+    Returns:
+      Qkeras and larq models
     """
     qkeras_network = self.build_qkeras_alexnet()
     print("\nQKeras network successfully created")
@@ -121,9 +135,10 @@ class AlexNet:
     return qkeras_network, larq_network
 
   def build_qkeras_alexnet(self):
-    """
-    Build the qkeras version of the alexnet
-    :return: qkeras model of the alexnet
+    """Build the qkeras version of the alexnet
+
+    Return:
+      Qkeras model of the alexnet
     """
     qkeras_alexNet = tf.keras.models.Sequential()
     qkeras_alexNet.add(tf.keras.layers.InputLayer(input_shape=(224, 224, 3)))
@@ -146,9 +161,10 @@ class AlexNet:
     return qkeras_alexNet
 
   def build_larq_alexnet(self):
-    """
-    Build the larq version of the alexnet
-    :return: larq model of the alexnet
+    """Build the larq version of the alexnet
+
+    Return:
+      Larq model of the alexnet
     """
     larq_alexnet = tf.keras.models.Sequential()
     larq_alexnet.add(tf.keras.layers.InputLayer(input_shape=(224, 224, 3)))
