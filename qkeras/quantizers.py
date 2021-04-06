@@ -1641,9 +1641,6 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
 
   Attributes:
     bits: number of bits to perform quantization.
-    integer: number of bits to the left of the decimal point.
-    symmetric: if true, we will have the same number of values for positive
-      and negative numbers.
     use_stochastic_rounding: if true, we perform stochastic rounding.
     use_real_tanh: if true, use the tanh function from Keras backend,
       if false, use tanh that is defined as 2 * sigmoid(x) - 1
@@ -1652,19 +1649,14 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
     Function that performs tanh + quantization to bits in the range -1.0 to 1.0.
   """
 
-  def __init__(self, bits=8, integer=0, symmetric=0,
-               use_stochastic_rounding=False, use_real_tanh=False):
+  def __init__(self, bits=8, use_stochastic_rounding=False, use_real_tanh=False):
     super(quantized_tanh, self).__init__()
     self.bits = bits
-    self.integer = integer
-    self.symmetric = symmetric
     self.use_stochastic_rounding = use_stochastic_rounding
     self.use_real_tanh = use_real_tanh
 
   def __str__(self):
-    flags = [str(self.bits), str(self.integer)]
-    if self.symmetric or self.use_stochastic_rounding:
-      flags.append(str(int(self.symmetric)))
+    flags = [str(self.bits)]
     if self.use_stochastic_rounding:
       flags.append(str(int(self.use_stochastic_rounding)))
     if self.use_real_tanh:
@@ -1675,33 +1667,21 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
     non_sign_bits = self.bits - 1
     x = K.cast_to_floatx(x)
     m = K.cast_to_floatx(K.pow(2, non_sign_bits))
-    m_i = K.cast_to_floatx(K.pow(2, self.integer))
     if not self.use_real_tanh:
-      xi = 2.0 * (_round_through(_sigmoid(x / m_i) * m,
+      xi = 2.0 * (_round_through(_sigmoid(x) * m,
                   self.use_stochastic_rounding) / m) - 1.0
     else:
-      xi = (_round_through(K.tanh(x / m_i) * m,
+      xi = (_round_through(K.tanh(x) * m,
             self.use_stochastic_rounding) / m)
-
-    xq = m_i * K.clip(
-        xi, -1.0 + (1.0 * self.symmetric) / m, 1.0 - 1.0 / m)
-    return xq
+    return xi
 
   def max(self):
     """Get the maximum value that quantized_tanh can represent."""
-    unsigned_bits = self.bits - 1
-    if unsigned_bits > 0:
-      return max(1.0, np.power(2.0, self.integer))
-    else:
-      return 1.0
+    return 1.0
 
   def min(self):
     """Get the minimum value that quantized_tanh can represent."""
-    unsigned_bits = self.bits - 1
-    if unsigned_bits > 0:
-      return -max(1.0, np.power(2.0, self.integer))
-    else:
-      return -1.0
+    return -1.0
 
   @classmethod
   def from_config(cls, config):
@@ -1710,8 +1690,6 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
   def get_config(self):
     config = {
         "bits": self.bits,
-        "integer": self.integer,
-        "symmetric": self.symmetric,
         "use_stochastic_rounding": self.use_stochastic_rounding,
         "use_real_tanh": self.use_real_tanh
     }
