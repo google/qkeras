@@ -1667,21 +1667,18 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
     non_sign_bits = self.bits - 1
     x = K.cast_to_floatx(x)
     m = K.cast_to_floatx(K.pow(2, non_sign_bits))
-    if not self.use_real_tanh:
-      xi = 2.0 * (_round_through(_sigmoid(x) * m,
-                  self.use_stochastic_rounding) / m) - 1.0
-    else:
-      xi = (_round_through(K.tanh(x) * m,
-            self.use_stochastic_rounding) / m)
-    return xi
+    p = K.tanh(x) if self.use_real_tanh else 2.0 * _sigmoid(x) - 1.0
+    return tf.keras.backend.clip((_round_through(p * m, self.use_stochastic_rounding) / m),
+                                 -1.0 + 1.0 / m,
+                                 1.0 - 1.0 / m)
 
   def max(self):
     """Get the maximum value that quantized_tanh can represent."""
-    return 1.0
+    return 1.0 - 1.0 / pow(2, self.bits - 1)
 
   def min(self):
     """Get the minimum value that quantized_tanh can represent."""
-    return -1.0
+    return -1.0 + 1.0 / pow(2, self.bits - 1)
 
   @classmethod
   def from_config(cls, config):
@@ -1731,11 +1728,14 @@ class quantized_sigmoid(BaseQuantizer):  # pylint: disable=invalid-name
       p = K.sigmoid(x) * m
     else:
       p = _sigmoid(x) * m
-    return (_round_through(p, self.use_stochastic_rounding) / m)
+
+    return tf.keras.backend.clip((_round_through(p, self.use_stochastic_rounding) / m),
+                                 0,
+                                 1.0 - 1.0 / m)
 
   def max(self):
     """Get the maximum value that quantized_sigmoid can represent."""
-    return 1.0
+    return 1.0 - 1.0 / pow(2, self.bits)
 
   def min(self):
     """Get the minimum value that quantized_sigmoid can represent."""
