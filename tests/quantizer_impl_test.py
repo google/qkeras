@@ -50,7 +50,6 @@ def test_QuantizedTanh():
   qtools_quantizer = quantizer_impl.QuantizedTanh()
   qtools_quantizer.convert_qkeras_quantizer(qkeras_quantizer)
   new_quantizer = qtools_quantizer.convert_to_qkeras_quantizer(
-      symmetric=qkeras_quantizer.symmetric,
       use_stochastic_rounding=qkeras_quantizer.use_stochastic_rounding)
 
   result = new_quantizer.__dict__
