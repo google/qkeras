@@ -31,6 +31,7 @@ from qkeras import quantized_po2
 from qkeras import quantized_relu
 from qkeras import quantized_relu_po2
 from qkeras import quantized_sigmoid
+from qkeras import quantized_tanh
 from qkeras import smooth_sigmoid
 from qkeras import stochastic_binary
 from qkeras import stochastic_ternary
@@ -285,9 +286,9 @@ def test_hard_sigmoid():
 def test_quantized_sigmoid(bits, sigmoid_type, use_real_sigmoid, test_values, expected_values):
   """Test quantized_sigmoid function with three different sigmoid variants."""
   # store previous sigmoid type
-  if quantized_sigmoid(4)(K.cast_to_floatx([1.0])).numpy()[0] == 1.0:
+  if quantized_sigmoid(5)(K.cast_to_floatx([1.0])).numpy()[0] == 0.96875:
     previous_sigmoid = "hard"
-  elif quantized_sigmoid(4)(K.cast_to_floatx([2.5])).numpy()[0] == 1.0:
+  elif quantized_sigmoid(5)(K.cast_to_floatx([2.5])).numpy()[0] == 0.96875:
     previous_sigmoid = "smooth"
   else:
     previous_sigmoid = "real"
@@ -300,6 +301,45 @@ def test_quantized_sigmoid(bits, sigmoid_type, use_real_sigmoid, test_values, ex
   result = f([test_values])[0]
   assert_allclose(result, expected_values, rtol=1e-05)
 
+
+@pytest.mark.parametrize(
+    'bits, use_real_tanh, test_values, expected_values', [
+        (
+            4,
+            False,
+            np.array(
+                [[-1.  , -0.75, -0.5 , -0.25,  0.  ,  0.25,  0.5 ,  0.75]],
+                dtype=K.floatx()),
+            np.array([[-0.875, -0.75 , -0.5  , -0.25 ,  0.   ,  0.25 ,  0.5  ,  0.75 ]],
+                     dtype=K.floatx()),
+        ),
+        (
+            4,
+            True,
+            np.array(
+                [[-1.  , -0.75, -0.5 , -0.25,  0.  ,  0.25,  0.5 ,  0.75]],
+                dtype=K.floatx()),
+            np.array([[-0.75 , -0.625, -0.5  , -0.25 ,  0.   ,  0.25 ,  0.5  ,  0.625]],
+                     dtype=K.floatx()),
+        )
+    ])
+def test_quantized_tanh(bits, use_real_tanh, test_values, expected_values):
+  """Test quantized_sigmoid function with three different sigmoid variants."""
+  # store previous sigmoid type
+  if quantized_sigmoid(5)(K.cast_to_floatx([1.0])).numpy()[0] == 0.96875:
+    previous_sigmoid = "hard"
+  elif quantized_sigmoid(5)(K.cast_to_floatx([2.5])).numpy()[0] == 0.96875:
+    previous_sigmoid = "smooth"
+  else:
+    previous_sigmoid = "real"
+
+  set_internal_sigmoid('hard')
+  x = K.placeholder(ndim=2)
+  f = K.function([x], [quantized_tanh(bits, use_real_tanh=use_real_tanh)(x)])
+  set_internal_sigmoid(previous_sigmoid)
+
+  result = f([test_values])[0]
+  assert_allclose(result, expected_values, rtol=1e-05)
 
 
 @pytest.mark.parametrize(
