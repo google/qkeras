@@ -32,6 +32,7 @@ from collections import defaultdict
 
 import numpy as np
 import tensorflow.compat.v1 as tf
+from absl import logging
 
 from tensorflow.keras.layers import Activation
 from tensorflow.keras.layers import InputLayer
@@ -244,11 +245,17 @@ def get_quant_mode(quant):
       ("quantized_ulaw", 0, -1, 1),
       ("quantized_tanh", 0, -1, 1),
       ("quantized_po2", 1, -1, 1),
-      ("quantized_relu_po2", 1, -1, 0)
+      ("quantized_relu_po2", 1, -1, 0),
+      ("float", 5, 32, 1)
   ]
 
   for (inst, mode, bits, sign) in modes:
-    if quant.__class__.__name__ == inst:
+    if not quant or getattr(quant, "__name__", None) == "linear":
+      # if quantizer not specified or linear, we use float type
+      if inst == "float":
+        return (mode, bits, sign)
+
+    elif quant.__class__.__name__ == inst:
       if bits == -1:
         bits = int(quant.bits)
         if (
@@ -269,39 +276,47 @@ def get_operation_type(layer, output_cache):
 
   Determines operator strenght according to the following table.
                                       x
-                     qb(n)   +/-,exp  t(-1,0,+1) b(-1,+1) b(0,1)
-      qb(n)            *     << >>,-     ?,-       ?,-       ?
-      +/-,exp        << >>,-   +         ?,-        ^      ?,-
-    w t(-1,0,+1)      ?,-     ?,-        ?,^       ?,^      ^
-      b(-1,+1)        ?,-      ^         ?,^        ^       ^
-      b(0,1)           ?      ?,-         ^         ^       ^
+                     qb(n)   +/-,exp  t(-1,0,+1) b(-1,+1) b(0,1) float
+      qb(n)            *     << >>,-     ?,-       ?,-       ?    *
+      +/-,exp        << >>,-   +         ?,-        ^      ?,-    *
+    w t(-1,0,+1)      ?,-     ?,-        ?,^       ?,^      ^     *
+      b(-1,+1)        ?,-      ^         ?,^        ^       ^     *
+      b(0,1)           ?      ?,-         ^         ^       ^     *
+      float           *        *          *        *        *     *
 
   Arguments:
     layer: layer in Keras to determine the operation strength.
     output_cache: cache of input tensor bit sizes.
 
   Returns:
-    One of "multiplier", "adder", "barrel", "mux", "xor", "neg".
+    One of "mult", "fmult", "adder", "barrel", "mux", "xor".
+    Note: "mult" represents quantized bit multiplier, "fmult" represents
+          floating point multiplier.
   """
 
   wx_table = [
-      ["mult", "barrel", "mux", "mux", "mux"],
-      ["barrel", "adder", "mux", "xor", "mux"],
-      ["mux", "mux", "mux", "mux", "xor"],
-      ["mux", "xor", "mux", "xor", "xor"],
-      ["mux", "mux", "xor", "xor", "xor"]
+      ["mult", "barrel", "mux", "mux", "mux", "fmult"],
+      ["barrel", "adder", "mux", "xor", "mux", "fmult"],
+      ["mux", "mux", "mux", "mux", "xor", "fmult"],
+      ["mux", "xor", "mux", "xor", "xor", "fmult"],
+      ["mux", "mux", "xor", "xor", "xor", "fmult"],
+      ["fmult", "fmult", "fmult", "fmult", "fmult", "fmult"],
   ]
 
   # check if this is a quantized layers (QDense, QConv, QDepthwise)
   if hasattr(layer, "get_quantizers"):
     w_quant = layer.get_quantizers()[0]
     w_mode, w_bits, w_sign = get_quant_mode(w_quant)
+    if w_mode == "float":
+      logging.warning("%s kernel is unquantized!", layer.name)
 
     # for the input, get tensor input and search the cache that associates
     # the quantizer with a tensor
     if output_cache.get(layer.input.experimental_ref(), None) is not None:
       x_mode, x_bits, x_sign = get_quant_mode(
           output_cache.get(layer.input.experimental_ref()))
+      if x_mode == "float":
+        logging.warning("%s input is unquantized!", layer.name)
     else:
       print("cannot determine presently model for {}".format(layer.name))
       return "null", (w_mode, -1), (w_bits, -1), (w_sign, -1)
@@ -422,6 +437,11 @@ def extract_model_operations(in_model):
       weight_type = get_quant_mode(weight_quant)
       bias_type = get_quant_mode(bias_quant)
 
+      if weight_type[0] == "float":
+        logging.warning("%s kernel is unquantized!", layer.name)
+      if bias_type[0] == "float":
+        logging.warning("%s bias is unquantized!", layer.name)
+
     elif layer.__class__.__name__ in ["QConv1D"]:
 
       _, _, channels_i = input_shape
@@ -443,6 +463,11 @@ def extract_model_operations(in_model):
       weight_quant, bias_quant = layer.get_quantizers()
       weight_type = get_quant_mode(weight_quant)
       bias_type = get_quant_mode(bias_quant)
+
+      if weight_type[0] == "float":
+        logging.warning("%s kernel is unquantized!", layer.name)
+      if bias_type[0] == "float":
+        logging.warning("%s bias is unquantized!", layer.name)
 
     elif layer.__class__.__name__ in ["QDepthwiseConv2D"]:
 
@@ -466,6 +491,11 @@ def extract_model_operations(in_model):
       weight_quant, bias_quant = layer.get_quantizers()
       weight_type = get_quant_mode(weight_quant)
       bias_type = get_quant_mode(bias_quant)
+
+      if weight_type[0]  == "float":
+        logging.warning("%s kernel is unquantized!", layer.name)
+      if bias_type[0]  == "float":
+        logging.warning("%s bias is unquantized!", layer.name)
 
     elif layer.__class__.__name__ in ["QSeparableConv1D"]:
 
@@ -495,6 +525,13 @@ def extract_model_operations(in_model):
       weight_type = [depthwise_type, pointwise_type]
       bias_type = get_quant_mode(bias_quant)
 
+      if depthwise_type[0] == "float":
+        logging.warning("%s depthwise kernel is unquantized!", layer.name)
+      if pointwise_type[0] == "float":
+        logging.warning("%s pointwise kernel is unquantized!", layer.name)
+      if bias_type[0] == "float":
+        logging.warning("%s bias is unquantized!", layer.name)
+
     elif layer.__class__.__name__ in ["QSeparableConv2D"]:
 
       _, _, _, channels_i = input_shape
@@ -523,6 +560,13 @@ def extract_model_operations(in_model):
       weight_type = [depthwise_type, pointwise_type]
       bias_type = get_quant_mode(bias_quant)
 
+      if depthwise_type[0] == "float":
+        logging.warning("%s depthwise kernel is unquantized!", layer.name)
+      if pointwise_type[0] == "float":
+        logging.warning("%s pointwise kernel is unquantized!", layer.name)
+      if bias_type[0] == "float":
+        logging.warning("%s bias is unquantized!", layer.name)
+
     elif layer.__class__.__name__ in ["QDense"]:
 
       _, size_i = input_shape
@@ -538,6 +582,11 @@ def extract_model_operations(in_model):
       weight_quant, bias_quant = layer.get_quantizers()
       weight_type = get_quant_mode(weight_quant)
       bias_type = get_quant_mode(bias_quant)
+
+      if weight_type[0] == "float":
+        logging.warnings("%s kernel is unquantized!", layer.name)
+      if bias_type[0] == "float":
+        logging.warnings("%s bias is unquantized!", layer.name)
 
     # "number_of_operations" is tensor_shape.Dimension type
     operations[layer.name] = {

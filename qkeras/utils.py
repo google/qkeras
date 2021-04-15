@@ -928,6 +928,7 @@ def get_model_sparsity(model, per_layer=False, allow_list=None):
 
   # Calculate the sparsity layer by layer
   layer_sparsity = []
+  total_sparsity = 0.
   all_weights = []
   for layer in model.layers:
     if hasattr(layer, "quantizers") and layer.__class__.__name__ in allow_list:
@@ -944,9 +945,10 @@ def get_model_sparsity(model, per_layer=False, allow_list=None):
       layer_weights = np.concatenate(layer_weights)
       layer_sparsity.append((layer.name, np.mean(layer_weights == 0)))
 
-  # Average the sparsity for the entire model
-  all_weights = np.concatenate(all_weights)
-  total_sparsity = np.mean(all_weights == 0)
+  if len(all_weights) > 0:
+    # Average the sparsity for the entire model
+    all_weights = np.concatenate(all_weights)
+    total_sparsity = np.mean(all_weights == 0)
   if per_layer:
     return (total_sparsity, layer_sparsity)
   else:

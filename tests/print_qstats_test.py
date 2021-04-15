@@ -24,6 +24,8 @@ from tensorflow.keras.models import Model
 
 from qkeras.estimate import print_qstats
 from qkeras.utils import model_quantize
+from qkeras import QConv2D
+from qkeras.quantizers import *
 
 
 def create_network():
@@ -31,6 +33,16 @@ def create_network():
   x = Conv2D(32, (3, 3))(xi)
   x = Activation("relu")(x)
   x = Conv2D(32, (3, 3), activation="relu")(x)
+  x = Activation("softmax")(x)
+  return Model(inputs=xi, outputs=x)
+
+
+def create_mix_network():
+
+  xi = Input((28, 28, 1))
+  x = QConv2D(32, (3, 3), kernel_quantizer=binary())(xi)
+  x = Activation("relu")(x)
+  x = Conv2D(32, (3, 3))(x)
   x = Activation("softmax")(x)
   return Model(inputs=xi, outputs=x)
 
@@ -51,6 +63,12 @@ def test_conversion_print_qstats():
   qq.summary()
   print_qstats(qq)
 
+  # test if print_qstats works with unquantized layers
+  print_qstats(m)
+
+  # test if print_qstats works with mixture of quantized and unquantized layers
+  m1 = create_mix_network()
+  print_qstats(m1)
 
 if __name__ == "__main__":
   pytest.main([__file__])
