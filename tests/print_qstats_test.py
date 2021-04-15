@@ -19,6 +19,8 @@ from __future__ import print_function
 import pytest
 from tensorflow.keras.layers import Activation
 from tensorflow.keras.layers import Conv2D
+from tensorflow.keras.layers import DepthwiseConv2D
+from tensorflow.keras.layers import BatchNormalization
 from tensorflow.keras.layers import Input
 from tensorflow.keras.models import Model
 
@@ -47,6 +49,19 @@ def create_mix_network():
   return Model(inputs=xi, outputs=x)
 
 
+def create_network_with_bn():
+  """Creates a network contains both QConv2D and QDepthwiseConv2D layers."""
+
+  xi = Input((28, 28, 1))
+  x = Conv2D(32, (3, 3))(xi)
+  x = BatchNormalization()(x)
+  x = Activation("relu")(x)
+  x = DepthwiseConv2D((3, 3), activation="relu")(x)
+  x = BatchNormalization()(x)
+  x = Activation("softmax")(x)
+  return Model(inputs=xi, outputs=x)
+
+
 def test_conversion_print_qstats():
   # this tests if references in tensorflow are working properly.
   m = create_network()
@@ -69,6 +84,29 @@ def test_conversion_print_qstats():
   # test if print_qstats works with mixture of quantized and unquantized layers
   m1 = create_mix_network()
   print_qstats(m1)
+
+  m2 = create_network_with_bn()
+  d2 = {
+      "QConv2D": {
+          "kernel_quantizer": "binary",
+          "bias_quantizer": "binary"
+      },
+      "QActivation": {
+          "relu": "ternary"
+      },
+      "QConv2DBatchnorm": {
+          "kernel_quantizer": "ternary",
+          "bias_quantizer": "ternary",
+      },
+      "QDepthwiseConv2DBatchnorm": {
+          "depthwise_quantizer": "ternary",
+          "bias_quantizer": "ternary",
+      },
+  }
+  m2 = model_quantize(m2, d2, 4, enable_bn_folding=True)
+  m2.summary()
+  print_qstats(m2)
+
 
 if __name__ == "__main__":
   pytest.main([__file__])

@@ -130,12 +130,15 @@ def model_save_quantized_weights(model, filename=None):
 
   print("... quantizing model")
   for layer in model.layers:
-    if hasattr(layer, "get_quantizers") and layer.__class__.__name__ not in [
-        "QConv2DBatchnorm", "QDepthwiseConv2DBatchnorm"]:
+    if hasattr(layer, "get_quantizers"):
       weights = []
       signs = []
 
-      if layer.__class__.__name__ in ["QSimpleRNN", "QLSTM", "QGRU"]:
+      if any(isinstance(layer, t) for t in [
+          QConv2DBatchnorm, QDepthwiseConv2DBatchnorm]):
+        qs = layer.get_quantizers()
+        ws = layer.get_folded_weights()
+      elif any(isinstance(layer, t) for t in [QSimpleRNN, QLSTM, QGRU]):
         qs = layer.get_quantizers()[:-1]
         ws = layer.get_weights()
       else:
@@ -189,11 +192,12 @@ def model_save_quantized_weights(model, filename=None):
       if has_sign:
         saved_weights[layer.name]["signs"] = signs
 
-      layer.set_weights(weights)
-    elif layer.__class__.__name__ in [
-        "QConv2DBatchnorm", "QDepthwiseConv2DBatchnorm"]:
-      print(" ", layer.name, " cannot be quantized because weights will"
-            "be folded before quantization.")
+      if not any(isinstance(layer, t) for t in [
+          QConv2DBatchnorm, QDepthwiseConv2DBatchnorm]):
+        layer.set_weights(weights)
+      else:
+        print(layer.name, " conv and batchnorm weights cannot be seperately"
+              " quantized because they will be folded before quantization.")
     else:
       if layer.get_weights():
         print(" ", layer.name, "has not been quantized")
@@ -940,8 +944,13 @@ def get_model_sparsity(model, per_layer=False, allow_list=None):
 
       layer_weights = []
       for weight in weights_to_examine:
-        layer_weights.append(weight.ravel())
-        all_weights.append(weight.ravel())
+        try:
+          weight_numpy = weight.ravel()
+        except AttributeError:
+          # in case of EagerTensor
+          weight_numpy = weight.numpy().ravel()
+        layer_weights.append(weight_numpy)
+        all_weights.append(weight_numpy)
       layer_weights = np.concatenate(layer_weights)
       layer_sparsity.append((layer.name, np.mean(layer_weights == 0)))
 
