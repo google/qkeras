@@ -30,6 +30,7 @@ import networkx as nx
 import tensorflow as tf
 import tensorflow.keras.backend as K
 from tensorflow.keras import initializers
+from tensorflow.python.keras.layers.core import TFOpLambda
 
 from tensorflow.keras.models import Model
 from tensorflow.keras.models import model_from_json
@@ -247,6 +248,37 @@ def get_config(quantizer_config, layer, layer_class, parameter=None):
   return quantizer
 
 
+def is_TFOpLambda_layer(layer):
+  return (isinstance(layer, TFOpLambda) or
+          layer.__class__.__name__ == "TFOpLambda")
+
+
+def get_y_from_TFOpLambda(model_cfg, layer):
+  """Get the value of "y" from the TFOpLambda layer's configuration.
+  Args:
+    model_cfg: dictionary type, model.get_config() output
+    layer: a given layer instance
+
+  Return:
+    value of "y" for a TFOpLambda layer. 'y' here corresponds to how tensorflow
+    stores TFOpLambda layer parameter in serialization. for example,
+    TFOpLambda(func), where func is tf.multiply(input_tensor, 3). "y" would be
+    the value 3.
+  """
+
+  for layer_config in model_cfg["layers"]:
+    op_name = layer_config["config"]["name"]
+    class_name = layer_config["class_name"]
+
+    # TODO(lishanok): Extend support for other TFOpLambda types when needed
+    if op_name == layer.name and  class_name == "TFOpLambda":
+      assert ("tf.__operators__.add" in op_name or "tf.math.multiply"
+              in op_name), "TFOpLambda layer {} not supported!".format(op_name)
+      return layer_config["inbound_nodes"][-1][-1]["y"]
+
+  return None
+
+
 def convert_to_folded_model(model):
   """Find conv/dense layers followed by bn layers and fold them.
 
@@ -261,7 +293,7 @@ def convert_to_folded_model(model):
   """
 
   fold_model = clone_model(model)
-
+  model_cfg = model.get_config()
   (graph, _) = qgraph.GenerateGraphFromModel(
       fold_model, "quantized_bits(8, 0, 1)", "quantized_bits(8, 0, 1)")
 
@@ -318,7 +350,12 @@ def convert_to_folded_model(model):
       else:
         layer_input_tensors = [t.deref() for t in layer_input_tensors]
 
-      x = layer(layer_input_tensors)
+      if is_TFOpLambda_layer(layer):
+        # TFOpLambda layer requires one extra input: "y"
+        y = get_y_from_TFOpLambda(model_cfg, layer)
+        x = layer(layer_input_tensors, y)
+      else:
+        x = layer(layer_input_tensors)
 
       # Replaces edge tensors between the predecessor and successor
       for u, v in graph.edges(node_id):
