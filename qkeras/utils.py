@@ -13,9 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 import copy
 import json
 import tempfile
@@ -63,6 +60,7 @@ from .qconvolutional import QSeparableConv1D
 from .qconvolutional import QSeparableConv2D
 from .qconvolutional import QDepthwiseConv2D
 from .qnormalization import QBatchNormalization
+from .qpooling import QGlobalAveragePooling2D
 from .qtools import qgraph
 from .quantizers import binary
 from .quantizers import bernoulli
@@ -96,6 +94,8 @@ REGISTERED_LAYERS = [
     "QBatchNormalization",
     "QConv2DBatchnorm",
     "QDepthwiseConv2DBatchnorm",
+    "QAveragePooling2D",
+    "QGlobalAveragePooling2D",
 ]
 
 
@@ -145,6 +145,8 @@ def model_save_quantized_weights(model, filename=None):
         qs = layer.get_quantizers()
         ws = layer.get_weights()
 
+      has_sign = False
+
       for quantizer, weight in zip(qs, ws):
         if quantizer:
           weight = tf.constant(weight)
@@ -177,11 +179,11 @@ def model_save_quantized_weights(model, filename=None):
           else:
             q_name = ""
         if quantizer and ("_po2" in q_name):
-          # quantized_relu_po2 does not have a sign
+          # Quantized_relu_po2 does not have a sign
           if isinstance(quantizer, quantized_po2):
             has_sign = True
           sign = np.sign(weight)
-          # make sure values are -1 or +1 only
+          # Makes sure values are -1 or +1 only
           sign += (1.0 - np.abs(sign))
           weight = np.round(np.log2(np.abs(weight)))
           signs.append(sign)
@@ -267,7 +269,7 @@ def convert_to_folded_model(model):
   qgraph.GraphRemoveNodeWithNodeType(graph, "InputLayer")
   qgraph.GraphPropagateActivationsToEdges(graph)
 
-  # Find the Batchnorm nodes to be deleted and mark them
+  # Finds the Batchnorm nodes to be deleted and mark them.
   bn_nodes_to_delete = []
   layers_to_fold = []
   for node_id in nx.topological_sort(graph):
@@ -286,15 +288,15 @@ def convert_to_folded_model(model):
       ] and is_single and followed_by_bn
 
       if is_foldable:
-        # remove the batchnorm node from the graph
+        # Removes the batchnorm node from the graph.
         bn_nodes_to_delete.append(successor_ids[0])
         layers_to_fold.append(layer.name)
 
-  # delete the marked nodes
+  # Deletes the marked nodes.
   for node_id in bn_nodes_to_delete:
     qgraph.GraphRemoveNode(graph, node_id)
 
-  # Modify model according to the graph
+  # Modifies model according to the graph.
   model_outputs = []
   x = model_inputs = fold_model.inputs
 
@@ -304,13 +306,13 @@ def convert_to_folded_model(model):
 
     layer = node["layer"][0]
     if layer:
-      # get layer input tensors from graph edge
+      # Gets layer input tensors from graph edge.
       for parent_node_id in graph.predecessors(node_id):
         edge = graph.edges[(parent_node_id, node_id)]
         input_tensor = edge["tensor"]
         layer_input_tensors.append(input_tensor)
 
-      # we call the layer to get output tensor
+      # We call the layer to get output tensor.
       if len(layer_input_tensors) == 1:
         layer_input_tensors = layer_input_tensors[0].deref()
       else:
@@ -318,7 +320,7 @@ def convert_to_folded_model(model):
 
       x = layer(layer_input_tensors)
 
-      # replace edge tensors between the predecessor and successor
+      # Replaces edge tensors between the predecessor and successor
       for u, v in graph.edges(node_id):
         # u is current layer node, v is successor layer node
         # graph[u][v] is the edge between the two nodes
@@ -426,16 +428,16 @@ def model_quantize(model,
   """
 
   if enable_bn_folding:
-    # remove bn layers from the model and find a list of layers to fold
+    # Removes bn layers from the model and find a list of layers to fold.
     model, layers_to_fold = convert_to_folded_model(model)
     if len(layers_to_fold) == 0:
-      # no layers to fold, no need to perform folding
+      # If no layers to fold, no need to perform folding.
       enable_bn_folding = False
 
   if not custom_objects:
     custom_objects = {}
 
-  # let's make a deep copy to make sure our objects are not shared elsewhere
+  # Let's make a deep copy to make sure our objects are not shared elsewhere.
   jm = copy.deepcopy(json.loads(model.to_json()))
   custom_objects = copy.deepcopy(custom_objects)
   config = jm["config"]
@@ -443,7 +445,7 @@ def model_quantize(model,
 
   def quantize_rnn(layer, quantizer_config):
     q_name = "Q" + layer["class_name"]
-    # needs to add kernel, recurrent bias quantizers
+    # Needs to add kernel, recurrent bias quantizers.
     kernel_quantizer = get_config(
         quantizer_config, layer, q_name, "kernel_quantizer")
     recurrent_quantizer = get_config(
@@ -456,7 +458,7 @@ def model_quantize(model,
     state_quantizer = get_config(
             quantizer_config, layer, q_name, "state_quantizer")
 
-    # this is to avoid unwanted transformations
+    # This is to avoid unwanted transformations.
     if kernel_quantizer is None:
       return
 
@@ -465,7 +467,7 @@ def model_quantize(model,
     layer["config"]["bias_quantizer"] = bias_quantizer
     layer["config"]["state_quantizer"] = state_quantizer
 
-    # if activation is present, add activation here
+    # If activation is present, add activation here.
     activation = get_config(
         quantizer_config, layer, q_name, "activation_quantizer")
     if activation:
@@ -473,7 +475,7 @@ def model_quantize(model,
     else:
       quantize_activation(layer["config"], activation_bits)
 
-    # if recurrent activation is present, add activation here
+    # If recurrent activation is present, add activation here.
     if layer["class_name"] in ["LSTM", "GRU"]:
       recurrent_activation = get_config(
           quantizer_config, layer, q_name, "recurrent_activation_quantizer")
@@ -485,7 +487,7 @@ def model_quantize(model,
     layer_config = layer["config"]
 
     # Dense becomes QDense, Conv1D becomes QConv1D etc
-    # Activation converts activation functions
+    # Activation converts activation functions.
 
     if layer["class_name"] in [
       "Dense", "Conv1D", "Conv2D", "Conv2DTranspose",
@@ -493,12 +495,12 @@ def model_quantize(model,
     ]:
       if (layer["class_name"] in ["Dense", "Conv2D"] and enable_bn_folding and
           layer["name"] in layers_to_fold):
-        # only fold if current layer is followed by BN layer
+        # Only fold if current layer is followed by BN layer.
         q_name = "Q" + layer["class_name"] + "Batchnorm"
         layer_config["use_bias"] = True  # Folded layers require a bias
 
-        # set ema_freeze_delay and folding_mode specific to
-        # QDepthwiseConv2DBatchnorm layer config
+        # Sets ema_freeze_delay and folding_mode specific to
+        # QDepthwiseConv2DBatchnorm layer config.
         folding_mode = get_config(
             quantizer_config, layer, q_name, "folding_mode")
         layer_config["folding_mode"] = (
@@ -509,7 +511,7 @@ def model_quantize(model,
             ema_freeze_delay if ema_freeze_delay else None)
       else:
         q_name = "Q" + layer["class_name"]
-      # needs to add kernel/bias quantizers
+      # Needs to add kernel/bias quantizers.
       kernel_quantizer = get_config(
           quantizer_config, layer, q_name, "kernel_quantizer")
 
@@ -521,7 +523,7 @@ def model_quantize(model,
 
       if (kernel_quantizer is None and
           q_name == "Q" + layer["class_name"] + "Batchnorm"):
-        # try none-folded layer quantizer as a back up
+        # Tries none-folded layer quantizer as a back up.
         kernel_quantizer = get_config(
             quantizer_config, layer, "Q" + layer["class_name"],
             "kernel_quantizer")
@@ -529,7 +531,7 @@ def model_quantize(model,
             quantizer_config, layer, "Q" + layer["class_name"],
             "bias_quantizer")
 
-      # this is to avoid unwanted transformations
+      # This is to avoid unwanted transformations.
       if kernel_quantizer is None:
         continue
 
@@ -538,7 +540,7 @@ def model_quantize(model,
       layer_config["kernel_quantizer"] = kernel_quantizer
       layer_config["bias_quantizer"] = bias_quantizer
 
-      # if activation is present, add activation here
+      # If activation is present, add activation here.
       quantizer = get_config(
           quantizer_config, layer, q_name, "activation_quantizer")
 
@@ -552,8 +554,8 @@ def model_quantize(model,
         q_name = "QDepthwiseConv2DBatchnorm"
         layer_config["use_bias"] = True  # Folded layers require a bias
 
-        # set ema_freeze_delay and folding_mode specific to
-        # QDepthwiseConv2DBatchnorm layers
+        # Sets ema_freeze_delay and folding_mode specific to
+        # QDepthwiseConv2DBatchnorm layers.
         folding_mode = get_config(
             quantizer_config, layer, q_name, "folding_mode")
         layer_config["folding_mode"] = (
@@ -566,7 +568,7 @@ def model_quantize(model,
       else:
         q_name = "QDepthwiseConv2D"
 
-      # needs to add kernel/bias quantizers
+      # Needs to add kernel/bias quantizers.
       depthwise_quantizer = get_config(quantizer_config, layer, q_name,
                                        "depthwise_quantizer")
 
@@ -577,13 +579,13 @@ def model_quantize(model,
         bias_quantizer = None
 
       if depthwise_quantizer is None and q_name == "QDepthwiseConv2DBatchnorm":
-        # try none-folded layer quantizer as a back up
+        # Tries none-folded layer quantizer as a back up.
         depthwise_quantizer = get_config(
             quantizer_config, layer, "QDepthwiseConv2D", "depthwise_quantizer")
         bias_quantizer = get_config(
             quantizer_config, layer, "QDepthwiseConv2D", "bias_quantizer")
 
-      # this is to avoid unwanted transformations
+      # This is to avoid unwanted transformations.
       if depthwise_quantizer is None:
         continue
 
@@ -591,7 +593,7 @@ def model_quantize(model,
 
       layer_config["depthwise_quantizer"] = depthwise_quantizer
       layer_config["bias_quantizer"] = bias_quantizer
-      # if activation is present, add activation here
+      # If activation is present, add activation here.
       quantizer = get_config(quantizer_config, layer, q_name,
                              "activation_quantizer",)
 
@@ -625,23 +627,23 @@ def model_quantize(model,
         if quantizer is None:  # Try QActivation as a backup
           quantizer = get_config(quantizer_config, layer, "QActivation")
           is_qadaptiveactivation = False
-      else:  # Try to find QActivation first
+      else:  # Tries to find QActivation first.
         quantizer = get_config(quantizer_config, layer, "QActivation")
         is_qadaptiveactivation = False
         if quantizer is None:  # Try QAdaptiveActivation as a backup
           quantizer = get_config(quantizer_config, layer, "QAdaptiveActivation")
           is_qadaptiveactivation = True
 
-      # this is to avoid softmax from quantizing in autoq
+      # This is to avoid softmax from quantizing in autoq.
       if quantizer is None:
         continue
 
-      # if quantizer exists in dictionary related to this name,
-      # use it, otherwise, use normal transformations
+      # If quantizer exists in dictionary related to this name,
+      # use it, otherwise, use normal transformations.
 
       if not isinstance(quantizer, dict) or quantizer.get(
           layer_config["activation"], None):
-        # only change activation layer if we will use a quantized activation
+        # Only change activation layer if we will use a quantized activation.
 
         layer["class_name"] = ("QAdaptiveActivation" if is_qadaptiveactivation
                                else "QActivation")
@@ -657,11 +659,11 @@ def model_quantize(model,
         else:
           quantize_activation(layer_config, activation_bits)
 
-    # we have to do this because of other instances of ReLU
+    # We have to do this because of other instances of ReLU.
     elif layer["class_name"] in ["ReLU", "relu", "LeakyReLU"]:
 
       quantizer = get_config(quantizer_config, layer, "QActivation")
-      # this is to avoid unwanted transformations
+      # This is to avoid unwanted transformations.
       if quantizer is None:
         continue
 
@@ -681,16 +683,16 @@ def model_quantize(model,
       else:
         q_name = "relu"
 
-      # if quantizer exists in dictionary related to this name,
-      # use it, otherwise, use normal transformations
+      # If quantizer exists in dictionary related to this name,
+      # use it, otherwise, use normal transformations.
 
       if not isinstance(quantizer, dict) or quantizer.get(q_name, None):
-        # only change activation layer if we will use a quantized activation
+        # Only change activation layer if we will use a quantized activation.
 
         layer["class_name"] = "QActivation"
 
-        # remove relu specific configurations
-        # remember that quantized relu's are always upper bounded
+        # Remove relu specific configurations
+        # remember that quantized relu's are always upper bounded.
 
         if layer["class_name"] == "LeakyReLU":
           del layer["config"]["alpha"]
@@ -711,7 +713,7 @@ def model_quantize(model,
           quantize_activation(layer["config"], activation_bits)
 
     elif layer["class_name"] == "BatchNormalization":
-      # we will assume at least QBatchNormalization or
+      # We will assume at least QBatchNormalization or
       # layer name is in dictionary to enable conversion
       # otherwise we will just skip it.
       if (
@@ -721,7 +723,7 @@ def model_quantize(model,
         continue
 
       layer["class_name"] = "QBatchNormalization"
-      # needs to add kernel/bias quantizers
+      # Needs to add kernel/bias quantizers.
       gamma_quantizer = get_config(
           quantizer_config, layer, "QBatchNormalization",
           "gamma_quantizer")
@@ -740,12 +742,35 @@ def model_quantize(model,
       layer_config["mean_quantizer"] = mean_quantizer
       layer_config["variance_quantizer"] = variance_quantizer
 
-  # we need to keep a dictionary of custom objects as our quantized library
+    elif layer["class_name"] in ["AveragePooling2D", "GlobalAveragePooling2D"]:
+      q_name = "Q" + layer["class_name"]
+      # Adds the average quanizer to config.
+      average_quantizer = get_config(
+          quantizer_config, layer, q_name, "average_quantizer")
+
+      # This is to avoid unwanted transformations.
+      if average_quantizer is None:
+        continue
+
+      layer["class_name"] = q_name
+
+      layer_config["average_quantizer"] = average_quantizer
+
+      # Adds activation to config.
+      quantizer = get_config(
+          quantizer_config, layer, q_name, "activation_quantizer")
+
+      if quantizer:
+        layer_config["activation"] = quantizer
+      else:
+        quantize_activation(layer_config, activation_bits)
+
+  # We need to keep a dictionary of custom objects as our quantized library
   # is not recognized by keras.
 
   qmodel = quantized_model_from_json(json.dumps(jm), custom_objects)
 
-  # if transfer_weights is true, we load the weights from model to qmodel
+  # If transfer_weights is true, we load the weights from model to qmodel.
 
   if transfer_weights and not enable_bn_folding:
     for layer, qlayer in zip(model.layers, qmodel.layers):
@@ -792,13 +817,16 @@ def _add_supported_quantized_objects(custom_objects):
   custom_objects["QConv2DBatchnorm"] = QConv2DBatchnorm
   custom_objects["QDepthwiseConv2DBatchnorm"] = QDepthwiseConv2DBatchnorm
 
+  custom_objects["QAveragePooling2D"] = QAveragePooling2D
+  custom_objects["QGlobalAveragePooling2D"] = QGlobalAveragePooling2D
+
 
 def clone_model(model, custom_objects=None):
   """Clones model with custom_objects."""
   if not custom_objects:
     custom_objects = {}
 
-  # let's make a deep copy to make sure our objects are not shared elsewhere
+  # Makes a deep copy to make sure our objects are not shared elsewhere.
   custom_objects = copy.deepcopy(custom_objects)
 
   _add_supported_quantized_objects(custom_objects)
@@ -823,7 +851,7 @@ def quantized_model_from_json(json_string, custom_objects=None):
   if not custom_objects:
     custom_objects = {}
 
-  # let's make a deep copy to make sure our objects are not shared elsewhere
+  # Makes a deep copy to make sure our objects are not shared elsewhere.
   custom_objects = copy.deepcopy(custom_objects)
 
   _add_supported_quantized_objects(custom_objects)
@@ -857,7 +885,7 @@ def load_qmodel(filepath, custom_objects=None, compile=True):
   if not custom_objects:
     custom_objects = {}
 
-  # let's make a deep copy to make sure our objects are not shared elsewhere
+  # Makes a deep copy to make sure our objects are not shared elsewhere.
   custom_objects = copy.deepcopy(custom_objects)
 
   _add_supported_quantized_objects(custom_objects)
@@ -915,7 +943,7 @@ def get_model_sparsity(model, per_layer=False, allow_list=None):
       per-layer breakdown of model sparsity formatted as a list of tuples in the
       form (<layer name>, <sparsity proportion>)
   """
-  # Check if to use a default list of allowed layers to calculate sparsity
+  # Checks if to use a default list of allowed layers to calculate sparsity.
   if allow_list is None:
     allow_list = [
         "QDense", "Dense", "QConv1D", "Conv1D", "QConv2D", "Conv2D",
@@ -927,10 +955,10 @@ def get_model_sparsity(model, per_layer=False, allow_list=None):
         "QConv2DBatchnorm", "QDepthwiseConv2DBatchnorm",
     ]
 
-  # Quantize the model weights for a more accurate sparsity calculation
+  # Quantizes the model weights for a more accurate sparsity calculation.
   model_save_quantized_weights(model)
 
-  # Calculate the sparsity layer by layer
+  # Calculates the sparsity layer by layer.
   layer_sparsity = []
   total_sparsity = 0.
   all_weights = []
@@ -947,7 +975,7 @@ def get_model_sparsity(model, per_layer=False, allow_list=None):
         try:
           weight_numpy = weight.ravel()
         except AttributeError:
-          # in case of EagerTensor
+          # In case of EagerTensor.
           weight_numpy = weight.numpy().ravel()
         layer_weights.append(weight_numpy)
         all_weights.append(weight_numpy)
@@ -955,7 +983,7 @@ def get_model_sparsity(model, per_layer=False, allow_list=None):
       layer_sparsity.append((layer.name, np.mean(layer_weights == 0)))
 
   if len(all_weights) > 0:
-    # Average the sparsity for the entire model
+    # Average the sparsity for the entire model.
     all_weights = np.concatenate(all_weights)
     total_sparsity = np.mean(all_weights == 0)
   if per_layer:
@@ -1065,11 +1093,11 @@ def quantized_model_dump(model,
       y_names.append(layer.name)
       outputs.append(layer.output)
 
-  # Gather the tensor outputs from specified layers at layers_to_dump
+  # Gather the tensor outputs from specified layers at layers_to_dump.
   model_debug = Model(inputs=model.inputs, outputs=outputs)
   y_pred = model_debug.predict(x_test)
 
-  # dump tensors to files
+  # Dumps tensors to files.
   for name, tensor_data in zip(y_names, y_pred):
     filename = os.path.join(output_dir, name + ".bin")
     print("writing the layer output tensor to ", filename)
