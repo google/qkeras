@@ -550,7 +550,7 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
       scale = 1.0
     elif isinstance(self.alpha, six.string_types):
       # We only deal with the symmetric case right now.
-      assert self.symmetric
+      assert self.symmetric, "Only symmetric quantizers are implemented"
       len_axis = len(x.shape)
       if len_axis > 1:
         axis = _get_scaling_axis(self.scale_axis, len_axis)
@@ -559,19 +559,34 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
 
       x = x / m_i
 
-      # we will use this implementation for the scale for QKeras 0.7
-      levels = 2**self.bits - 1
-      scale = (K.max(x, axis=axis, keepdims=True) -
-               K.min(x, axis=axis, keepdims=True)) / levels
+      # Using 2's complement, we can represent 2**(bits-1)-1 positive values
+      # If we wish to maintain symmetry, we can double 2**(bits-1)-1 to get
+      # the total number of possible values we can represent.
+      # If symmetry is not enforced, then we can represent (2**bits)-1 values
+      # using 2's complement.
+      levels = (2**(self.bits-1)-1) * 2 if self.symmetric else (2**self.bits)-1
+
+      scale = (K.max(abs(x), axis=axis, keepdims=True) * 2) / levels
+
+      # If alpha is "auto_po2", then get the "best" po2 scale
       if "po2" in self.alpha:
         scale = K.pow(2.0,
                       tf.math.round(K.log(scale + K.epsilon()) / np.log(2.0)))
-      for _ in range(5):
+        for _ in range(5):
+          v = tf.floor(tf.abs(x) / scale + 0.5)
+          mask = v < levels / 2
+          z = tf.sign(x) * tf.where(mask, v, tf.ones_like(v) * levels / 2)
+          scale = _get_scale(alpha="auto_po2", x=x, q=z,
+                             scale_axis=self.scale_axis)
+
+      # If alpha is "auto", then get the "best" floating point scale
+      elif self.alpha == "auto":
         v = tf.floor(tf.abs(x) / scale + 0.5)
-        mask = v < (levels - 1) / 2
-        z = tf.sign(x) * tf.where(mask, v, tf.ones_like(v) * (levels - 1) / 2)
-        scale = _get_scale(alpha="auto_po2", x=x, q=z,
-                           scale_axis=self.scale_axis)
+        mask = v < levels / 2
+        z = tf.sign(x) * tf.where(mask, v, tf.ones_like(v) * levels / 2)
+      else:
+        raise ValueError(f"Invalid alpha '{self.alpha}'")
+
       # z is an integer number, so we must make the scale * m and z / m
       scale = scale * m
 
