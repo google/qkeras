@@ -36,6 +36,7 @@ from tensorflow_model_optimization.python.core.sparsity.keras import prunable_la
 from .qlayers import Clip
 from .qconv2d_batchnorm import QConv2DBatchnorm
 from .qdepthwiseconv2d_batchnorm import QDepthwiseConv2DBatchnorm
+from .qdense_batchnorm import QDenseBatchnorm
 from .qlayers import QActivation
 from .qlayers import QAdaptiveActivation
 from .qpooling import QAveragePooling2D
@@ -96,6 +97,7 @@ REGISTERED_LAYERS = [
     "QDepthwiseConv2DBatchnorm",
     "QAveragePooling2D",
     "QGlobalAveragePooling2D",
+    "QDenseBatchnorm",
 ]
 
 
@@ -1055,6 +1057,8 @@ def _add_supported_quantized_objects(custom_objects):
 
   custom_objects["QConv2DBatchnorm"] = QConv2DBatchnorm
   custom_objects["QDepthwiseConv2DBatchnorm"] = QDepthwiseConv2DBatchnorm
+
+  custom_objects["QDenseBatchnorm"] = QDenseBatchnorm
 
   custom_objects["QAveragePooling2D"] = QAveragePooling2D
   custom_objects["QGlobalAveragePooling2D"] = QGlobalAveragePooling2D
