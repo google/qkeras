@@ -50,6 +50,7 @@ from tensorflow.keras.constraints import Constraint
 from tensorflow.keras.initializers import Initializer
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.layers import Layer
+from tensorflow.python.framework import smart_cond as tf_utils
 
 from .quantizers import *
 from .quantizers import _get_integer_bits
@@ -412,8 +413,9 @@ class QAdaptiveActivation(Layer, PrunableLayer):
           tf.greater(self.step, self.ema_freeze_delay),
           lambda: tf.constant(False), lambda: tf.constant(True))
 
-    # Update the moving average
-    if is_ema_training:
+    def update_branch():
+      """ Update the moving average when is_ema_training is True."""
+
       # Set the qnoise factor to 0 to update the EMA using the unquantized input
       prev_qnoise_factor = tf.identity(self.quantizer.qnoise_factor)
       self.quantizer.update_qnoise_factor(tf.constant(0.0))
@@ -429,6 +431,10 @@ class QAdaptiveActivation(Layer, PrunableLayer):
 
       # Reset the qnoise factor to the previous value
       self.quantizer.update_qnoise_factor(prev_qnoise_factor)
+
+    # Update the moving average when is_ema_training is True
+    tf_utils.smart_cond(
+        is_ema_training, true_fn=update_branch, false_fn=lambda: None)
 
     # Set the integer bits for the quantizer
     integer_bits = _get_integer_bits(
