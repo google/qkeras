@@ -1732,7 +1732,7 @@ class quantized_sigmoid(BaseQuantizer):  # pylint: disable=invalid-name
 
     p = K.sigmoid(x) if self.use_real_sigmoid else _sigmoid(x)
 
-    return tf.keras.backend.clip((_round_through(p, self.use_stochastic_rounding) / m),
+    return tf.keras.backend.clip((_round_through(p*m, self.use_stochastic_rounding) / m),
                                  1.0 / m,
                                  1.0 - 1.0 / m)
 
@@ -1742,7 +1742,7 @@ class quantized_sigmoid(BaseQuantizer):  # pylint: disable=invalid-name
 
   def min(self):
     """Get the minimum value that quantized_sigmoid can represent."""
-    return 0.0
+    return 1.0 / pow(2, self.bits)
 
   @classmethod
   def from_config(cls, config):
