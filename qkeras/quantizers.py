@@ -201,7 +201,8 @@ def binary_sigmoid(x):
 # we use a version of approximated sigmoid everywhere in this code.
 # we can set it to hard_sigmoid(x) or smooth_sigmoid(x).
 
-_sigmoid = hard_sigmoid
+_default_sigmoid_type = "hard"
+_sigmoid = None
 
 
 def set_internal_sigmoid(mode):
@@ -210,7 +211,7 @@ def set_internal_sigmoid(mode):
   global _sigmoid
 
   if mode not in ["real", "hard", "smooth"]:
-    raise ValueError("mode has to be 'hard' or 'smooth'.")
+    raise ValueError("mode has to be 'real', 'hard' or 'smooth'.")
 
   if mode == "hard":
     _sigmoid = hard_sigmoid
@@ -218,6 +219,9 @@ def set_internal_sigmoid(mode):
     _sigmoid = smooth_sigmoid
   elif mode == "real":
     _sigmoid = tf.keras.backend.sigmoid
+
+
+set_internal_sigmoid(_default_sigmoid_type)
 
 
 def binary_tanh(x):
@@ -1668,7 +1672,8 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
     x = K.cast_to_floatx(x)
     m = K.cast_to_floatx(K.pow(2, non_sign_bits))
     p = K.tanh(x) if self.use_real_tanh else 2.0 * _sigmoid(x) - 1.0
-    return tf.keras.backend.clip((_round_through(p * m, self.use_stochastic_rounding) / m),
+    return tf.keras.backend.clip(
+                                 (_round_through(p * m, self.use_stochastic_rounding) / m),
                                  -1.0 + 1.0 / m,
                                  1.0 - 1.0 / m)
 
@@ -1724,13 +1729,11 @@ class quantized_sigmoid(BaseQuantizer):  # pylint: disable=invalid-name
   def __call__(self, x):
     x = K.cast_to_floatx(x)
     m = K.cast_to_floatx(K.pow(2, self.bits))
-    if self.use_real_sigmoid:
-      p = K.sigmoid(x) * m
-    else:
-      p = _sigmoid(x) * m
+
+    p = K.sigmoid(x) if self.use_real_sigmoid else _sigmoid(x)
 
     return tf.keras.backend.clip((_round_through(p, self.use_stochastic_rounding) / m),
-                                 0,
+                                 1.0 / m,
                                  1.0 - 1.0 / m)
 
   def max(self):
