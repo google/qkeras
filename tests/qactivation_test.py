@@ -27,6 +27,7 @@ from qkeras import set_internal_sigmoid
 from qkeras import binary
 from qkeras import hard_sigmoid
 from qkeras import quantized_bits
+from qkeras import quantized_hswish
 from qkeras import quantized_po2
 from qkeras import quantized_relu
 from qkeras import quantized_relu_po2
@@ -698,6 +699,43 @@ def test_stochastic_ternary_inference_mode(alpha, threshold, test_values, expect
   q = stochastic_ternary(alpha, threshold)
   f = K.function([x],
                  [q(x)])
+  result = f([test_values])[0]
+  assert_allclose(result, expected_values, rtol=1e-05)
+
+
+@pytest.mark.parametrize(
+    # y = x * relu6(x+3)/6, the total world length is 6 bits with 2 integer
+    # bits. The quantization is in asymmetric mode.
+    ('bits, integer, symmetric, relu_shift, relu_upper_bound,'
+     'test_values, expected_values'), [
+         (
+          6, 2, 0, 3, 6,
+          np.array([[-3.0, -2.0, -1.0, -0.5, 0.0, 0.5, 1, 4, 10]],
+                   dtype=K.floatx()),
+          np.array([[0., -0.375, -0.375, -0.25,  0., 0.25, 0.625,
+                     3.875, 3.875]], dtype=K.floatx()),
+         ),
+         (
+          6, 4, 1, 3, 6,
+          np.array([[-10.0, -2.0, -2.3, -0.25, 0.0, 0.5, 1, 4, 10]],
+                   dtype=K.floatx()),
+          np.array([[0., -0.5, -0.5, 0., 0., 0.5, 0.5, 4., 10.]],
+                   dtype=K.floatx()),
+         ),
+         (
+          2, 0, 0, 3, 6,
+          np.array([[-10.0, -2.0, -2.3, -0.25, 0.0, 0.5, 1, 4, 10]],
+                   dtype=K.floatx()),
+          np.array([[0., -0.5, -0.5, 0., 0., 0.5, 0.5, 0.5, 0.5]],
+                   dtype=K.floatx()),
+         ),
+        ])
+def test_quantized_hswish(bits, integer, symmetric, relu_shift,
+                          relu_upper_bound, test_values, expected_values):
+  x = K.placeholder(ndim=2)
+  f = K.function(
+      [x], [quantized_hswish(bits, integer, symmetric,relu_shift=relu_shift,
+                           relu_upper_bound=relu_upper_bound)(x)])
   result = f([test_values])[0]
   assert_allclose(result, expected_values, rtol=1e-05)
 

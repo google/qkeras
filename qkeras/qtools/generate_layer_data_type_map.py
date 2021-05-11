@@ -14,11 +14,6 @@
 # limitations under the License.
 # ==============================================================================
 """Generates MAC, input and output datatype for a qkeras model."""
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import collections
 import copy
 
@@ -80,18 +75,18 @@ def update_output_quantizer_in_graph(graph, node_id, quantizer_factory,
   node = graph.nodes[node_id]
   qkeras_output_quantizer = node["out_quantizer"]
 
-  # if existing graph doesn't have a valid output quantizer
+  # If existing graph doesn't have a valid output quantizer
   # update graph with the new quantizer
   if (for_reference or not qkeras_output_quantizer or
       not quantizer_factory.is_quantizer_supported(qkeras_output_quantizer)):
     qkeras_output_quantizer = new_quantizer
     qgraph.GraphUpdateEdge(graph, node_id, qkeras_output_quantizer)
 
-  # if activation specified, convert activation quantizer to qtools quantizer
-  # if activation not secified, convert the new quantizer to qtools quantizer
+  # If activation specified, convert activation quantizer to qtools quantizer
+  # If activation not secified, convert the new quantizer to qtools quantizer
   output_quantizer = quantizer_factory.make_quantizer(qkeras_output_quantizer)
 
-  # output_quantizer is used for updating dictionary in json
+  # Output_quantizer is used for updating dictionary in json
   return output_quantizer
 
 
@@ -168,7 +163,7 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
       else:
         print("None")
 
-    # deal with keras layer or lack of input quantizer in qkeras layer
+    # Deals with keras layer or lack of input quantizer in qkeras layer.
     input_qe_list = qtools_util.get_input_quantizers_advanced(
         graph, node_id, is_input_layer, quantizer_factory, cfg)
 
@@ -177,14 +172,14 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
       for node in input_qe_list:
         input_quantizer_list.append(node[0])
 
-      # calculate number of operations (multiplication/accumulation)
+      # Calculates number of operations (multiplication/accumulation).
       (_, edge_0) = input_qe_list[0]
       input_shape = edge_0["shape"]
       # for merge layers, all input_shape are identical
       operation_count = qtools_util.get_operation_count(
           layer, input_shape)
 
-    # Merge Layers with multiple inputs
+    # Merges layers with multiple inputs.
     if qtools_util.is_merge_layers(layer):
       # output_shapes = layer.output_shape
       merge_factory = quantized_operators.MergeFactory()
@@ -192,12 +187,12 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
           input_qe_list, layer.__class__.__name__)
 
       if hasattr(layer, "get_quantizers"):
-        # QMerge layer from future
+        # QMerge layer from future.
         qkeras_quantizer = layer.get_quantizers()[0]
         merge_quantizer.output = quantizer_factory.make_quantizer(
             qkeras_quantizer)
       else:
-        # merge layer is a Keras layer
+        # Merge layer is a Keras layer.
         if for_reference:
           merge_quantizer.output = quantizer_factory.make_default_quantizer(
               mode=cfg.default_interm_quantizer)
@@ -234,7 +229,7 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
           "UpSampling" in layer.__class__.__name__):
       input_quantizer = input_quantizer_list[0]
 
-      # output quantizer
+      # Output quantizer
       output_quantizer = update_output_quantizer_in_graph(
           graph, node_id, quantizer_factory, input_quantizer, for_reference)
 
@@ -258,7 +253,8 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
     # AveragePooling and GlobalAveragePooling
     elif layer.__class__.__name__ in [
         "AveragePooling2D", "AvgPool2D", "GlobalAvgPool2D",
-        "GlobalAveragePooling2D"]:
+        "GlobalAveragePooling2D", "QAveragePooling2D",
+        "QGlobalAveragePooling2D"]:
       (input_quantizer, _) = input_qe_list[0]
 
       # This is a hack. We don't want to implement a new accumulator class
@@ -267,7 +263,8 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
       # In order to do so, we fake a multiplier which treat the pool_size as
       # the kernel. since kernel needs 4 dimension, k_h, k_w, C_in, C_out,
       # we set the last two dimension as [1, 1]
-      if layer.__class__.__name__ in ["AveragePooling2D", "AvgPool2D"]:
+      if layer.__class__.__name__ in ["AveragePooling2D", "AvgPool2D",
+                                      "QAveragePooling2D"]:
         pool_size = tuple(list(layer.pool_size) + [1, 1])
       else:
         pool_size = tuple(list(input_shape)[1:-1] + [1, 1])
@@ -280,24 +277,46 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
       accumulator = accumulator_factory.make_accumulator(
           pool_size, fake_multiplier, use_bias=False)
 
+      if layer.__class__.__name__ in ["QAveragePooling2D",
+                                      "QGlobalAveragePooling2D"]:
+        # For the quantized layer, there is an average_quantizer used for
+        # the inverse of division operation.
+        qkeras_average_quantizer = layer.get_quantizers()[0]
+        qtools_average_quantizer = quantizer_factory.make_quantizer(
+            qkeras_average_quantizer)
+        multiplier = multiplier_factory.make_multiplier(
+            accumulator.output, qtools_average_quantizer)
+      else:
+        multiplier = None
       if debug:
         print("accumulator:", accumulator.output.bits)
 
       if for_reference:
+        if multiplier:
+          multiplier.output = quantizer_factory.make_default_quantizer(
+              mode=cfg.default_interm_quantizer)
         accumulator.output = quantizer_factory.make_default_quantizer(
             mode=cfg.default_interm_quantizer)
 
         if keras_accumulator:
+          if multiplier:
+            multiplier.output = quantizer_factory.make_default_quantizer(
+                mode=keras_accumulator)
           accumulator.output = quantizer_factory.make_default_quantizer(
               mode=keras_accumulator)
 
-      layer_quantizer = accumulator.output
+      if layer.__class__.__name__ in ["QAveragePooling2D",
+                                      "QGlobalAveragePooling2D"]:
+        # If is quantized layer, last operation is multiply (averaging).
+        layer_quantizer = multiplier.output
+      else:
+        layer_quantizer = accumulator.output
       output_quantizer = update_output_quantizer_in_graph(
           graph, node_id, quantizer_factory, layer_quantizer, for_reference)
 
       layer_data_type_map[layer] = LayerDataType(
           input_quantizer_list,
-          None,
+          multiplier,
           accumulator,
           None,
           None,
@@ -308,7 +327,7 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
           operation_count
       )
 
-    # if Quantized Activation layer
+    # If it's a Quantized Activation layer.
     elif node_type in ["QActivation", "QAdaptiveActivation", "Activation"]:
 
       if for_reference or not hasattr(layer, "quantizer"):
@@ -351,7 +370,7 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
 
       (input_quantizer, _) = input_qe_list[0]
 
-      # qkeras layers might be mixed with keras layers
+      # QKeras layers might be mixed with keras layers.
       if for_reference or not hasattr(layer, "get_quantizers"):
         # Keras BatchNorm layer mixed with quantized model
         # -> no reference mode
@@ -393,7 +412,7 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
           variance_quantizer = quantizer_factory.make_default_quantizer(
               mode=cfg.default_interm_quantizer)
         else:
-          # if gamma is float, convert to input_quantizer
+          # If gamma is float, convert to input_quantizer.
           variance_quantizer = quantizer_factory.make_quantizer(
               qkeras_variance_quantizer)
 
@@ -404,14 +423,14 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
           gamma_quantizer = quantizer_factory.make_quantizer(
               qkeras_gamma_quantizer)
 
-      # during inference, gamma, beta and variance are constants
+      # During inference, gamma, beta and variance are constants
       # if they are po2 quantizers, we need to modify their bits
       # with actual values and also update graph with the
-      # corresponding output_quantizer on the edge
+      # corresponding output_quantizer on the edge.
       if is_inference:
         weights = qtools_util.get_weights(layer)
-        # if no scale(gamma), num_weights --
-        # if no center(beta_quantizer) num_weights --
+        # If no scale(gamma), num_weights --
+        # If no center(beta_quantizer) num_weights --
         num_weights = 4
         if not layer.scale:
           num_weights -= 1
@@ -507,7 +526,7 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
           "operation_count": operation_count
       }
 
-    # if qdense, qconv, qpool, qoctave
+    # If qdense, qconv, qpool, qoctave
     elif node_type in QKERAS_LAYERS or node_type in KERAS_LAYERS:
 
       (input_quantizer, _) = input_qe_list[0]
@@ -546,9 +565,9 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
         bias_quantizer = quantizer_factory.make_quantizer(
             qkeras_bias_quantizer)
 
-      # TODO(lishanok): during inference, if weight and bias is po2,
+      # TODO(lishanok): During inference, if weight and bias is po2,
       #  need to update corresponding quantizer type with min and max
-      #  of the constant values
+      #  of the constant values.
       if is_inference:
         weights = qtools_util.get_weights(layer)
         if weight_quantizer.is_po2:
@@ -564,8 +583,6 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
       weights = layer.get_weights()
       kernel = weights[0]
 
-      # if layer.use_bias:
-      #  bias = weights[1]
       accumulator_factory = quantized_operators.AccumulatorFactory()
       accumulator = accumulator_factory.make_accumulator(
           kernel.shape, multiplier)
@@ -610,12 +627,12 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
           operation_count
       )
 
-    # folded conv/dense/depthwiseconv layer
+    # Folded conv/dense/depthwiseconv layer
     elif node_type in ["QConv2DBatchnorm", "QDepthwiseConv2DBatchnorm"]:
 
       (input_quantizer, _) = input_qe_list[0]
       if for_reference or not hasattr(layer, "get_quantizers"):
-        # for_reference: force all quantizers to keras_quantizer
+        # For_reference: force all quantizers to keras_quantizer.
         weight_quantizer = quantizer_factory.make_default_quantizer(
             mode=cfg.default_interm_quantizer)
         bias_quantizer = quantizer_factory.make_default_quantizer(
@@ -627,7 +644,7 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
           bias_quantizer = quantizer_factory.make_default_quantizer(
               mode=keras_quantizer)
       else:
-        # qkeras layer
+        # QKeras layer
         qkeras_weight_quantizer = layer.get_quantizers()[0]
         qkeras_bias_quantizer = layer.get_quantizers()[1]
         if not quantizer_factory.is_quantizer_supported(
@@ -651,7 +668,7 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
         else:
           bias_quantizer = None
 
-      # TODO(lishanok): during inference, if weight and bias is po2,
+      # TODO(lishanok): During inference, if weight and bias is po2,
       #  need to update corresponding quantizer type with min and max
       #  of the constant values
       if is_inference:
@@ -674,11 +691,11 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
           kernel.shape, multiplier, use_bias=True if bias_quantizer else False)
 
       if not bias_quantizer:
-        # set bias the same as accumulator type
+        # Sets bias the same as accumulator type.
         bias_quantizer = copy.deepcopy(accumulator.output)
         if not accumulator.output.is_floating_point:
-          # for fixed point accumulator, needs to add 1 to its bits to avoid
-          # possible satuation
+          # For fixed point accumulator, needs to add 1 to its bits to avoid
+          # possible satuation.
           accumulator.output.bits += 1
           accumulator.output.int_bits += 1
       if for_reference or not hasattr(layer, "get_quantizers"):
@@ -711,7 +728,7 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
       )
 
     elif node_type:
-      # any other unsupported layer types -> pass the input quantizer
+      # Any other unsupported layer types -> pass the input quantizer
       # type to output in qraph
       (input_quantizer, _) = input_qe_list[0]
 

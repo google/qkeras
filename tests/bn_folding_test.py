@@ -269,7 +269,7 @@ def test_unfold_model():
         strides=(1, 1),
         use_bias=False,
         depthwise_quantizer=kernel_quantizer,
-        folded_mode=folding_mode,
+        folding_mode=folding_mode,
         ema_freeze_delay=ema_freeze_delay,
         name="folddepthwiseconv2d")(x)
     model = Model(inputs=[x_in], outputs=[x])

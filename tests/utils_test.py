@@ -27,6 +27,7 @@ from qkeras import *
 from qkeras.utils import get_model_sparsity
 from qkeras.utils import model_quantize
 from qkeras.utils import convert_to_folded_model
+from qkeras.utils import is_TFOpLambda_layer
 
 
 def create_quantized_network():
@@ -135,6 +136,31 @@ def test_convert_to_folded_model():
   fmodel, _ = convert_to_folded_model(model)
 
   assert fmodel.layers[5].name == "add"
+
+  # test if convert_to_folded_model work with TFOpLambda layers
+  def hard_sigmoid(x):
+    return ReLU(6.)(x + 3.) * (1. / 6.)
+
+  def hard_swish(x):
+    return Multiply()([hard_sigmoid(x), x])
+
+  def get_lambda_model():
+    x = x_in = Input(shape=(4, 4, 1), name="input")
+    x = Conv2D(
+        4, kernel_size=(2, 2), padding="valid", strides=(1, 1),
+        name="conv2d_1")(x)
+    x = hard_swish(x)
+
+    return Model(inputs=[x_in], outputs=[x])
+
+  model = get_lambda_model()
+  fmodel, _ = convert_to_folded_model(model)
+
+  print("Layer2:", model.layers[2], model.layers[2].__class__)
+  print("layer4:", model.layers[4], model.layers[2].__class__.__name__)
+  assert is_TFOpLambda_layer(model.layers[2])
+  assert is_TFOpLambda_layer(model.layers[4])
+  assert isinstance(fmodel.layers[5], Multiply)
 
 
 if __name__ == "__main__":

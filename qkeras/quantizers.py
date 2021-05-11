@@ -554,7 +554,7 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
       scale = 1.0
     elif isinstance(self.alpha, six.string_types):
       # We only deal with the symmetric case right now.
-      assert self.symmetric
+      assert self.symmetric, "Only symmetric quantizers are implemented"
       len_axis = len(x.shape)
       if len_axis > 1:
         axis = _get_scaling_axis(self.scale_axis, len_axis)
@@ -563,19 +563,34 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
 
       x = x / m_i
 
-      # we will use this implementation for the scale for QKeras 0.7
-      levels = 2**self.bits - 1
-      scale = (K.max(x, axis=axis, keepdims=True) -
-               K.min(x, axis=axis, keepdims=True)) / levels
+      # Using 2's complement, we can represent 2**(bits-1)-1 positive values
+      # If we wish to maintain symmetry, we can double 2**(bits-1)-1 to get
+      # the total number of possible values we can represent.
+      # If symmetry is not enforced, then we can represent (2**bits)-1 values
+      # using 2's complement.
+      levels = (2**(self.bits-1)-1) * 2 if self.symmetric else (2**self.bits)-1
+
+      scale = (K.max(abs(x), axis=axis, keepdims=True) * 2) / levels
+
+      # If alpha is "auto_po2", then get the "best" po2 scale
       if "po2" in self.alpha:
         scale = K.pow(2.0,
                       tf.math.round(K.log(scale + K.epsilon()) / np.log(2.0)))
-      for _ in range(5):
+        for _ in range(5):
+          v = tf.floor(tf.abs(x) / scale + 0.5)
+          mask = v < levels / 2
+          z = tf.sign(x) * tf.where(mask, v, tf.ones_like(v) * levels / 2)
+          scale = _get_scale(alpha="auto_po2", x=x, q=z,
+                             scale_axis=self.scale_axis)
+
+      # If alpha is "auto", then get the "best" floating point scale
+      elif self.alpha == "auto":
         v = tf.floor(tf.abs(x) / scale + 0.5)
-        mask = v < (levels - 1) / 2
-        z = tf.sign(x) * tf.where(mask, v, tf.ones_like(v) * (levels - 1) / 2)
-        scale = _get_scale(alpha="auto_po2", x=x, q=z,
-                           scale_axis=self.scale_axis)
+        mask = v < levels / 2
+        z = tf.sign(x) * tf.where(mask, v, tf.ones_like(v) * levels / 2)
+      else:
+        raise ValueError(f"Invalid alpha '{self.alpha}'")
+
       # z is an integer number, so we must make the scale * m and z / m
       scale = scale * m
 
@@ -1424,7 +1439,7 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
     self.use_variables = use_variables
 
   def __str__(self):
-    # Convert Tensors to printable strings by converting to a numpy array and
+    # Converts Tensors to printable strings by converting to a numpy array and
     # then using regex to remove brackets when there is only one integer bit
     integer_bits = re.sub(
         r"\[(\d)\]", r"\g<1>",
@@ -2187,6 +2202,153 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
             self.log2_rounding
     }
     return config
+
+
+class quantized_hswish(quantized_bits):  # pylint: disable=invalid-name
+  """Computes a quantized hard swish to a number of bits.
+
+  Equation of h-swisth function in mobilenet v3:
+  hswish(x) = x * ReluY(x + relu_shift) / Y
+  Y is relu_upper_bound
+
+  Attributes:
+    bits: number of bits to perform quantization, also known as word length.
+    integer: number of integer bits.
+    symmetric: if True,  the quantization is in symmetric mode, which puts
+      restricted range for the quantizer. Otherwise, it is in asymmetric mode,
+      which uses the full range.
+    alpha: a tensor or None, the scaling factor per channel.
+      If None, the scaling factor is 1 for all channels.
+    use_stochastic_rounding: if true, we perform stochastic rounding. This
+      parameter is passed on to the underlying quantizer quantized_bits which
+      is used to quantize h_swish.
+    scale_axis: which axis to calculate scale from
+    qnoise_factor: float. a scalar from 0 to 1 that represents the level of
+      quantization noise to add. This controls the amount of the quantization
+      noise to add to the outputs by changing the weighted sum of
+      (1 - qnoise_factor)*unquantized_x + qnoise_factor*quantized_x.
+    var_name: String or None. A variable name shared between the tf.Variables
+      created in the build function. If None, it is generated automatically.
+    use_ste: Bool. Whether to use "straight-through estimator" (STE) method or
+        not.
+    use_variables: Bool. Whether to make the quantizer variables to be dynamic
+      tf.Variables or not.
+    relu_shift: integer type, representing the shift amount
+      of the unquantized relu.
+    relu_upper_bound: integer type, representing an upper bound of the
+      unquantized relu. If None, we apply relu without the upper bound when
+      "is_quantized_clip" is set to false (true by default).
+      Note: The quantized relu uses the quantization parameters (bits and
+      integer) to upper bound. So it is important to set relu_upper_bound
+      appropriately to the quantization parameters. "is_quantized_clip"
+      has precedence over "relu_upper_bound" for backward compatibility.
+
+  """
+
+  def __init__(self,
+               bits=8,
+               integer=0,
+               symmetric=0,
+               alpha=None,
+               use_stochastic_rounding=False,
+               scale_axis=None,
+               qnoise_factor=1.0,
+               var_name=None,
+               use_ste=True,
+               use_variables=False,
+               relu_shift: int = 3,
+               relu_upper_bound: int = 6):
+    super(quantized_hswish, self).__init__(
+        bits=bits,
+        integer=integer,
+        symmetric=symmetric,
+        keep_negative=True,
+        alpha=alpha,
+        use_stochastic_rounding=use_stochastic_rounding,
+        scale_axis=scale_axis,
+        qnoise_factor=qnoise_factor,
+        var_name=var_name,
+        use_ste=use_ste,
+        use_variables=use_variables)
+
+    self.relu_shift = relu_shift
+    self.relu_upper_bound = relu_upper_bound
+
+  def __str__(self):
+    """ Converts Tensors to printable strings."""
+
+    integer_bits = (
+        re.sub(r"\[(\d)\]", r"\g<1>",
+               str(self.integer.numpy() if isinstance(self.integer, tf.Variable)
+                   else self.integer)))
+    assert isinstance(integer_bits, int)
+
+    flags = [str(self.bits),
+             integer_bits,
+             str(int(self.symmetric)),
+             "relu_shift=" + str(self.relu_shift),
+             "relu_upper_bound=" + str(self.relu_upper_bound)
+             ]
+
+    if not self.keep_negative:
+      flags.append("keep_negative=False")
+    if self.alpha:
+      alpha = str(self.alpha)
+      if isinstance(self.alpha, six.string_types):
+        alpha = "'" + alpha + "'"
+      flags.append("alpha=" + alpha)
+    if self.use_stochastic_rounding:
+      flags.append("use_stochastic_rounding=" +
+                   str(int(self.use_stochastic_rounding)))
+    return "quantized_hswish(" + ",".join(flags) + ")"
+
+  def __call__(self, x):
+    assert self.relu_upper_bound > 0, (
+        f"relu_upper_bound must be a positive value, "
+        f"found {self.relu_upper_bound} instead")
+    assert self.relu_shift > 0, (
+        f"relu_shift must be a positive value, "
+        f"found {self.relu_shift} instead")
+    x = K.cast_to_floatx(x)
+    shift_x = x + self.relu_shift
+    relu_x = tf.where(shift_x <= self.relu_upper_bound,
+                      K.relu(shift_x, alpha=False),
+                      tf.ones_like(shift_x) * self.relu_upper_bound)
+
+    hswish_x = tf.math.multiply(x, relu_x) / self.relu_upper_bound
+    return super(quantized_hswish, self).__call__(hswish_x)
+
+  def min(self):
+    """Gets the minimum value that quantized_hswish can represent."""
+
+    # get the minimum value that the number of bits can represent
+    min_quant = super(quantized_hswish, self).min()
+    # In the negative end, the hswish function becomes
+    # x * (x + relu_shift) / relu_upper_bound
+    # the min value of this parabolic function is
+    # - relu_shift^2 / (4 * relu_upper_bound)
+    denom = 4 * self.relu_upper_bound
+    min_parabolic = -self.relu_shift * self.relu_shift / denom
+
+    if min_quant >= min_parabolic:
+      return min_quant
+
+    # get the quantized value of min_parabolic
+    return super(quantized_hswish, self).call(min_parabolic)
+
+  def get_config(self):
+    """Add relu_shift and relu_upper_bound to the config file."""
+
+    base_config = super(quantized_hswish, self).get_config()
+
+    config = {
+        "relu_shift": self.relu_shift,
+        "relu_upper_bound": self.relu_upper_bound
+    }
+
+    out_config = dict(
+        list(base_config.items()) + list(config.items()))
+    return out_config
 
 
 def get_quantizer(identifier):

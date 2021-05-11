@@ -31,7 +31,6 @@ from tensorflow.keras.layers import GRUCell
 from tensorflow.keras.layers import RNN
 from tensorflow.keras.layers import Bidirectional
 from tensorflow.python.util import nest
-from tensorflow.python.keras.engine.input_spec import InputSpec
 from tensorflow.python.ops import array_ops
 from tensorflow.python.framework import ops
 from tensorflow_model_optimization.python.core.sparsity.keras.prunable_layer import PrunableLayer
@@ -283,7 +282,7 @@ class QSimpleRNN(RNN, PrunableLayer):
         unroll=unroll,
         **kwargs)
     self.activity_regularizer = regularizers.get(activity_regularizer)
-    self.input_spec = [InputSpec(ndim=3)]
+    self.input_spec = [tf.keras.layers.InputSpec(ndim=3)]
 
   def call(self, inputs, mask=None, training=None, initial_state=None):
     self._maybe_reset_cell_dropout_mask(self.cell)
@@ -770,7 +769,7 @@ class QLSTM(RNN, PrunableLayer):
         unroll=unroll,
         **kwargs)
     self.activity_regularizer = regularizers.get(activity_regularizer)
-    self.input_spec = [InputSpec(ndim=3)]
+    self.input_spec = [tf.keras.layers.InputSpec(ndim=3)]
 
   def call(self, inputs, mask=None, training=None, initial_state=None):
     self._maybe_reset_cell_dropout_mask(self.cell)
@@ -1296,7 +1295,7 @@ class QGRU(RNN, PrunableLayer):
         unroll=unroll,
         **kwargs)
     self.activity_regularizer = regularizers.get(activity_regularizer)
-    self.input_spec = [InputSpec(ndim=3)]
+    self.input_spec = [tf.keras.layers.InputSpec(ndim=3)]
 
   def call(self, inputs, mask=None, training=None, initial_state=None):
     self._maybe_reset_cell_dropout_mask(self.cell)

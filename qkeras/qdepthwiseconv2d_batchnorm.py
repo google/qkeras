@@ -75,7 +75,6 @@ class QDepthwiseConv2DBatchnorm(QDepthwiseConv2D):
       trainable=True,
       virtual_batch_size=None,
       adjustment=None,
-      name=None,
 
       # other params
       ema_freeze_delay=None,
@@ -128,7 +127,7 @@ class QDepthwiseConv2DBatchnorm(QDepthwiseConv2D):
         bias_quantizer=bias_quantizer,
         depthwise_range=depthwise_range,
         bias_range=bias_range,
-        name=name)
+        **kwargs)
 
     # initialization of batchnorm part of the composite layer
     self.batchnorm = layers.BatchNormalization(
@@ -139,9 +138,10 @@ class QDepthwiseConv2DBatchnorm(QDepthwiseConv2D):
         moving_variance_initializer=moving_variance_initializer,
         beta_regularizer=beta_regularizer,
         gamma_regularizer=gamma_regularizer,
-        beta_constraint=beta_constraint,
-        gamma_constraint=gamma_constraint,
-        fused=False)
+        beta_constraint=beta_constraint, gamma_constraint=gamma_constraint,
+        renorm=renorm, renorm_clipping=renorm_clipping, 
+        renorm_momentum=renorm_momentum, fused=fused, trainable=trainable,
+        virtual_batch_size=virtual_batch_size, adjustment=adjustment)
 
     self.ema_freeze_delay = ema_freeze_delay
     assert folding_mode in ["ema_stats_folding", "batch_stats_folding"]

@@ -20,6 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 import networkx as nx
+import tensorflow as tf
 from six.moves import range
 from tensorflow.keras.models import clone_model
 from tensorflow.keras.models import Model
@@ -184,10 +185,17 @@ def populate_bias_quantizer_from_accumulator(model, source_quantizers):
       if not layer.bias_quantizer:
         # if user didn't specify the bias quantizer, we set it as the
         # MAC accumulator type of the current layer's MAC operation
-        layer.bias_quantizer = (layer_map["layer_data_type_map"][layer].
-                                bias_quantizer.convert_to_qkeras_quantizer())
-        layer.bias_quantizer_internal = layer.bias_quantizer
+        qtools_bias_quantizer = layer_map["layer_data_type_map"][
+            layer].bias_quantizer
 
+        if tf.is_tensor(qtools_bias_quantizer.int_bits):
+          qtools_bias_quantizer.int_bits = (
+              qtools_bias_quantizer.int_bits.numpy())
+
+        layer.bias_quantizer = (
+            qtools_bias_quantizer.convert_to_qkeras_quantizer())
+
+        layer.bias_quantizer_internal = layer.bias_quantizer
         if layer.__class__.__name__ == "QConv2DBatchnorm":
           layer.quantizers = [layer.kernel_quantizer_internal,
                               layer.bias_quantizer_internal]
