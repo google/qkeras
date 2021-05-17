@@ -1725,6 +1725,8 @@ class quantized_sigmoid(BaseQuantizer):  # pylint: disable=invalid-name
 
   Attributes:
     bits: number of bits to perform quantization.
+    symmetric: if true, we will have the same number of values for positive
+      and negative numbers.
     use_real_sigmoid: if true, will use the sigmoid from Keras backend
     use_stochastic_rounding: if true, we perform stochastic rounding.
 
