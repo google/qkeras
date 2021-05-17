@@ -1661,6 +1661,8 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
   Attributes:
     bits: number of bits to perform quantization.
     use_stochastic_rounding: if true, we perform stochastic rounding.
+    symmetric: if true, we will have the same number of values for positive
+      and negative numbers.
     use_real_tanh: if true, use the tanh function from Keras backend,
       if false, use tanh that is defined as 2 * sigmoid(x) - 1
 
@@ -1668,9 +1670,11 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
     Function that performs tanh + quantization to bits in the range -1.0 to 1.0.
   """
 
-  def __init__(self, bits=8, use_stochastic_rounding=False, use_real_tanh=False):
+  def __init__(self, bits=8, use_stochastic_rounding=False,
+               symmetric=False, use_real_tanh=False):
     super(quantized_tanh, self).__init__()
     self.bits = bits
+    self.symmetric = symmetric
     self.use_stochastic_rounding = use_stochastic_rounding
     self.use_real_tanh = use_real_tanh
 
@@ -1678,6 +1682,8 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
     flags = [str(self.bits)]
     if self.use_stochastic_rounding:
       flags.append(str(int(self.use_stochastic_rounding)))
+    if self.symmetric:
+      flags.append(str(int(self.symmetric)))
     if self.use_real_tanh:
       flags.append(str(int(self.use_real_tanh)))
     return "quantized_tanh(" + ",".join(flags) + ")"
@@ -1689,7 +1695,7 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
     p = K.tanh(x) if self.use_real_tanh else 2.0 * _sigmoid(x) - 1.0
     return tf.keras.backend.clip(
                                  (_round_through(p * m, self.use_stochastic_rounding) / m),
-                                 -1.0 + 1.0 / m,
+                                 -1.0 + (1.0 * self.symmetric) / m,
                                  1.0 - 1.0 / m)
 
   def max(self):
@@ -1698,7 +1704,7 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
 
   def min(self):
     """Get the minimum value that quantized_tanh can represent."""
-    return -1.0 + 1.0 / pow(2, self.bits - 1)
+    return -1.0 + (1.0 * self.symmetric) / pow(2, self.bits - 1)
 
   @classmethod
   def from_config(cls, config):
@@ -1707,6 +1713,7 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
   def get_config(self):
     config = {
         "bits": self.bits,
+        "symmetric": self.symmetric,
         "use_stochastic_rounding": self.use_stochastic_rounding,
         "use_real_tanh": self.use_real_tanh
     }

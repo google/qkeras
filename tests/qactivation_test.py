@@ -374,7 +374,7 @@ def test_quantized_tanh(bits, use_real_tanh, test_values, expected_values):
 
   set_internal_sigmoid('hard')
   x = K.placeholder(ndim=2)
-  f = K.function([x], [quantized_tanh(bits, use_real_tanh=use_real_tanh)(x)])
+  f = K.function([x], [quantized_tanh(bits, symmetric=True, use_real_tanh=use_real_tanh)(x)])
   set_internal_sigmoid(_default_sigmoid_type)
 
   result = f([test_values])[0]
@@ -419,13 +419,13 @@ def test_quantized_tanh_limits(bits, sigmoid_type, use_real_tanh, test_values, e
 
   set_internal_sigmoid(sigmoid_type)
   x = K.placeholder(ndim=2)
-  f = K.function([x], [quantized_tanh(bits, use_real_tanh=use_real_tanh)(x)])
+  f = K.function([x], [quantized_tanh(bits, symmetric=True, use_real_tanh=use_real_tanh)(x)])
   set_internal_sigmoid(_default_sigmoid_type)
 
   result = f([test_values])[0]
   min_max = np.array(
-                    [quantized_tanh(bits, use_real_tanh=use_real_tanh).min(),
-                     quantized_tanh(bits, use_real_tanh=use_real_tanh).max()])
+                    [quantized_tanh(bits, symmetric=True, use_real_tanh=use_real_tanh).min(),
+                     quantized_tanh(bits, symmetric=True, use_real_tanh=use_real_tanh).max()])
 
   assert_allclose(result, expected_values, rtol=1e-05)
   assert_allclose(result, min_max, rtol=1e-05)

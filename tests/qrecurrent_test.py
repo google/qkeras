@@ -106,7 +106,7 @@ def test_qrnn(rnn, all_weights_signature, expected_output):
   x = x_in = Input((2, 4), name='input')
   x = rnn(
     16,
-    activation=quantized_tanh(bits=8),
+    activation=quantized_tanh(bits=8, symmetric=True),
     kernel_quantizer=quantized_bits(8, 0, 1, alpha=1.0),
     recurrent_quantizer=quantized_bits(8, 0, 1, alpha=1.0),
     bias_quantizer=quantized_bits(8, 0, 1, alpha=1.0),

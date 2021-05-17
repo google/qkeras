@@ -50,14 +50,15 @@ def test_QuantizedTanh():
   qtools_quantizer = quantizer_impl.QuantizedTanh()
   qtools_quantizer.convert_qkeras_quantizer(qkeras_quantizer)
   new_quantizer = qtools_quantizer.convert_to_qkeras_quantizer(
-      use_stochastic_rounding=qkeras_quantizer.use_stochastic_rounding)
+      use_stochastic_rounding=qkeras_quantizer.use_stochastic_rounding,
+      symmetric=qkeras_quantizer.symmetric)
 
   result = new_quantizer.__dict__
   for (key, val) in result.items():
     assert_equal(val, qkeras_quantizer.__dict__[key])
 
 
-def  test_QuantizedUlaw():
+def test_QuantizedUlaw():
   qkeras_quantizer = quantizers.quantized_ulaw()
   qtools_quantizer = quantizer_impl.QuantizedUlaw()
   qtools_quantizer.convert_qkeras_quantizer(qkeras_quantizer)
