@@ -290,7 +290,7 @@ def test_quantized_sigmoid(bits, sigmoid_type, use_real_sigmoid, test_values, ex
 
   set_internal_sigmoid(sigmoid_type)
   x = K.placeholder(ndim=2)
-  f = K.function([x], [quantized_sigmoid(bits, use_real_sigmoid=use_real_sigmoid)(x)])
+  f = K.function([x], [quantized_sigmoid(bits, symmetric=True, use_real_sigmoid=use_real_sigmoid)(x)])
   set_internal_sigmoid(_default_sigmoid_type)
 
   result = f([test_values])[0]
@@ -335,13 +335,13 @@ def test_quantized_sigmoid_limits(bits, sigmoid_type, use_real_sigmoid, test_val
 
   set_internal_sigmoid(sigmoid_type)
   x = K.placeholder(ndim=2)
-  f = K.function([x], [quantized_sigmoid(bits, use_real_sigmoid=use_real_sigmoid)(x)])
+  f = K.function([x], [quantized_sigmoid(bits, symmetric=True, use_real_sigmoid=use_real_sigmoid)(x)])
   set_internal_sigmoid(_default_sigmoid_type)
 
   result = f([test_values])[0]
   min_max = np.array(
-                    [quantized_sigmoid(bits, use_real_sigmoid=use_real_sigmoid).min(),
-                     quantized_sigmoid(bits, use_real_sigmoid=use_real_sigmoid).max()])
+                    [quantized_sigmoid(bits, symmetric=True, use_real_sigmoid=use_real_sigmoid).min(),
+                     quantized_sigmoid(bits, symmetric=True, use_real_sigmoid=use_real_sigmoid).max()])
 
   assert_allclose(result, expected_values, rtol=1e-05)
   assert_allclose(result, min_max, rtol=1e-05)
@@ -369,7 +369,7 @@ def test_quantized_sigmoid_limits(bits, sigmoid_type, use_real_sigmoid, test_val
         )
     ])
 def test_quantized_tanh(bits, use_real_tanh, test_values, expected_values):
-  """Test quantized_sigmoid function with three different sigmoid variants."""
+  """Test quantized_tanh function with three different sigmoid variants."""
   # store previous sigmoid type
 
   set_internal_sigmoid('hard')
