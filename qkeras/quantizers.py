@@ -131,19 +131,22 @@ def _get_scaling_axis(scale_axis, len_axis):
   return axis
 
 
-def _get_scale(alpha, x, q, scale_axis=None):
-  """Gets scaling factor for scaling the tensor per channel.
+def _get_scale(alpha, x, q, scale_axis=None, per_channel_scale=True):
+  """Gets scaling factor for scaling the tensor per channel. It uses the least squares method to find the scaling factor.
+
+  (https://en.wikipedia.org/wiki/Linear_least_squares)
 
   Arguments:
     alpha: A float or string. When it is string, it should be either "auto" or
-      "auto_po2", and
-       scale = sum(x * q, axis=all but last) / sum(q * q, axis=all but last)
+      "auto_po2", and scale = sum(x * q, axis=all but last) / sum(q * q,
+      axis=all but last)
      x: A tensor object. Its elements are in float.
      q: A tensor object. Its elements are in quantized format of x.
      scale_axis: which axis to calculate scale from
+     per_channel_scale: A bool. Whether to perform per-channel scaling or not.
 
   Returns:
-    A scaling factor tensor or scala for scaling tensor per channel.
+    A scaling factor tensor or scalar for scaling tensor per channel.
   """
 
   if isinstance(alpha, six.string_types) and "auto" in alpha:
@@ -156,13 +159,20 @@ def _get_scale(alpha, x, q, scale_axis=None):
       x_shape = list(x.shape)
 
     len_axis = len(x_shape)
-    if len_axis > 1:
-      axis = _get_scaling_axis(scale_axis, len_axis)
-      qx = K.mean(tf.math.multiply(x, q), axis=axis, keepdims=True)
-      qq = K.mean(tf.math.multiply(q, q), axis=axis, keepdims=True)
+    if not per_channel_scale:
+      qx = K.mean(x * q, keepdims=True)
+      qq = K.mean(q * q, keepdims=True)
     else:
-      qx = K.mean(x * q, axis=0, keepdims=True)
-      qq = K.mean(q * q, axis=0, keepdims=True)
+      if len_axis > 1:
+        axis = _get_scaling_axis(scale_axis, len_axis)
+        qx = K.mean(tf.math.multiply(x, q), axis=axis, keepdims=True)
+        qq = K.mean(tf.math.multiply(q, q), axis=axis, keepdims=True)
+      else:
+        # No summing (averaging) along the channel axis to get per-channel
+        # scales. 
+        qx = x * q
+        qq = q * q
+
     scale = qx / (qq + K.epsilon())
     if alpha == "auto_po2":
       scale = K.pow(2.0,

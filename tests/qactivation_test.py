@@ -466,6 +466,9 @@ def test_stochastic_binary():
 
   x = np.random.uniform(-0.01, 0.01, size=10)
   x = np.sort(x)
+  # Adding a dimension to have a common channel axis for quantization. This is
+  # to cope with a bug fix in "_get_scale" without changing the test cases.
+  x = np.expand_dims(x, axis=1)
 
   s = stochastic_binary(alpha="auto_po2")
 
@@ -480,8 +483,11 @@ def test_stochastic_binary():
     ts = ts + scale
     ty = ty + (y / scale)
 
+  # Perform squeezing to remove the common channel axis.
   result = (ty/n).astype(np.float32)
+  result = np.squeeze(result)
   scale = np.array([ts/n])
+  scale = np.squeeze(scale)
 
   expected = np.array(
       [-1., -1., -1., -0.852, 0.782, 0.768, 0.97, 0.978, 1.0, 1.0]

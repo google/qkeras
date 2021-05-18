@@ -20,6 +20,7 @@ from __future__ import print_function
 
 import numpy as np
 import pytest
+import tensorflow as tf
 from tensorflow.keras.layers import *
 from tensorflow.keras.models import *
 
@@ -185,6 +186,47 @@ def test_ReluPowerOfTwo():
   for (key, val) in result.items():
     assert_equal(val, qkeras_quantizer.__dict__[key])
 
+
+def test_GetScale_PerChannelScale():
+  # Rank1 tensors
+  x_r1 = tf.ones([4])
+  q_r1 = tf.ones([4])
+  scale_r1_pcs_true = quantizers._get_scale(
+      "auto", x_r1, q_r1, scale_axis=None, per_channel_scale=True)
+  scale_r1_pcs_false = quantizers._get_scale(
+      "auto", x_r1, q_r1, scale_axis=None, per_channel_scale=False)
+  assert_equal(tf.shape(scale_r1_pcs_true).numpy(), [4])
+  assert_equal(tf.shape(scale_r1_pcs_false).numpy(), [1])
+
+  # Rank2 tensors
+  x_r2 = tf.ones([2, 4])
+  q_r2 = tf.ones([2, 4])
+  scale_r2_pcs_true = quantizers._get_scale(
+      "auto", x_r2, q_r2, scale_axis=None, per_channel_scale=True)
+  scale_r2_pcs_false = quantizers._get_scale(
+      "auto", x_r2, q_r2, scale_axis=None, per_channel_scale=False)
+  assert_equal(tf.shape(scale_r2_pcs_true).numpy(), [1, 4])
+  assert_equal(tf.shape(scale_r2_pcs_false).numpy(), [1, 1])
+
+  # Rank3 tensors
+  x_r3 = tf.ones([3, 3, 4])
+  q_r3 = tf.ones([3, 3, 4])
+  scale_r3_pcs_true = quantizers._get_scale(
+      "auto", x_r3, q_r3, scale_axis=None, per_channel_scale=True)
+  scale_r3_pcs_false = quantizers._get_scale(
+      "auto", x_r3, q_r3, scale_axis=None, per_channel_scale=False)
+  assert_equal(tf.shape(scale_r3_pcs_true).numpy(), [1, 1, 4])
+  assert_equal(tf.shape(scale_r3_pcs_false).numpy(), [1, 1, 1])
+
+  # Rank4 tensors
+  x_r4 = tf.ones([1, 1, 3, 4])
+  q_r4 = tf.ones([1, 1, 3, 4])
+  scale_r4_pcs_true = quantizers._get_scale(
+      "auto", x_r4, q_r4, scale_axis=None, per_channel_scale=True)
+  scale_r4_pcs_false = quantizers._get_scale(
+      "auto", x_r4, q_r4, scale_axis=None, per_channel_scale=False)
+  assert_equal(tf.shape(scale_r4_pcs_true).numpy(), [1, 1, 1, 4])
+  assert_equal(tf.shape(scale_r4_pcs_false).numpy(), [1, 1, 1, 1])
 
 if __name__ == "__main__":
   pytest.main([__file__])
