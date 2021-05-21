@@ -117,16 +117,15 @@ class QuantizedTanh(QuantizedBits):
       self, quantizer: quantizers.quantized_tanh):
     self.mode = 0
     self.bits = quantizer.bits
-    self.int_bits = quantizer.integer
     self.is_signed = 1
 
   def convert_to_qkeras_quantizer(
-      self, symmetric=0, use_stochastic_rounding=False):
+      self, symmetric=False, use_stochastic_rounding=False):
     """convert qtools quantizer to qkeras quantizer."""
 
     return quantizers.quantized_tanh(
-        bits=self.bits, integer=self.int_bits, symmetric=symmetric,
-        use_stochastic_rounding=use_stochastic_rounding)
+        bits=self.bits, use_stochastic_rounding=use_stochastic_rounding,
+        symmetric=symmetric)
 
 
 class QuantizedUlaw(QuantizedBits):

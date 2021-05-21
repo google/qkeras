@@ -211,7 +211,8 @@ def binary_sigmoid(x):
 # we use a version of approximated sigmoid everywhere in this code.
 # we can set it to hard_sigmoid(x) or smooth_sigmoid(x).
 
-_sigmoid = hard_sigmoid
+_default_sigmoid_type = "hard"
+_sigmoid = None
 
 
 def set_internal_sigmoid(mode):
@@ -220,7 +221,7 @@ def set_internal_sigmoid(mode):
   global _sigmoid
 
   if mode not in ["real", "hard", "smooth"]:
-    raise ValueError("mode has to be 'hard' or 'smooth'.")
+    raise ValueError("mode has to be 'real', 'hard' or 'smooth'.")
 
   if mode == "hard":
     _sigmoid = hard_sigmoid
@@ -228,6 +229,9 @@ def set_internal_sigmoid(mode):
     _sigmoid = smooth_sigmoid
   elif mode == "real":
     _sigmoid = tf.keras.backend.sigmoid
+
+
+set_internal_sigmoid(_default_sigmoid_type)
 
 
 def binary_tanh(x):
@@ -1666,57 +1670,51 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
 
   Attributes:
     bits: number of bits to perform quantization.
-    integer: number of bits to the left of the decimal point.
-    symmetric: if true, we will have the same number of values for positive
-               and negative numbers.
     use_stochastic_rounding: if true, we perform stochastic rounding.
+    symmetric: if true, we will have the same number of values for positive
+      and negative numbers.
+    use_real_tanh: if true, use the tanh function from Keras backend,
+      if false, use tanh that is defined as 2 * sigmoid(x) - 1
 
   Returns:
     Function that performs tanh + quantization to bits in the range -1.0 to 1.0.
   """
 
-  def __init__(self, bits=8, integer=0, symmetric=0,
-               use_stochastic_rounding=False):
+  def __init__(self, bits=8, use_stochastic_rounding=False,
+               symmetric=False, use_real_tanh=False):
     super(quantized_tanh, self).__init__()
     self.bits = bits
-    self.integer = integer
     self.symmetric = symmetric
     self.use_stochastic_rounding = use_stochastic_rounding
+    self.use_real_tanh = use_real_tanh
 
   def __str__(self):
-    flags = [str(self.bits), str(self.integer)]
-    if self.symmetric or self.use_stochastic_rounding:
-      flags.append(str(int(self.symmetric)))
+    flags = [str(self.bits)]
     if self.use_stochastic_rounding:
       flags.append(str(int(self.use_stochastic_rounding)))
+    if self.symmetric:
+      flags.append(str(int(self.symmetric)))
+    if self.use_real_tanh:
+      flags.append(str(int(self.use_real_tanh)))
     return "quantized_tanh(" + ",".join(flags) + ")"
 
   def __call__(self, x):
     non_sign_bits = self.bits - 1
-    m = pow(2, non_sign_bits)
-    m_i = pow(2, self.integer)
-    p = _sigmoid(x / m_i) * m
-    xq = m_i * tf.keras.backend.clip(
-        2.0 *
-        (_round_through(p, self.use_stochastic_rounding) / m) - 1.0, -1.0 +
-        (1.0 * self.symmetric) / m, 1.0 - 1.0 / m)
-    return xq
+    x = K.cast_to_floatx(x)
+    m = K.cast_to_floatx(K.pow(2, non_sign_bits))
+    p = K.tanh(x) if self.use_real_tanh else 2.0 * _sigmoid(x) - 1.0
+    return tf.keras.backend.clip(
+                                 (_round_through(p * m, self.use_stochastic_rounding) / m),
+                                 -1.0 + (1.0 * self.symmetric) / m,
+                                 1.0 - 1.0 / m)
 
   def max(self):
     """Get the maximum value that quantized_tanh can represent."""
-    unsigned_bits = self.bits - 1
-    if unsigned_bits > 0:
-      return max(1.0, np.power(2.0, self.integer))
-    else:
-      return 1.0
+    return 1.0 - 1.0 / pow(2, self.bits - 1)
 
   def min(self):
     """Get the minimum value that quantized_tanh can represent."""
-    unsigned_bits = self.bits - 1
-    if unsigned_bits > 0:
-      return -max(1.0, np.power(2.0, self.integer))
-    else:
-      return -1.0
+    return -1.0 + (1.0 * self.symmetric) / pow(2, self.bits - 1)
 
   @classmethod
   def from_config(cls, config):
@@ -1725,9 +1723,9 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
   def get_config(self):
     config = {
         "bits": self.bits,
-        "integer": self.integer,
         "symmetric": self.symmetric,
-        "use_stochastic_rounding": self.use_stochastic_rounding
+        "use_stochastic_rounding": self.use_stochastic_rounding,
+        "use_real_tanh": self.use_real_tanh
     }
     return config
 
@@ -1737,6 +1735,8 @@ class quantized_sigmoid(BaseQuantizer):  # pylint: disable=invalid-name
 
   Attributes:
     bits: number of bits to perform quantization.
+    symmetric: if true, we will have the same number of values for positive
+      and negative numbers.
     use_real_sigmoid: if true, will use the sigmoid from Keras backend
     use_stochastic_rounding: if true, we perform stochastic rounding.
 
@@ -1744,16 +1744,19 @@ class quantized_sigmoid(BaseQuantizer):  # pylint: disable=invalid-name
     Function that performs sigmoid + quantization to bits in the range 0.0 to 1.0.
   """
 
-  def __init__(self, bits=8,
+  def __init__(self, bits=8, symmetric=False,
                use_real_sigmoid=False,
                use_stochastic_rounding=False):
     super(quantized_sigmoid, self).__init__()
     self.bits = bits
+    self.symmetric = symmetric
     self.use_real_sigmoid = use_real_sigmoid
     self.use_stochastic_rounding = use_stochastic_rounding
 
   def __str__(self):
     flags = [str(self.bits)]
+    if self.symmetric:
+      flags.append(str(int(self.symmetric)))
     if self.use_real_sigmoid:
       flags.append(str(int(self.use_real_sigmoid)))
     if self.use_stochastic_rounding:
@@ -1763,19 +1766,20 @@ class quantized_sigmoid(BaseQuantizer):  # pylint: disable=invalid-name
   def __call__(self, x):
     x = K.cast_to_floatx(x)
     m = K.cast_to_floatx(K.pow(2, self.bits))
-    if self.use_real_sigmoid:
-      p = K.sigmoid(x) * m
-    else:
-      p = _sigmoid(x) * m
-    return (_round_through(p, self.use_stochastic_rounding) / m)
+
+    p = K.sigmoid(x) if self.use_real_sigmoid else _sigmoid(x)
+
+    return tf.keras.backend.clip((_round_through(p*m, self.use_stochastic_rounding) / m),
+                                 (1.0 * self.symmetric) / m,
+                                 1.0 - 1.0 / m)
 
   def max(self):
     """Get the maximum value that quantized_sigmoid can represent."""
-    return 1.0
+    return 1.0 - 1.0 / pow(2, self.bits)
 
   def min(self):
     """Get the minimum value that quantized_sigmoid can represent."""
-    return 0.0
+    return (1.0 * self.symmetric) / pow(2, self.bits)
 
   @classmethod
   def from_config(cls, config):
@@ -1784,6 +1788,7 @@ class quantized_sigmoid(BaseQuantizer):  # pylint: disable=invalid-name
   def get_config(self):
     config = {
         "bits": self.bits,
+        "symmetric": self.symmetric,
         "use_real_sigmoid": self.use_real_sigmoid,
         "use_stochastic_rounding": self.use_stochastic_rounding
     }
