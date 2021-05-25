@@ -65,10 +65,10 @@ class QBatchNormalization(BatchNormalization, PrunableLayer):
       moving_variance_initializer='ones',
       beta_regularizer=None,
       gamma_regularizer=None,
-      beta_quantizer=None,
-      gamma_quantizer=None,
-      mean_quantizer=None,
-      variance_quantizer=None,
+      beta_quantizer='quantized_po2(5)',
+      gamma_quantizer='quantized_relu_po2(6, 2048)',
+      mean_quantizer='quantized_po2(5)',
+      variance_quantizer='quantized_relu_po2(6, quadratic_approximation=True)',
       gamma_constraint=None,
       beta_constraint=None,
       # use quantized_po2 and enforce quadratic approximation
@@ -87,20 +87,6 @@ class QBatchNormalization(BatchNormalization, PrunableLayer):
     self.beta_range = beta_range
     self.activation = activation
 
-    # We know the optimal settings for gamma and variance for now, so if the
-    # user has not specified them.
-    # If user really did not want quantizers, the user would have used
-    # BatchNormalization instead.
-
-    if gamma_quantizer is None:
-      gamma_quantizer = quantized_relu_po2(6, 2048)
-    if variance_quantizer is None:
-      variance_quantizer = quantized_relu_po2(
-          6, quadratic_approximation=True)
-    if beta_quantizer is None:
-      beta_quantizer = quantized_po2(5)
-    if mean_quantizer is None:
-      mean_quantizer = quantized_po2(5)
 
     self.beta_quantizer = beta_quantizer
     self.gamma_quantizer = gamma_quantizer
