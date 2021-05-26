@@ -16,6 +16,7 @@
 """Generates MAC, input and output datatype for a qkeras model."""
 import collections
 import copy
+import numpy as np
 
 import networkx as nx
 from qkeras.qtools import qgraph
@@ -104,8 +105,9 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
     graph: input graph that traverses the model
     source_quantizer_list: a list of quantizers for model inputs
     is_inference: whether model is pre-trained with weights available
-    keras_quantizer: default quantizer used to quantize un-quantized layers
-    keras_accumulator: default MAC quantizer to quantize un-quantized layers
+    keras_quantizer: default quantizer used to quantize weights and bias
+    keras_accumulator: default MAC quantizer to quantize multiplier,
+      accumulator and output
     for_reference: whether to generate a map for a baseline model
     debug: whether to print debug messages
 
@@ -173,35 +175,47 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
         input_quantizer_list.append(node[0])
 
       # Calculates number of operations (multiplication/accumulation).
-      (_, edge_0) = input_qe_list[0]
-      input_shape = edge_0["shape"]
-      # for merge layers, all input_shape are identical
+      # Previously Merge layers's inputs all have the same shape, however, in
+      # MobilenetV3 we found that there is shape broadcast in the keras
+      # Multiply layer. Therefore we use the shape with max size as the
+      # input shape
+      if len(input_qe_list) > 0:
+        maxsize = -1
+        max_id = 0
+        for (idx, item) in enumerate(input_qe_list):
+          shape = item[1]["shape"]
+          size = np.prod(shape[1:])
+          if size > maxsize:
+            maxsize = size
+            max_id = idx
+        input_shape = input_qe_list[max_id][1]["shape"]
+      else:
+        (_, edge_0) = input_qe_list[0]
+        input_shape = edge_0["shape"]
+
       operation_count = qtools_util.get_operation_count(
           layer, input_shape)
 
     # Merges layers with multiple inputs.
     if qtools_util.is_merge_layers(layer):
-      # output_shapes = layer.output_shape
+
+      # merge_factory.make_quantizer automatically calculates the merge output
+      # quantizer bitwidth according to input quantizer type.
       merge_factory = quantized_operators.MergeFactory()
       merge_quantizer = merge_factory.make_quantizer(
           input_qe_list, layer.__class__.__name__)
 
-      if hasattr(layer, "get_quantizers"):
-        # QMerge layer from future.
-        qkeras_quantizer = layer.get_quantizers()[0]
-        merge_quantizer.output = quantizer_factory.make_quantizer(
-            qkeras_quantizer)
-      else:
-        # Merge layer is a Keras layer.
-        if for_reference:
+      if for_reference:
+        # The for_reference option overwrites the auto-calculated merge output
+        # quantizer
+        if keras_accumulator:
+          # gate_factor and gate_bits remain the same as previously
+          # calculated; only change output quantizer as the keras_accumulator
+          merge_quantizer.output = quantizer_factory.make_default_quantizer(
+              mode=keras_accumulator)
+        else:
           merge_quantizer.output = quantizer_factory.make_default_quantizer(
               mode=cfg.default_interm_quantizer)
-
-          if keras_accumulator:
-            # gate_factor and gate_bits remain the same as previously
-            # calculated; only change output quantizer as the keras_accumulator
-            merge_quantizer.output = quantizer_factory.make_default_quantizer(
-                mode=keras_accumulator)
 
       output_quantizer = update_output_quantizer_in_graph(
           graph, node_id, quantizer_factory, merge_quantizer.output,
@@ -269,6 +283,8 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
       else:
         pool_size = tuple(list(input_shape)[1:-1] + [1, 1])
 
+      # Automatically calculates the accumulator bitwidth according to input
+      # quantizer type for both quantized pooling and regular pooling layers
       multiplier_factory = quantized_operators.MultiplierFactory()
       fake_multiplier = multiplier_factory.make_multiplier(
           input_quantizer, input_quantizer)
@@ -277,6 +293,8 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
       accumulator = accumulator_factory.make_accumulator(
           pool_size, fake_multiplier, use_bias=False)
 
+      # For quantized pooling layers, we also need to consider the division
+      # precision, which is controlled by the average quantizer
       if layer.__class__.__name__ in ["QAveragePooling2D",
                                       "QGlobalAveragePooling2D"]:
         # For the quantized layer, there is an average_quantizer used for
@@ -291,20 +309,29 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
       if debug:
         print("accumulator:", accumulator.output.bits)
 
+      # Re-calcualte accumulator/multiplier type when it's using
+      # for_reference option
       if for_reference:
-        if multiplier:
-          multiplier.output = quantizer_factory.make_default_quantizer(
-              mode=cfg.default_interm_quantizer)
-        accumulator.output = quantizer_factory.make_default_quantizer(
-            mode=cfg.default_interm_quantizer)
-
         if keras_accumulator:
+          # If keras_accumulator exists, use keras_accumulator as multiplier
+          # or accumulator type
           if multiplier:
+            # Quantized layers need to define multiplier type
             multiplier.output = quantizer_factory.make_default_quantizer(
                 mode=keras_accumulator)
           accumulator.output = quantizer_factory.make_default_quantizer(
               mode=keras_accumulator)
+        else:
+          # If user didn't provide keras_accumulator, use the default settings
+          # in cfg to define multiplier/accumulator type
+          if multiplier:
+            multiplier.output = quantizer_factory.make_default_quantizer(
+                mode=cfg.default_interm_quantizer)
+          accumulator.output = quantizer_factory.make_default_quantizer(
+              mode=cfg.default_interm_quantizer)
+        layer_quantizer = accumulator.output
 
+      # set the output quantizer
       if layer.__class__.__name__ in ["QAveragePooling2D",
                                       "QGlobalAveragePooling2D"]:
         # If is quantized layer, last operation is multiply (averaging).
@@ -335,9 +362,9 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
         layer_quantizer = quantizer_factory.make_default_quantizer(
             mode=cfg.default_interm_quantizer)
 
-        if keras_quantizer:
+        if keras_accumulator:
           layer_quantizer = quantizer_factory.make_default_quantizer(
-              mode=keras_quantizer)
+              mode=keras_accumulator)
       else:
         layer_quantizer = layer.quantizer
 
@@ -732,34 +759,23 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
       # type to output in qraph
       (input_quantizer, _) = input_qe_list[0]
 
-      if for_reference and keras_quantizer:
+      if for_reference and keras_accumulator and not is_input_layer:
         input_quantizer = quantizer_factory.make_default_quantizer(
-            mode=keras_quantizer)
+            mode=keras_accumulator)
 
       output_quantizer = update_output_quantizer_in_graph(
           graph, node_id, quantizer_factory, input_quantizer, for_reference)
 
-      layer_data_type_map[layer] = LayerDataType(
-        input_quantizer_list,
-        None,
-        None,
+      layer_data_type_map[layer] = LayerDataType(input_quantizer_list, None,
+                                                 None, None, None, None, None,
+                                                 output_quantizer,
+                                                 output_shapes, operation_count)
 
-        None,
-        None,
-
-        None,
-        None,
-
-        output_quantizer,
-        output_shapes,
-
-        operation_count
-      )
-
-  result = {"source_quantizer_list": source_quantizer_list,
-            "output_layers": output_layers,
-            "input_layers": input_layers,
-            "layer_data_type_map": layer_data_type_map}
+  result = {
+      "source_quantizer_list": source_quantizer_list,
+      "output_layers": output_layers,
+      "input_layers": input_layers,
+      "layer_data_type_map": layer_data_type_map
+  }
 
   return result
-

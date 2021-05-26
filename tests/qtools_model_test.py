@@ -645,6 +645,8 @@ def test_qenergy():
   trial_size = q.extract_energy_sum(
       qtools_settings.cfg.include_energy, trial_energy_dict)
 
+  # Reference energy number is now updated with keras_accumulator as
+  # output quantizer
   tmp = ref_energy_dict["d0"]["energy"]
   assert tmp["inputs"] == pytest.approx(372.77, abs=0.1)
   assert tmp["outputs"] == pytest.approx(570.57, abs=0.1)
@@ -652,16 +654,16 @@ def test_qenergy():
   assert tmp["op_cost"] == pytest.approx(70560.0, abs=0.1)
 
   tmp = ref_energy_dict["d1"]["energy"]
-  assert tmp["inputs"] == pytest.approx(144.54, abs=0.1)
+  assert tmp["inputs"] == pytest.approx(570.57, abs=0.1)
   assert tmp["outputs"] == pytest.approx(190.19, abs=0.1)
   assert tmp["parameters"] == pytest.approx(14313.66, abs=0.1)
-  assert tmp["op_cost"] == pytest.approx(9000.0, abs=0.1)
+  assert tmp["op_cost"] == pytest.approx(26500.0, abs=0.1)
 
   tmp = ref_energy_dict["d2"]["energy"]
-  assert tmp["inputs"] == pytest.approx(49.45, abs=0.1)
+  assert tmp["inputs"] == pytest.approx(190.19, abs=0.1)
   assert tmp["outputs"] == pytest.approx(19.02, abs=0.1)
   assert tmp["parameters"] == pytest.approx(483.08, abs=0.1)
-  assert tmp["op_cost"] == pytest.approx(300.0, abs=0.1)
+  assert tmp["op_cost"] == pytest.approx(883.33, abs=0.1)
 
   # Trial
   tmp = trial_energy_dict["d0"]["energy"]
@@ -684,8 +686,102 @@ def test_qenergy():
 
   # print(ref_energy_dict)
   # print(trial_energy_dict)
-  assert int(reference_size) == 207401
-  assert int(trial_size) == 40227
+  assert int(reference_size) == 226629
+  assert int(trial_size) == 40238
+
+
+def test_quntized_reference_energy_same_as_floating_trial():
+  # Test if reference energy from quantized model and floating model is the
+  # same
+  def get_model(quantize=False):
+    x1 = input1 = keras.layers.Input((16, 16, 3), name="input_0")
+    if quantize:
+      x1 = QConv2D(
+          16, 2, 2,
+          kernel_quantizer=quantizers.quantized_bits(5, 0, 1),
+          bias_quantizer=quantizers.quantized_bits(5, 0, 1),
+          name="conv_0")(x1)
+    else:
+      x1 = keras.layers.Conv2D(16, 2, 2, name="conv_0")(x1)
+
+    x2 = input2 = keras.layers.Input(shape=(16, 16, 3), name="input_1")
+    if quantize:
+      x2 = QConv2D(
+          16, 2, 2,
+          kernel_quantizer=quantizers.quantized_bits(5, 0, 1),
+          bias_quantizer=quantizers.quantized_bits(5, 0, 1),
+          name="conv_1")(x2)
+    else:
+      x2 = keras.layers.Conv2D(16, 2, 2, name="conv_1")(x2)
+
+    x = keras.layers.add([x1, x2], name="add")
+    if quantize:
+      x = QActivation(activation="quantized_relu(8, 2)", name="relu")(x)
+    else:
+      x = keras.layers.Activation("relu", name="relu")(x)
+
+    if quantize:
+      x = QConv2D(
+          2, 2, 2,
+          kernel_quantizer=quantizers.quantized_bits(5, 0, 1),
+          bias_quantizer=quantizers.quantized_bits(5, 0, 1),
+          name="conv_2")(x)
+    else:
+      x = keras.layers.Conv2D(2, 2, 2, name="conv_2")(x)
+
+    model = keras.Model(inputs=[input1, input2], outputs=[x])
+    return model
+
+  def get_qenergy(model, qenergy_config, for_reference):
+    q = run_qtools.QTools(
+        model, process=qenergy_config["process"],
+        source_quantizers=qenergy_config["reference_internal"],
+        is_inference=qenergy_config["trained_model"],
+        weights_path=None,
+        keras_quantizer=qenergy_config["reference_internal"],
+        keras_accumulator=qenergy_config["reference_accumulator"],
+        for_reference=for_reference)
+
+    # caculate energy of the derived data type map.
+    energy_dict = q.pe(
+        weights_on_memory=qenergy_config["parameters_on_memory"],
+        activations_on_memory=qenergy_config["activations_on_memory"],
+        min_sram_size=qenergy_config["min_sram_size"],
+        rd_wr_on_io=qenergy_config["rd_wr_on_io"])
+
+    total_energy = q.extract_energy_sum(qtools_settings.cfg.include_energy,
+                                        energy_dict)
+
+    return q, total_energy
+
+  qenergy_config = {
+      "trained_model": True,
+      "delta_p": 8.0,
+      "delta_n": 8.0,
+      "rate": 2.0,
+      "stress": 1.0,
+      "process": "horowitz",
+      "parameters_on_memory": "sram",
+      "activations_on_memory": "sram",
+      "rd_wr_on_io": False,
+      "min_sram_size": 0,
+      "source_quantizers": ["quantizers.quantized_bits(8, 0, 1)"],
+      "reference_internal": "int8",
+      "reference_accumulator": "int32"
+  }
+
+  float_model = get_model(quantize=False)
+  quantized_model = get_model(quantize=True)
+
+  _, float_reference_energy = get_qenergy(
+      float_model, qenergy_config, for_reference=False)
+  _, float_trial_energy = get_qenergy(
+      float_model, qenergy_config, for_reference=True)
+  _, quantized_reference_energy = get_qenergy(
+      quantized_model, qenergy_config, for_reference=True)
+
+  assert float_reference_energy == quantized_reference_energy
+  assert float_reference_energy == float_trial_energy
 
 
 if __name__ == "__main__":
