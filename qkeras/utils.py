@@ -18,11 +18,7 @@ import json
 import tempfile
 import types
 
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
 import numpy as np
-
 import os
 import six
 import re
@@ -1029,8 +1025,18 @@ def get_model_sparsity(model, per_layer=False, allow_list=None):
     return total_sparsity
 
 
-def quantized_model_debug(model, X_test, plot=False):
-  """Debugs and plots model weights and activations."""
+def quantized_model_debug(model, X_test, plot=False, plt_instance=None):
+  """Debugs and plots model weights and activations.
+
+  Args:
+    model: The QKeras model to debug
+    X_test: The sample data to use to give to model.predict
+    plot: Bool. If to plot the results.
+    plt_instance: A matplotlib.pyplot instance used to plot in an IPython
+      environment.
+  """
+  assert (plt_instance and plot) or not plot, (
+      "plt_instance is required if plt is True")
 
   outputs = []
   output_names = []
@@ -1065,9 +1071,9 @@ def quantized_model_debug(model, X_test, plot=False):
         "QAdaptiveActivation", "QSimpleRNN", "QLSTM", "QGRU", "QBidirectional",
         "QSeparableConv1D", "QSeparableConv2D"
     ]:
-      plt.hist(p.flatten(), bins=25)
-      plt.title(layer.name + "(output)")
-      plt.show()
+      plt_instance.hist(p.flatten(), bins=25)
+      plt_instance.title(layer.name + "(output)")
+      plt_instance.show()
     alpha = None
 
     if layer.__class__.__name__ not in [
@@ -1090,9 +1096,9 @@ def quantized_model_debug(model, X_test, plot=False):
           alpha_mask = (alpha == 0.0)
           weights = np.where(alpha_mask, weights * alpha, weights / alpha)
           if plot:
-            plt.hist(weights.flatten(), bins=25)
-            plt.title(layer.name + "(weights)")
-            plt.show()
+            plt_instance.hist(weights.flatten(), bins=25)
+            plt_instance.title(layer.name + "(weights)")
+            plt_instance.show()
       print(" ({: 8.4f} {: 8.4f})".format(np.min(weights), np.max(weights)),
             end="")
     if alpha is not None and isinstance(alpha, np.ndarray):
