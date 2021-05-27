@@ -1476,12 +1476,12 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
 
     # is_quantized_clip has precedence over relu_upper_bound for backward
     # compatibility.
+    m_f = K.cast(
+        K.pow(
+            tf.constant(2., tf.float32),
+            K.cast(self.integer, dtype="float32") - non_sign_bits),
+        dtype="float32")
     if self.is_quantized_clip:
-      m_f = K.cast(
-          K.pow(
-              tf.constant(2., tf.float32),
-              K.cast(self.integer, dtype="float32") - non_sign_bits),
-          dtype="float32")
       x_u = tf.where(x <= m_i - m_f, K.relu(x, alpha=self.negative_slope),
                      tf.ones_like(x) * (m_i - m_f))
     elif self.relu_upper_bound is not None:
@@ -1514,6 +1514,9 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
                 _round_through(p * self.negative_slope,
                                self.use_stochastic_rounding) * neg_factor, -1.0,
                 0.0))
+
+    if self.relu_upper_bound and not self.is_quantized_clip:
+      xq = np.clip(xq, a_min=None, a_max=self.relu_upper_bound)
 
     if self.use_ste:
       return x_u + tf.stop_gradient(self.qnoise_factor * (-x_u + xq))

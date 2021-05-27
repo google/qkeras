@@ -162,17 +162,17 @@ def test_qnoise_quantized_relu():
   # no quantization
   qr_ub_qc_false.update_qnoise_factor(qnoise_factor=0.0)
   x_q_0 = qr_ub_qc_false(inputs)
-  assert_equal(x_q_0, x_ub)
+  assert_equal(x_q_0, np.clip(x_ub, a_min=None, a_max=1.5))
 
   # full quantization
   qr_ub_qc_false.update_qnoise_factor(qnoise_factor=1.0)
   x_q_1 = qr_ub_qc_false(inputs)
-  assert_equal(x_q_1, xq)
+  assert_equal(x_q_1, np.clip(xq, a_min=None, a_max=1.5))
 
   # mixing half and half
   qr_ub_qc_false.update_qnoise_factor(qnoise_factor=0.5)
   x_q_05 = qr_ub_qc_false(inputs)
-  assert_equal(x_q_05, x_ub_xq)
+  assert_equal(x_q_05, np.clip(x_ub_xq, a_min=None, a_max=1.5))
 
   #########################################
   # Relu upper bound
