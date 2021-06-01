@@ -1516,7 +1516,8 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
                 0.0))
 
     if self.relu_upper_bound and not self.is_quantized_clip:
-      xq = np.clip(xq, a_min=None, a_max=self.relu_upper_bound)
+      xq = tf.where(xq <= self.relu_upper_bound, xq,
+                    tf.ones_like(xq) * self.relu_upper_bound)
 
     if self.use_ste:
       return x_u + tf.stop_gradient(self.qnoise_factor * (-x_u + xq))
