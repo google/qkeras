@@ -334,13 +334,15 @@ class QAdaptiveActivation(Layer, PrunableLayer):
     # Calculate the number of channels
     channel_index = -1 if K.image_data_format() == "channels_last" else 1
     if self.per_channel:
-      num_channels = tf.constant(input_shape.as_list()[channel_index],
+      input_shape_list = list(input_shape) if isinstance(
+          input_shape, tuple) else input_shape.as_list()
+      num_channels = tf.constant(input_shape_list[channel_index],
                                  shape=(1), dtype=tf.int64)
     else:
       num_channels = tf.constant(1, shape=(1), dtype=tf.int64)
 
     # Initialize the moving mins and max
-    if not self.ema_min or not self.ema_max:
+    if self.ema_min is None or self.ema_max is None:
       self.ema_min = tf.Variable(tf.zeros(num_channels), name="ema_min",
                                  trainable=False)
       self.ema_max = tf.Variable(tf.zeros(num_channels), name="ema_max",
@@ -451,6 +453,10 @@ class QAdaptiveActivation(Layer, PrunableLayer):
   # Override get_weights since we do not want ema_min or ema_max to be public
   def get_weights(self):
     return []
+
+  # Override set_weights since we do not want ema_min or ema_max to be public
+  def set_weights(self, weights):
+    return
 
   def get_config(self):
     config = {
