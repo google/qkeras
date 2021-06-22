@@ -72,6 +72,7 @@ from .quantizers import quantized_relu_po2
 from .quantizers import stochastic_binary
 from .quantizers import stochastic_ternary
 from .quantizers import ternary
+
 from .safe_eval import safe_eval
 
 REGISTERED_LAYERS = [
@@ -846,6 +847,7 @@ def _add_supported_quantized_objects(custom_objects):
   custom_objects["quantized_sigmoid"] = quantized_sigmoid
   custom_objects["quantized_po2"] = quantized_po2
   custom_objects["quantized_relu_po2"] = quantized_relu_po2
+  
 
   custom_objects["QConv2DBatchnorm"] = QConv2DBatchnorm
   custom_objects["QDepthwiseConv2DBatchnorm"] = QDepthwiseConv2DBatchnorm

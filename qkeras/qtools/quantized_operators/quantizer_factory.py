@@ -21,6 +21,8 @@ from __future__ import print_function
 
 import copy
 from qkeras import quantizers
+
+
 from qkeras.qtools.quantized_operators import quantizer_impl
 from qkeras.qtools.settings import cfg
 
@@ -30,31 +32,58 @@ class QuantizerFactory:
 
   def __init__(self):
     self.quantizer_lookup = {
-        quantizers.quantized_bits: quantizer_impl.QuantizedBits,
-        quantizers.binary: quantizer_impl.Binary,
-        quantizers.quantized_relu: quantizer_impl.QuantizedRelu,
-        quantizers.ternary: quantizer_impl.Ternary,
-        quantizers.quantized_relu_po2: quantizer_impl.ReluPowerOfTwo,
-        quantizers.quantized_po2: quantizer_impl.PowerOfTwo,
-        quantizers.stochastic_ternary: quantizer_impl.StochasticTernary,
-        quantizers.stochastic_binary: quantizer_impl.StochasticBinary,
-        quantizers.bernoulli: quantizer_impl.Bernoulli,
-        quantizers.quantized_tanh: quantizer_impl.QuantizedTanh,
-        quantizers.quantized_ulaw: quantizer_impl.QuantizedUlaw,
+        quantizers.quantized_bits:
+            quantizer_impl.QuantizedBits,
+        quantizers.binary:
+            quantizer_impl.Binary,
+        quantizers.quantized_relu:
+            quantizer_impl.QuantizedRelu,
+        quantizers.ternary:
+            quantizer_impl.Ternary,
+        quantizers.quantized_relu_po2:
+            quantizer_impl.ReluPowerOfTwo,
+        quantizers.quantized_po2:
+            quantizer_impl.PowerOfTwo,
+        quantizers.stochastic_ternary:
+            quantizer_impl.StochasticTernary,
+        quantizers.stochastic_binary:
+            quantizer_impl.StochasticBinary,
+        quantizers.bernoulli:
+            quantizer_impl.Bernoulli,
+        quantizers.quantized_tanh:
+            quantizer_impl.QuantizedTanh,
+        quantizers.quantized_ulaw:
+            quantizer_impl.QuantizedUlaw,
+        
+            
 
         # add following quantizer types for the use in GraphUpdateEdge
-        quantizer_impl.QuantizedBits: quantizer_impl.QuantizedBits,
-        quantizer_impl.Binary: quantizer_impl.Binary,
-        quantizer_impl.QuantizedRelu: quantizer_impl.QuantizedRelu,
-        quantizer_impl.Ternary: quantizer_impl.Ternary,
-        quantizer_impl.ReluPowerOfTwo: quantizer_impl.ReluPowerOfTwo,
-        quantizer_impl.PowerOfTwo: quantizer_impl.PowerOfTwo,
-        quantizer_impl.FloatingPoint: quantizer_impl.FloatingPoint,
-        quantizer_impl.StochasticTernary: quantizer_impl.StochasticTernary,
-        quantizer_impl.StochasticBinary: quantizer_impl.StochasticTernary,
-        quantizer_impl.Bernoulli: quantizer_impl.StochasticTernary,
-        quantizer_impl.QuantizedTanh: quantizer_impl.StochasticTernary,
-        quantizer_impl.QuantizedUlaw: quantizer_impl.StochasticTernary
+        quantizer_impl.QuantizedBits:
+            quantizer_impl.QuantizedBits,
+        quantizer_impl.Binary:
+            quantizer_impl.Binary,
+        quantizer_impl.QuantizedRelu:
+            quantizer_impl.QuantizedRelu,
+        quantizer_impl.Ternary:
+            quantizer_impl.Ternary,
+        quantizer_impl.ReluPowerOfTwo:
+            quantizer_impl.ReluPowerOfTwo,
+        quantizer_impl.PowerOfTwo:
+            quantizer_impl.PowerOfTwo,
+        quantizer_impl.FloatingPoint:
+            quantizer_impl.FloatingPoint,
+        quantizer_impl.StochasticTernary:
+            quantizer_impl.StochasticTernary,
+        quantizer_impl.StochasticBinary:
+            quantizer_impl.StochasticTernary,
+        quantizer_impl.Bernoulli:
+            quantizer_impl.StochasticTernary,
+        quantizer_impl.QuantizedTanh:
+            quantizer_impl.StochasticTernary,
+        quantizer_impl.QuantizedUlaw:
+            quantizer_impl.StochasticTernary,
+        
+            
     }
 
     self._default_interm_quantizer = cfg.default_interm_quantizer

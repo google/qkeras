@@ -28,6 +28,7 @@ from tensorflow.keras.utils import deserialize_keras_object
 from tensorflow.python.framework import smart_cond as tf_utils
 from .safe_eval import safe_eval
 
+
 #
 # Library of auxiliary functions
 #
@@ -132,7 +133,8 @@ def _get_scaling_axis(scale_axis, len_axis):
 
 
 def _get_scale(alpha, x, q, scale_axis=None, per_channel_scale=True):
-  """Gets scaling factor for scaling the tensor per channel. It uses the least squares method to find the scaling factor.
+  """Gets scaling factor for scaling the tensor per channel.
+  It uses the least squares method to find the scaling factor.
 
   (https://en.wikipedia.org/wiki/Linear_least_squares)
 
@@ -169,7 +171,7 @@ def _get_scale(alpha, x, q, scale_axis=None, per_channel_scale=True):
         qq = K.mean(tf.math.multiply(q, q), axis=axis, keepdims=True)
       else:
         # No summing (averaging) along the channel axis to get per-channel
-        # scales. 
+        # scales.
         qx = x * q
         qq = q * q
 
