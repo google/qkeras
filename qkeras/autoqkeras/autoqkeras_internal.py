@@ -23,24 +23,11 @@ import os
 import re
 import copy
 from absl import logging
-
-# Temporary fix for a KerasTuner bug introduced by cl/347827925
-try:
-  import IPython
-  def KerasTunerBugFix():
-    class IPythonTerminal():
-      def __init__(self):
-        pass
-    return IPythonTerminal()
-  IPython.get_ipython = KerasTunerBugFix
-except ModuleNotFoundError:
-  pass
-
-import kerastuner as kt
-from kerastuner import HyperModel
-from kerastuner.tuners import BayesianOptimization
-from kerastuner.tuners import Hyperband
-from kerastuner.tuners import RandomSearch
+import keras_tuner as kt
+from keras_tuner import HyperModel
+from keras_tuner import BayesianOptimization
+from keras_tuner import Hyperband
+from keras_tuner import RandomSearch
 import numpy as np
 import six
 import tensorflow as tf
@@ -56,7 +43,7 @@ from qkeras.utils import clone_model
 from qkeras.utils import model_quantize
 
 
-# AutoQKHyperModel is implemented on top of kerastuner
+# AutoQKHyperModel is implemented on top of keras_tuner
 # It basically creates a quantized model based on some rules
 # and it computes a acc_delta that boosts the accuracy when
 # choosing smaller models.
@@ -752,7 +739,7 @@ class AutoQKeras:
        custom_objects: Custom objects used by Keras during quantization.
        goal: Metric to compute secondary goal of search (bits or energy)
        output_dir: name of output directory to store results.
-       mode: random, hyperband or bayesian used by kerastuner.
+       mode: random, hyperband or bayesian used by keras_tuner.
        custom_tuner: The Keras Tuner class to use to search hyperparams
        transfer_weights: if true, transfer weights from unquantized model.
        frozen_layers: if true, these layers will not be quantized but
@@ -771,7 +758,7 @@ class AutoQKeras:
          autoqkeras
        score_metric: Str. Optional metric name to use to evaluate the trials.
          Defaults to val_score
-       tuner_kwargs: parameters for kerastuner depending on whether
+       tuner_kwargs: parameters for keras_tuner depending on whether
          mode is random, hyperband or baeysian. Please refer to the
          documentation of kerstuner Tuners.
   """
@@ -1007,7 +994,7 @@ class AutoQKerasScheduler:
        custom_objects: Custom objects used by Keras during quantization.
        goal: Metric to compute secondary goal of search (bits or energy)
        output_dir: name of output directory to store results.
-       mode: random, hyperband or bayesian used by kerastuner.
+       mode: random, hyperband or bayesian used by keras_tuner.
        transfer_weights: if true, transfer weights from unquantized model.
        activation_bits: parameter to be used by 'model_quantize'.
        limit: limit the number of bits in quantizers specified as a dictionary.
@@ -1025,7 +1012,7 @@ class AutoQKerasScheduler:
        debug: if True, fit will just print the groups for debugging purposes.
        head_name: specify which head to calcuate score/trial-size from in
          autoqkeras
-       tuner_kwargs: parameters for kerastuner depending on whether
+       tuner_kwargs: parameters for keras_tuner depending on whether
          mode is random, hyperband or baeysian. Please refer to the
          documentation of kerstuner Tuners.
   """

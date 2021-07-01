@@ -10,6 +10,11 @@ pyparsing
 pytest>=4.6.9
 tensorflow-model-optimization>=0.2.1
 networkx>=2.1
-keras-tuner==1.0.1
+# prompt_toolkit is required by IPython.
+# IPython is required by keras-tuner.
+# Later prompt_toolkit version requires Python 3.6.2,
+# which is not supported. cl/380856863
+prompt_toolkit<=3.0.18
+keras-tuner==1.0.3
 scikit-learn>=0.23.1
 tqdm>=4.48.0
