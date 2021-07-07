@@ -2,26 +2,6 @@
 
 [github.com/google/qkeras](https://github.com/google/qkeras)
 
-QKeras 0.8 highlights:
-
-- Automatic quantization using QKeras;
-
-- Stochastic behavior (including stochastic rouding) is disabled during
-inference;
-
-- LeakyReLU for quantized_relu;
-
-- Qtools for estimating effort to perform inference;
-
-  * Qtools will estimate the sizes and types of operations to perform inference,
-    with its data sizes compatible with high-level synthesis datatypes. For
-    example, quantized_bits and quantized_relu bits and int_bits from Qtools
-    will match exactly ac_fixed datatypes (if you rely on QKeras alone, the
-    correct datatype should be ac_fixed\<bits, int_bits+is_negative,
-    is_negative\>, where is_negative has to be inferred from the other
-    parameters of the quantizer.
-
-
 ## Introduction
 
 QKeras is a quantization extension to Keras that provides drop-in
@@ -65,6 +45,8 @@ need to be quantized afterwards.
 
 - Claudionor N. Coelho Jr., Aki Kuusela, Hao Zhuang, Thea Aarrestad, Vladimir Loncar, Jennifer Ngadiuba, Maurizio Pierini, Sioni Summers, "Ultra Low-latency, Low-area Inference Accelerators using Heterogeneous Deep Quantization with QKeras and hls4ml", http://arxiv.org/abs/2006.10159v1
 
+- Erwei Wang, James J. Davis, Daniele Moro, Piotr Zielinski, Claudionor Coelho, Satrajit Chatterjee, Peter Y. K. Cheung, George A. Constantinides, "Enabling Binary Neural Network Training on the Edge", https://arxiv.org/abs/2102.04270
+
 ## Layers Implemented in QKeras
 
 - QDense
@@ -88,7 +70,7 @@ implementation, quantizes the activation values after the depthwise step)
 
 - QActivation
 
-- QAdaptiveActivation [EXPERIMENTAL]
+- QAdaptiveActivation
 
 - QAveragePooling2D (in fact, an AveragePooling2D stacked with a 
 QActivation layer for quantization of the result)
