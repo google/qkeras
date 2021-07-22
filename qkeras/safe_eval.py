@@ -64,6 +64,9 @@ def IsBool(s):
   else:
     return False
 
+def IsNone(s):
+  return s == "None"
+
 def Bool(s):
   return True if "True" in s else False
 
@@ -72,6 +75,8 @@ def GetArg(s):
     return Bool(s)
   elif IsNum(s):
     return Num(s)
+  elif IsNone(s):
+    return None
   else:
     return Str(s)
 
