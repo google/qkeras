@@ -73,6 +73,7 @@ from .quantizers import stochastic_binary
 from .quantizers import stochastic_ternary
 from .quantizers import ternary
 
+
 from .safe_eval import safe_eval
 
 REGISTERED_LAYERS = [
