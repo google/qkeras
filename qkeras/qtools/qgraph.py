@@ -25,9 +25,9 @@ import logging
 import networkx as nx
 import tensorflow.keras.backend as K
 
+from tensorflow.keras.layers import InputLayer
 from qkeras.qtools.quantized_operators import quantizer_factory as quantizer_factory_module
 from qkeras.qtools.settings import cfg
-from tensorflow.keras.layers import InputLayer
 
 SOURCE = -1
 SINK = -2
@@ -145,7 +145,60 @@ def GraphAddSingleSourceSingleSink(graph):
   graph.add_edges_from(edge_list)
 
 
-def GenerateGraphFromModel(model, input_quantizers,
+def GenerateInputQuantizerList(input_quantizers,
+                               inputs_length,
+                               default_source_quantizer):
+  """Generates the list of input quantizers."""
+  # generate a list of input quantizers
+  input_quantizer_list = []
+  quantizer_factory = quantizer_factory_module.QuantizerFactory()
+  if input_quantizers is None:
+    logging.warning(
+        "************ SOURCE has no quantizer type."
+        " Use default quantizer instead")
+
+    for _ in range(inputs_length):
+      input_quantizer_list.append(
+          quantizer_factory.make_default_quantizer(
+              mode=default_source_quantizer))
+  else:
+    if inputs_length == len(input_quantizers):
+      for quantizer in input_quantizers:
+        input_quantizer_list.append(quantizer_factory.make_quantizer(
+            quantizer))
+    # pass a single quantizer which will be used for all q list.
+    elif not isinstance(input_quantizers, list):
+      for _ in range(inputs_length):
+        input_quantizer_list.append(quantizer_factory.make_quantizer(
+            input_quantizers))
+    else:
+      raise WrongInputQuantizerError(
+          "ERROR: Numer of input (%d) must be the same as number of source"
+          " quantizers (%d)"%(inputs_length, len(input_quantizers)))
+
+  return input_quantizer_list
+
+
+def AddToNodeDict(layer_items,
+                  layer,
+                  nodes_dict):
+  """Adds layer to a node_dict, indexed by layer.(input or output).ref"""
+  i_list = layer_items
+  if not isinstance(layer_items, list):
+    i_list = [i_list.ref()]
+  else:
+    i_list = [tmp.ref() for tmp in i_list]
+
+  for i in i_list:
+    # dict: tensor -> layers have this tensor as input
+    if i not in nodes_dict.keys():
+      nodes_dict[i] = [layer]
+    else:
+      nodes_dict[i].append(layer)
+
+
+def GenerateGraphFromModel(model,
+                           input_quantizers,
                            default_source_quantizer):
   """Generates single source, single sink graph from model."""
 
@@ -157,36 +210,14 @@ def GenerateGraphFromModel(model, input_quantizers,
   # layer and the following layer
 
   # generate a list of input quantizers
-  input_quantizer_list = []
-  quantizer_factory = quantizer_factory_module.QuantizerFactory()
-  if input_quantizers is None:
-    logging.warning(
-        "************ SOURCE has no quantizer type."
-        " Use default quantizer instead")
-
-    for _ in range(len(model.inputs)):
-      input_quantizer_list.append(
-          quantizer_factory.make_default_quantizer(
-              mode=default_source_quantizer))
-  else:
-    if len(model.inputs) == len(input_quantizers):
-      for quantizer in input_quantizers:
-        input_quantizer_list.append(quantizer_factory.make_quantizer(
-            quantizer))
-    # pass a single quantizer which will be used for all q list.
-    elif not isinstance(input_quantizers, list):
-      for _ in range(len(model.inputs)):
-        input_quantizer_list.append(quantizer_factory.make_quantizer(
-            input_quantizers))
-    else:
-      raise WrongInputQuantizerError(
-          "ERROR: Numer of input (%d) must be the same as number of source"
-          " quantizers (%d)"%(len(model.inputs), len(input_quantizers)))
+  input_quantizer_list = GenerateInputQuantizerList(input_quantizers,
+                                                    len(model.inputs),
+                                                    default_source_quantizer)
 
   # dict that map input_tensor to its quantizer
   input_quantizer_map = {}
   for (idx, tensor) in enumerate(model.inputs):
-    input_quantizer_map[tensor.experimental_ref()] = input_quantizer_list[idx]
+    input_quantizer_map[tensor.ref()] = input_quantizer_list[idx]
 
   graph = nx.DiGraph()
 
@@ -197,10 +228,6 @@ def GenerateGraphFromModel(model, input_quantizers,
       (source, {"layer": [None], "type": [None], "out_quantizer": None}),
       (sink, {"layer": [None], "type": [None], "out_quantizer": None})
   ]
-
-  graph.add_nodes_from(node_list)
-
-  node_list = []
 
   for i, layer in enumerate(model.layers):
 
@@ -217,37 +244,13 @@ def GenerateGraphFromModel(model, input_quantizers,
   in_nodes = {}
   out_nodes = {}
   for layer in model.layers:
-    i_list = layer.input
-    if not isinstance(layer.input, list):
-      i_list = [i_list.experimental_ref()]
-    else:
-      i_list = [tmp.experimental_ref() for tmp in i_list]
-
-    for i in i_list:
-      # dict: tensor -> layers have this tensor as input
-      if i not in in_nodes.keys():
-        in_nodes[i] = [layer]
-      else:
-        in_nodes[i].append(layer)
-
-    o_list = layer.output
-    if not isinstance(layer.output, list):
-      o_list = [o_list.experimental_ref()]
-    else:
-      o_list = [tmp.experimental_ref() for tmp in o_list]
-
-    for o in o_list:
-      # dict: tensor -> layer have this tensor as output
-      if o not in out_nodes.keys():
-        out_nodes[o] = [layer]
-      else:
-        out_nodes[o].append(layer)
+    AddToNodeDict(layer.input, layer, in_nodes)
+    AddToNodeDict(layer.output, layer, out_nodes)
 
   # union of all tensors; non-redundant
   attr_set = set(in_nodes.keys()) | set(out_nodes.keys())
 
   # add edges. we want edges annotated with tensors and shapes
-
   edge_list = []
 
   for a in attr_set:
