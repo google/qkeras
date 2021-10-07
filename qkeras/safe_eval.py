@@ -104,7 +104,11 @@ def GetParams(s):
   # check for syntax error
   for i in range(1, len(items)):
     if (len(items[i]) == 1) and (len(items[i-1]) == 2):
-      raise SyntaxError
+      raise SyntaxError(("Error with item " + str(i) + " \n" +
+                         "  parsing string " + s + "\n" +
+                         "  Items: " + str(items) + "\n" +
+                         "  Item[" + str(i-1) +"] :" + str(items[i-1]) + "\n" +
+                         "  Item[" + str(i) +"] :" + str(items[i]) ))
 
   return args, kwargs
 
