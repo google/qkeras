@@ -256,7 +256,8 @@ def energy_estimate(model, layer_map, weights_on_memory,
         activations_on_memory, min_sram_size, rd_wr_on_io,
         output_quantizer.bits)
     # QActivation Layer
-    if layer.__class__.__name__ in ["QActivation", "QAdaptiveActivation", "Activation"]:
+    if layer.__class__.__name__ in ["QActivation", "QAdaptiveActivation",
+                                    "Activation"]:
       pass
 
     # QBN Layer
@@ -335,7 +336,8 @@ def energy_estimate(model, layer_map, weights_on_memory,
             "op_cost": float("{0:.2f}".format(energy_op))
         }
     }
-    total_energy += input_rd_energy + output_wr_energy + parameter_rd_energy + energy_op
+    total_energy += (input_rd_energy + output_wr_energy +
+                     parameter_rd_energy + energy_op)
 
   result["total_cost"] = int(total_energy)
 
