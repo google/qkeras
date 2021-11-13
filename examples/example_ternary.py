@@ -15,7 +15,6 @@
 # ==============================================================================
 from __future__ import absolute_import  # Not necessary in a Python 3-only module
 from __future__ import division  # Not necessary in a Python 3-only module
-from __future__ import google_type_annotations  # Not necessary in a Python 3-only module
 from __future__ import print_function  # Not necessary in a Python 3-only module
 
 from absl import app
