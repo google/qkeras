@@ -635,22 +635,28 @@ def print_qstats(model):
 
   print("")
   print("Weight profiling:")
+  total_bits = 0
   for name in sorted(model_ops):
     weight_type = model_ops[name]["type_of_weights"]
     n_weights = model_ops[name]["number_of_weights"]
     if isinstance(weight_type, list):
       for i, (w_type, w_number) in enumerate(zip(weight_type, n_weights)):
         _, w_sizes, _ = w_type
+        total_bits += w_number * w_sizes
         print("    {:30} : {:5} ({}-bit unit)".format(
             str(name) + "_weights_" + str(i), str(w_number), str(w_sizes)))
     else:
       _, w_sizes, _ = weight_type
+      total_bits += n_weights * w_sizes
       print("    {:30} : {:5} ({}-bit unit)".format(
           str(name) + "_weights", str(n_weights), str(w_sizes)))
     _, b_sizes, _ = model_ops[name]["type_of_bias"]
     b_number = model_ops[name]["number_of_bias"]
+    total_bits += b_number * b_sizes
     print("    {:30} : {:5} ({}-bit unit)".format(
         str(name) + "_bias", str(b_number), str(b_sizes)))
+  print("    " + ("-"*40))
+  print("    {:30} : {:5}".format("Total Bits", total_bits))
 
   print("")
   print("Weight sparsity:")
