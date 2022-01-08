@@ -36,7 +36,8 @@ class QTools:
   def __init__(self, model, process, source_quantizers=None,
                is_inference=False, weights_path=None,
                keras_quantizer=None, keras_accumulator=None,
-               for_reference=False):
+               for_reference=False,
+               model_weights_already_quantized=True):
 
     if model is not None:
       self._model = model
@@ -55,7 +56,8 @@ class QTools:
     qgraph.GraphPropagateActivationsToEdges(graph)
     self._layer_map = generate_layer_data_type_map.generate_layer_data_type_map(
         graph, source_quantizer_list, is_inference,
-        keras_quantizer, keras_accumulator, for_reference)
+        keras_quantizer, keras_accumulator, for_reference,
+        model_weights_already_quantized=model_weights_already_quantized)
 
     self._output_dict = interface.map_to_json(self._layer_map)
 

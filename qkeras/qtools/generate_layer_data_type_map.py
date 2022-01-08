@@ -93,7 +93,8 @@ def update_output_quantizer_in_graph(graph, node_id, quantizer_factory,
 
 def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
                                  keras_quantizer=None, keras_accumulator=None,
-                                 for_reference=False, debug=False):
+                                 for_reference=False, debug=False,
+                                 model_weights_already_quantized=True):
   """main funciton to generate datatype for each layer.
 
   For each type of layer, this function calculates the sizes and minimum
@@ -110,6 +111,8 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
       accumulator and output
     for_reference: whether to generate a map for a baseline model
     debug: whether to print debug messages
+    model_weights_already_quantized: bool. If model weights are already
+      quantized, no need to apply quantizer to weights here in this function.
 
   Returns:
     a result containing the following fields:
@@ -148,6 +151,7 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
     w_shapes = None
     b_shapes = None
     output_shapes = None
+    qkeras_weight_quantizer = None
 
     if hasattr(layer, "output_shape"):
       output_shapes = layer.output_shape
@@ -455,7 +459,8 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
       # with actual values and also update graph with the
       # corresponding output_quantizer on the edge.
       if is_inference:
-        weights = qtools_util.get_weights(layer)
+        weights = qtools_util.get_weights(
+            layer, model_weights_already_quantized)
         # If no scale(gamma), num_weights --
         # If no center(beta_quantizer) num_weights --
         num_weights = 4
@@ -596,7 +601,8 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
       #  need to update corresponding quantizer type with min and max
       #  of the constant values.
       if is_inference:
-        weights = qtools_util.get_weights(layer)
+        weights = qtools_util.get_weights(
+            layer, model_weights_already_quantized)
         if weight_quantizer.is_po2:
           weight_quantizer.update_inference_values(weights[0])
 
@@ -606,7 +612,9 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
       multiplier_factory = quantized_operators.MultiplierFactory()
       multiplier = multiplier_factory.make_multiplier(
           weight_quantizer, input_quantizer)
-
+      if qkeras_weight_quantizer:
+        qtools_util.adjust_multiplier_for_auto_po2(
+            multiplier, qkeras_weight_quantizer)
       weights = layer.get_weights()
       kernel = weights[0]
 
@@ -699,7 +707,8 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
       #  need to update corresponding quantizer type with min and max
       #  of the constant values
       if is_inference:
-        weights = qtools_util.get_weights(layer)
+        weights = qtools_util.get_weights(
+            layer, model_weights_already_quantized)
         if weight_quantizer.is_po2:
           weight_quantizer.update_inference_values(weights[0])
 
@@ -709,7 +718,9 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
       multiplier_factory = quantized_operators.MultiplierFactory()
       multiplier = multiplier_factory.make_multiplier(
           weight_quantizer, input_quantizer)
-
+      if qkeras_weight_quantizer:
+        qtools_util.adjust_multiplier_for_auto_po2(
+            multiplier, qkeras_weight_quantizer)
       weights = layer.get_weights()
       kernel = weights[0]
 
@@ -718,7 +729,7 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
           kernel.shape, multiplier, use_bias=True if bias_quantizer else False)
 
       if not bias_quantizer:
-        # Sets bias the same as accumulator type.
+        # Set bias the same as accumulator type.
         bias_quantizer = copy.deepcopy(accumulator.output)
         if not accumulator.output.is_floating_point:
           # For fixed point accumulator, needs to add 1 to its bits to avoid

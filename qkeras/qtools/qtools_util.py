@@ -23,6 +23,7 @@ from __future__ import print_function
 import copy
 import numpy as np
 import tensorflow.keras.backend as K
+import sys
 
 
 def is_shape_alternation_layers(layer):
@@ -190,12 +191,83 @@ def get_operation_count(layer, input_shape):
   return int(operation_count)
 
 
-def get_weights(layer):
+def get_weights(layer, model_weights_already_quantized=True):
+  """Get layer weights.
+
+  Args:
+    layer: given qkeras/keras layer
+    model_weights_already_quantized: bool. whether the given layer's weights
+      are already quantized. This is necessary because with certain quantizers,
+      eg., quantized_bits(alpha="auto_po2"), we cannot quantize the same
+      weights more than once, as it will lead to different results.
+
+  Return:
+    Quantized layer weights.
+  """
+
   weights = layer.get_weights()
   out = copy.deepcopy(weights)
-  for j, weight in enumerate(weights):
-    if hasattr(layer, "get_quantizers") and layer.get_quantizers()[j]:
-      out[j] = K.eval(
-          layer.get_quantizers()[j](K.constant(weight)))
-
+  if not model_weights_already_quantized:
+    for j, weight in enumerate(weights):
+      if hasattr(layer, "get_quantizers") and layer.get_quantizers()[j]:
+        out[j] = K.eval(
+            layer.get_quantizers()[j](K.constant(weight)))
   return out
+
+
+def adjust_multiplier_for_auto_po2(multiplier, qkeras_weight_quantizer):
+  """Adjust multiplier when weight quantizer is auto_po2 type.
+
+  Multiplier_bits = bits_x + bits_w
+  Multiplier_intbits = log2(scale) + intbits_x + intbits_w
+
+  Because we might have different scale for auto_po2 quantizer at different
+  output channels, multiplier will have different integer bits at different
+  output channel accordingly, which is not desirable in hardware implementation.
+  Therefore we set a general multiplier quantizers so that it provides enough
+  fractional bits and integer bits for all output channels.
+  """
+
+  output_quantizer = multiplier.output
+  if (hasattr(qkeras_weight_quantizer, "__str__") and
+      "quantized_bits" in qkeras_weight_quantizer.__str__() and
+      qkeras_weight_quantizer.alpha == "auto_po2"):
+    bits = output_quantizer.bits
+    int_bits = output_quantizer.int_bits
+    scale = qkeras_weight_quantizer.scale
+    if hasattr(scale, "numpy"):
+      # if scale doesn't have numpy() function, it means the quantizer has
+      # never being called. Therfore we skip the following steps
+      scale = scale.numpy()
+      if isinstance(scale, np.ndarray):
+        scale = np.squeeze(scale)
+        max_shift = int(np.log2(np.max(scale)))
+        min_shift = int(np.log2(np.min(scale)))
+      elif isinstance(scale, float):
+        max_shift = int(np.log2(scale))
+        min_shift = max_shift
+      else:
+        raise ValueError(f"Scale should be either numpy array or float,"
+                         f"{type(scale)} is found instead!")
+
+      # In order to set a general quantizer for different output channels,
+      # we need to set both fractional bits and integer bits as the max required
+      # bits for different output channels
+      max_fractional_bits = bits - int_bits - min_shift
+      max_int_bits = int_bits + max_shift
+      total_bits = max_int_bits + max_fractional_bits
+
+      output_quantizer.bits = total_bits
+      output_quantizer.int_bits = max_int_bits
+    else:
+      print("[WARNING] The weight quantizer is never called even though it has "
+            "alpha=auto_po2. In this case we do not adjust the multiplier and "
+            "accumulator bit width since we don't know the exact values of "
+            "scale", file=sys.stderr)
+  elif hasattr(qkeras_weight_quantizer, "alpha") and (
+      qkeras_weight_quantizer.alpha == "auto_po2"):
+    print("[WARNING] auto_po2 is detected on a non-quantized_bits quantizer."
+          "Currently in QTools we do not yet support the auto_po2 with the "
+          f" given quantizer type: {type(qkeras_weight_quantizer)}."
+          "Therefore we do not adjust the multiplier and accumulator bit width")
+

@@ -114,6 +114,11 @@ def model_save_quantized_weights(model, filename=None):
   return instead (-1)**sign*(2**round(log2(x))). In the returned dictionary,
   we will return the pair (sign, round(log2(x))).
 
+  Special care needs to be given to quantized_bits(alpha="auto_po2") as well.
+  Since in this quantizer, hardware needs the integer weights and scale for
+  hardware inference, this function will return the pair (scale,
+  integer_weights) in the returned dictionary.
+
   Arguments:
     model: model with weights to be quantized.
     filename: if specified, we will save the hdf5 containing the quantized
@@ -130,8 +135,12 @@ def model_save_quantized_weights(model, filename=None):
   print("... quantizing model")
   for layer in model.layers:
     if hasattr(layer, "get_quantizers"):
+      # weights for software inference
       weights = []
       signs = []
+      scales = []
+      # weights for hardware inference
+      hw_weights = []
 
       if any(isinstance(layer, t) for t in [
           QConv2DBatchnorm, QDepthwiseConv2DBatchnorm]):
@@ -145,6 +154,7 @@ def model_save_quantized_weights(model, filename=None):
         ws = layer.get_weights()
 
       has_sign = False
+      has_scale = False
 
       for quantizer, weight in zip(qs, ws):
         if quantizer:
@@ -154,7 +164,7 @@ def model_save_quantized_weights(model, filename=None):
         # If quantizer is power-of-2 (quantized_po2 or quantized_relu_po2),
         # we would like to process it here.
         #
-        # However, we cannot, because we will loose sign information as
+        # However, we cannot, because we will lose sign information as
         # quanized_po2 will be represented by the tuple (sign, log2(abs(w))).
         #
         # In addition, we will not be able to use the weights on the model
@@ -163,9 +173,11 @@ def model_save_quantized_weights(model, filename=None):
         # So, instead of "saving" the weights in the model, we will return
         # a dictionary so that the proper values can be propagated.
 
+        # Weights store the weight in the format that software inference uses.
         weights.append(weight)
 
         has_sign = False
+        has_scale = False
         if quantizer:
           if isinstance(quantizer, six.string_types):
             q_name = quantizer
@@ -178,23 +190,53 @@ def model_save_quantized_weights(model, filename=None):
           else:
             q_name = ""
         if quantizer and ("_po2" in q_name):
-          # Quantized_relu_po2 does not have a sign
+          # Quantized_relu_po2 does not have a sign.
           if isinstance(quantizer, quantized_po2):
             has_sign = True
           sign = np.sign(weight)
           # Makes sure values are -1 or +1 only
           sign += (1.0 - np.abs(sign))
-          weight = np.round(np.log2(np.abs(weight)))
+          # hw_weight store the weight in the format that hardware inference
+          # uses.
+          hw_weight = np.round(np.log2(np.abs(weight)))
           signs.append(sign)
+          scales.append([])
+        elif (isinstance(quantizer, quantized_bits) and
+              quantizer.alpha=="auto_po2"):
+          unsigned_bits = quantizer.bits - quantizer.keep_negative
+          m = K.cast_to_floatx(pow(2, unsigned_bits))
+          m_i = K.cast_to_floatx(K.pow(2, quantizer.integer))
+          assert hasattr(quantizer.scale, "numpy"), (
+              "The auto_po2 quantizer has to be called first in order to know "
+              "the values of scale.")
+          scale = K.cast_to_floatx(quantizer.scale.numpy())
+          # Make sure scale is power of 2 values
+          log2val = np.log2(scale)
+          diff = np.round(log2val) - log2val
+          assert np.all(diff == 0), "scale must be power of 2 values!"
+          # Convert fixed point weight to integer weight.
+          hw_weight = weight * m / m_i
+          # Multiply scale with m_i / m so that it can be directly multiplied
+          # with the integer weight during hardware inference to get the fixed
+          # point weights
+          scale = scale * m_i / m
+          has_scale = True
+          scales.append(scale)
         else:
+          hw_weight = weight
           signs.append([])
+          scales.append([])
+        hw_weights.append(hw_weight)
 
-      saved_weights[layer.name] = {"weights": weights}
+      # Save the weights in the format that hardware inference uses
+      saved_weights[layer.name] = {"weights": hw_weights}
       if has_sign:
         saved_weights[layer.name]["signs"] = signs
-
+      if has_scale:
+        saved_weights[layer.name]["scales"] = scales
       if not any(isinstance(layer, t) for t in [
           QConv2DBatchnorm, QDepthwiseConv2DBatchnorm]):
+        # Set layer weights in the format that software inference uses
         layer.set_weights(weights)
       else:
         print(layer.name, " conv and batchnorm weights cannot be seperately"

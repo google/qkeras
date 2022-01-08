@@ -21,6 +21,7 @@ import json
 import numpy as np
 import pytest
 import tensorflow.keras as keras
+import tensorflow as tf
 
 from qkeras import QActivation
 from qkeras import QAdaptiveActivation
@@ -782,6 +783,51 @@ def test_quntized_reference_energy_same_as_floating_trial():
 
   assert float_reference_energy == quantized_reference_energy
   assert float_reference_energy == float_trial_energy
+
+
+def test_auto_po2():
+  def gen_model(img_shape):
+    img_input = x = keras.Input(shape=img_shape)
+    x = QConv2D(
+        filters=5, kernel_size=4, strides=4,
+        kernel_quantizer=quantizers.quantized_bits(8, 3, alpha="auto_po2"),
+        bias_quantizer=quantizers.quantized_bits(8, 3),
+        name="conv")(x)
+    x = QActivation(activation=quantizers.quantized_relu(4, 0), name="act")(x)
+    x = keras.layers.Flatten(name="flatten")(x)
+    x = QDense(5,
+               kernel_quantizer=quantizers.quantized_bits(
+                   8, 0, alpha="auto_po2"),
+               bias_quantizer=quantizers.quantized_bits(8, 3),
+               name="dense")(x)
+    model = keras.Model(inputs=img_input, outputs=[x])
+    return model
+
+  model = gen_model((32, 32, 3,))
+  model.compile(loss="mse", run_eagerly=True)
+  model.layers[1].quantizers[0].scale = tf.constant(
+      [[[[0.0625, 0.0625, 0.0625, 0.0625, 0.03125]]]])
+  model.layers[4].quantizers[0].scale = tf.constant([[0.5, 0.5, 1, 0.5, 0.25]])
+  input_quantizers = [
+      quantizers.quantized_bits(bits=8, integer=0, keep_negative=False)
+  ]
+  dtype_dict = run(model, input_quantizers)
+  multiplier = dtype_dict["conv"]["multiplier"]
+  assert multiplier["quantizer_type"] == "quantized_bits"
+  # Original multiplier has 16 bits(16=8+8) and 3 int_bits
+  # Modified multiplier has bits = max_fractional_bits + max_int_bits
+  #                             = bits + max_shift - min_shift
+  # max_shift = log2(0.0625) = -4  min_shift=log2(0.03125) = -5
+  # Therefore modified multiplier bits = 17
+  assert multiplier["bits"] == 17
+  # Modified multiplier int_bits = int_bits + max_shift = 3 - 4 = -1
+  # Because in datatype map we add int_bits with 1 extra sign bit, therefore
+  # we expect to see multiplier["int_bits"] == 0.
+  assert multiplier["int_bits"] == 0
+  multiplier = dtype_dict["dense"]["multiplier"]
+  assert multiplier["quantizer_type"] == "quantized_bits"
+  assert multiplier["bits"] == 14
+  assert multiplier["int_bits"] == 1
 
 
 if __name__ == "__main__":
