@@ -159,6 +159,14 @@ class QDenseBatchnorm(QDense):
         data_format="channels_last")
     else:
       bias = 0
+    # If loaded from a ckpt, bias_quantizer is the ckpt value
+    # Else if the layer is called for the first time, in this case bias
+    #   quantizer is None and we need to calculate bias quantizer
+    #   type according to accumulator type
+    if self.bias_quantizer_internal is not None:
+        q_bias = self.bias_quantizer_internal(bias)
+    else:
+        q_bias = bias
 
     # begin batchnorm
     _ = self.batchnorm(qdense_outputs, training=bn_training)
@@ -195,8 +203,9 @@ class QDenseBatchnorm(QDense):
       inv = math_ops.rsqrt(new_variance + self.batchnorm.epsilon)
       if gamma is not None:
         inv *= gamma
+
       # fold bias with bn stats
-      folded_bias = inv * (bias - new_mean) + beta
+      folded_bias = inv * (q_bias - new_mean) + beta
 
     elif self.folding_mode == "ema_stats_folding":
         # We always scale the weights with a correction factor to the long term
@@ -218,8 +227,8 @@ class QDenseBatchnorm(QDense):
             batch_inv *= gamma
         folded_bias = tf_utils.smart_cond(
           bn_training,
-          lambda: batch_inv * (bias - mean) + beta,
-          lambda: mv_inv * (bias - moving_mean) + beta)
+          lambda: batch_inv * (q_bias - mean) + beta,
+          lambda: mv_inv * (q_bias - moving_mean) + beta)
         # moving stats is always used to fold kernel in tflite; before bn freeze
         # an additional correction factor will be applied to the conv2d output
         # end batchnorm 
@@ -227,26 +236,16 @@ class QDenseBatchnorm(QDense):
     else:
         assert ValueError
 
-    # wrap qdense kernel with bn parameters
-    folded_kernel = inv * kernel
     # quantize the folded kernel
     if self.kernel_quantizer is not None:
-        q_folded_kernel = self.kernel_quantizer_internal(folded_kernel)
+        q_kernel = self.kernel_quantizer_internal(kernel)
     else:
-        q_folded_kernel = folded_kernel
+        q_kernel = kernel
+    # wrap qdense kernel with bn parameters
+    folded_kernel = inv * q_kernel
 
-    # If loaded from a ckpt, bias_quantizer is the ckpt value
-    # Else if the layer is called for the first time, in this case bias
-    #   quantizer is None and we need to calculate bias quantizer
-    #   type according to accumulator type
-
-    if self.bias_quantizer_internal is not None:
-        q_folded_bias = self.bias_quantizer_internal(folded_bias)
-    else:
-        q_folded_bias = folded_bias
-
-    applied_kernel = q_folded_kernel
-    applied_bias = q_folded_bias
+    applied_kernel = folded_kernel
+    applied_bias = folded_bias
     
     #calculate qdense output using the quantized folded kernel
     folded_outputs = tf.keras.backend.dot(inputs, applied_kernel)
