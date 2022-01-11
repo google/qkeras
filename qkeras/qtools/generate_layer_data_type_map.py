@@ -425,7 +425,7 @@ def generate_layer_data_type_map(graph, source_quantizer_list, is_inference,
               mode=keras_quantizer)
       else:
         (qkeras_gamma_quantizer, qkeras_beta_quantizer, qkeras_mean_quantizer,
-         qkeras_variance_quantizer) = layer.get_quantizers()
+         qkeras_variance_quantizer, _) = layer.get_quantizers()
 
         if not qkeras_beta_quantizer:
           beta_quantizer = quantizer_factory.clone_quantizer(input_quantizer)
