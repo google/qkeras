@@ -1176,14 +1176,13 @@ def quantized_model_dump(model,
     os.makedirs(output_dir)
     print("create dir", output_dir)
 
-  model_copy = copy.deepcopy(model)
-  for layer in model_copy.layers:
+  for layer in model.layers:
     if not layers_to_dump or layer.name in layers_to_dump:
       y_names.append(layer.name)
       outputs.append(layer.output)
 
   # Gather the tensor outputs from specified layers at layers_to_dump.
-  model_debug = Model(inputs=model_copy.inputs, outputs=outputs)
+  model_debug = Model(inputs=model.inputs, outputs=outputs)
   y_pred = model_debug.predict(x_test)
 
   # Dumps tensors to files.
