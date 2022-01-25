@@ -321,6 +321,8 @@ class QBatchNormalization(BatchNormalization, PrunableLayer):
             initializers.serialize(self.moving_mean_initializer),
         'moving_variance_initializer':
             initializers.serialize(self.moving_variance_initializer),
+        'inverse_quantizer':
+            constraints.serialize(self.inverse_quantizer_internal),
         'beta_regularizer': regularizers.serialize(self.beta_regularizer),
         'gamma_regularizer': regularizers.serialize(self.gamma_regularizer),
         'beta_constraint': constraints.serialize(self.beta_constraint),
