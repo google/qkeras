@@ -109,8 +109,6 @@ class QBatchNormalization(BatchNormalization, PrunableLayer):
       self.gamma_quantizer_internal._set_trainable_parameter()
     if hasattr(self.variance_quantizer_internal, '_set_trainable_parameter'):
       self.variance_quantizer_internal._set_trainable_parameter()
-    if hasattr(self.inverse_quantizer_internal, '_set_trainable_parameter'):
-      self.inverse_quantizer_internal._set_trainable_parameter()
 
     self.quantizers = [
         self.gamma_quantizer_internal,
