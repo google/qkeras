@@ -28,6 +28,8 @@ from qkeras.utils import get_model_sparsity
 from qkeras.utils import model_quantize
 from qkeras.utils import convert_to_folded_model
 from qkeras.utils import is_TFOpLambda_layer
+from qkeras.utils import find_conv_bn_pair
+from qkeras.utils import add_bn_fusing_weights
 
 
 def create_quantized_network():
@@ -156,11 +158,68 @@ def test_convert_to_folded_model():
   model = get_lambda_model()
   fmodel, _ = convert_to_folded_model(model)
 
-  print("Layer2:", model.layers[2], model.layers[2].__class__)
-  print("layer4:", model.layers[4], model.layers[2].__class__.__name__)
   assert is_TFOpLambda_layer(model.layers[2])
   assert is_TFOpLambda_layer(model.layers[4])
   assert isinstance(fmodel.layers[5], Multiply)
+
+
+def test_find_conv_bn_pair():
+  x = x_in = Input((23, 23, 1), name="input")
+  x1 = QConv2D(
+      2, 2, 1,
+      kernel_quantizer=quantized_bits(4, 0, 1),
+      bias_quantizer=quantized_bits(4, 0, 1),
+      use_bias=False,
+      name="conv1")(x)
+  x1 = QBatchNormalization(
+      mean_quantizer=quantized_bits(4, 0, 1),
+      gamma_quantizer=None,
+      variance_quantizer=None,
+      beta_quantizer=quantized_bits(4, 0, 1),
+      inverse_quantizer=quantized_bits(8, 0, 1), name="bn1")(x1)
+
+  x2 = QConv2D(
+      2, 2, 1,
+      kernel_quantizer=quantized_bits(3, 0),
+      bias_quantizer=quantized_bits(3, 2),
+      name="conv2")(x)
+
+  x2 = QBatchNormalization(
+      mean_quantizer=quantized_bits(4, 0, 1),
+      gamma_quantizer=None,
+      variance_quantizer=None,
+      beta_quantizer=quantized_bits(4, 0, 1),
+      inverse_quantizer=quantized_bits(8, 0, 1), name="bn2")(x2)
+
+  x = Add(name="add")([x1, x2])
+  model = Model(inputs=[x_in], outputs=[x])
+
+  (conv_bn_pair_dict, _) = find_conv_bn_pair(model)
+  assert conv_bn_pair_dict["conv1"] == "bn1"
+  assert conv_bn_pair_dict["conv2"] == "bn2"
+
+  conv_layer = model.layers[1]
+  bn_layer = model.layers[3]
+
+  conv_layer.set_weights([
+      np.array([[[[0.5, 0.75]], [[1.5, -0.625]]],
+                [[[-0.875, 1.25]], [[-1.25, -2.5]]]])
+  ])
+  bn_layer.set_weights([
+      np.array([1., 0.25]),
+      np.array([0.5, 1.0]),
+      np.array([0.5, 2.5]),
+      np.array([1.5, 1.])
+  ])
+  saved_weights = {}
+  saved_weights[conv_layer.name] = {}
+  add_bn_fusing_weights(conv_layer, bn_layer, saved_weights)
+
+  d = saved_weights[conv_layer.name]
+  assert d["enable_bn_fusing"]
+  assert d["fused_bn_layer_name"] == "bn1"
+  assert np.all(d["bn_inv"] == np.array([0.8125, 0.25]))
+  assert np.all(d["fused_bias"] == np.array([0.09375, 0.65625]))
 
 
 if __name__ == "__main__":

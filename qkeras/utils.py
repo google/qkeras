@@ -75,6 +75,8 @@ from .quantizers import ternary
 
 
 from .safe_eval import safe_eval
+from tensorflow.python.ops import math_ops
+
 
 REGISTERED_LAYERS = [
     "QActivation",
@@ -98,9 +100,126 @@ REGISTERED_LAYERS = [
 ]
 
 
-#
+def find_conv_bn_pair(model):
+  """Finds all the conv batchnorm pairs that need to be fused.
+
+  Args:
+    model: input model
+
+  Returns:
+    Dict that marks all the conv bn layer pairs that need to be fused.
+
+  Note: supports sequential and non-sequential model
+  """
+
+  fold_model = clone_model(model)
+  (graph, _) = qgraph.GenerateGraphFromModel(
+      fold_model, "quantized_bits(8, 0, 1)", "quantized_bits(8, 0, 1)")
+
+  qgraph.GraphAddSingleSourceSingleSink(graph)
+  qgraph.GraphRemoveNodeWithNodeType(graph, "InputLayer")
+  qgraph.GraphPropagateActivationsToEdges(graph)
+
+  # Finds the Batchnorm nodes and mark them.
+  layers_followed_by_bn = {}
+  bn_layers_to_skip = set()
+  for node_id in nx.topological_sort(graph):
+    node = graph.nodes[node_id]
+    layer = node["layer"][0]
+    if layer:
+      successor_ids = list(graph.successors(node_id))
+      is_single = len(successor_ids) == 1
+      successor_layer = graph.nodes[successor_ids[0]]["layer"][0]
+      followed_by_bn = (successor_layer.__class__.__name__ ==
+                        "QBatchNormalization")
+      # TODO(lishanok): extend to QDense types
+      enable_bn_fuse = layer.__class__.__name__ in [
+          "QConv2D", "QDepthwiseConv2D"
+      ] and is_single and followed_by_bn
+
+      if enable_bn_fuse:
+        layers_followed_by_bn[layer.name] = successor_layer.name
+        bn_layers_to_skip.add(successor_layer.name)
+
+  return (layers_followed_by_bn, bn_layers_to_skip)
+
+
+def add_bn_fusing_weights(conv_layer, bn_layer, saved_weights):
+  """Adds additional fusing weights to saved_weights.
+
+  In hardware inference, we need to combined fuse conv output with
+  the following batchnorm op.
+  z[i] = bn(y[i]) = inv[i] * y'[i] * scale[i] - bias'[i] is the final output
+  of the conv and bn layer, with:
+    inv[i] = gamma[i]* rsqrt(variance[i]^2+epsilon) is computed from the
+      bn layer weights
+    y'[i] is the i-th channel output from the conv layer (before scale)
+    scale[i] is the i-th channel kernel quantizer scale
+    bias'[i] = inv[i] * bias[i] + beta[i] - inv[i]*mean[i] where bias is
+      the bias term from the conv layer, beta and mean are the bn
+      layer weights.
+
+  Args:
+    conv_layer: QKeras conv layer, could be QConv2D/QDepthwiseConv2D.
+    bn_layer: The following QBatchNormalization layer that needs to be
+      fused with the previous conv layer.
+    saved_weights: Dict. The centralized weights dictionary that exports
+      relevant weights and parameters for hardware inference.
+  """
+  bn_qs = bn_layer.quantizers
+  bn_ws = bn_layer.get_weights()
+
+  if bn_qs[4] is not None:
+    assert bn_qs[0] is None and bn_qs[3] is None, (
+        "If using the inverse quantizer, the gamma and variance quantizers "
+        "should not be used in order to avoid quantizing a value twice.")
+
+  def apply_quantizer(quantizer, input_weight):
+    if quantizer:
+      weight = tf.constant(input_weight)
+      weight = tf.keras.backend.eval(quantizer(weight))
+    else:
+      weight = input_weight
+    return weight
+
+  # Quantize respective bn layer weights
+  gamma = 1.0
+  beta = 0
+  idx = 0
+  if bn_layer.scale:
+    gamma = apply_quantizer(bn_layer.gamma_quantizer_internal, bn_ws[idx])
+    idx += 1
+  if bn_layer.center:
+    beta = apply_quantizer(bn_layer.beta_quantizer_internal, bn_ws[idx])
+    idx += 1
+  mean = apply_quantizer(bn_layer.mean_quantizer_internal, bn_ws[idx])
+  idx += 1
+  variance = apply_quantizer(bn_layer.variance_quantizer_internal, bn_ws[idx])
+
+  # Compute inv[i]
+  inv = gamma * math_ops.rsqrt(variance + bn_layer.epsilon)
+  inv = inv.numpy()
+  if bn_layer.inverse_quantizer_internal is not None:
+    quantizer = bn_layer.inverse_quantizer_internal
+    inv = tf.keras.backend.eval(quantizer(inv))
+
+  # Compute bias'[i]
+  if conv_layer.use_bias:
+    cur_weights = conv_layer.get_weights()
+    assert len(cur_weights) == 2, ("Weights should have length of 2. Found"
+                                   f"{len(cur_weights)} instead.")
+    conv_bias = cur_weights[-1]
+  else:
+    conv_bias = 0
+  b_prime = inv * conv_bias + beta - inv * mean
+
+  saved_weights[conv_layer.name]["enable_bn_fusing"] = True
+  saved_weights[conv_layer.name]["fused_bn_layer_name"] = bn_layer.name
+  saved_weights[conv_layer.name]["bn_inv"] = inv
+  saved_weights[conv_layer.name]["fused_bias"] = b_prime
+
+
 # Model utilities: before saving the weights, we want to apply the quantizers
-#
 def model_save_quantized_weights(model, filename=None):
   """Quantizes model for inference and save it.
 
@@ -132,6 +251,9 @@ def model_save_quantized_weights(model, filename=None):
 
   saved_weights = {}
 
+  # Find the conv layers followed by Batchnorm layers
+  (conv_bn_pair_dict, bn_layers_to_skip) = find_conv_bn_pair(model)
+
   print("... quantizing model")
   for layer in model.layers:
     if hasattr(layer, "get_quantizers"):
@@ -155,6 +277,12 @@ def model_save_quantized_weights(model, filename=None):
 
       has_sign = False
       has_scale = False
+      enable_bn_fusing = False
+
+      if (isinstance(layer, QBatchNormalization) and
+          layer.name in bn_layers_to_skip):
+        # Mark current bn layer to be fused with the previous conv layer
+        enable_bn_fusing = True
 
       for quantizer, weight in zip(qs, ws):
         if quantizer:
@@ -202,7 +330,7 @@ def model_save_quantized_weights(model, filename=None):
           signs.append(sign)
           scales.append([])
         elif (isinstance(quantizer, quantized_bits) and
-              quantizer.alpha=="auto_po2"):
+              quantizer.alpha == "auto_po2"):
           unsigned_bits = quantizer.bits - quantizer.keep_negative
           m = K.cast_to_floatx(pow(2, unsigned_bits))
           m_i = K.cast_to_floatx(K.pow(2, quantizer.integer))
@@ -214,11 +342,11 @@ def model_save_quantized_weights(model, filename=None):
           log2val = np.log2(scale)
           diff = np.round(log2val) - log2val
           assert np.all(diff == 0), "scale must be power of 2 values!"
-          # Convert fixed point weight to integer weight.
+          # Convert fixed point weight to integer weight, just
           hw_weight = weight * m / m_i
-          # Multiply scale with m_i / m so that it can be directly multiplied
-          # with the integer weight during hardware inference to get the fixed
-          # point weights
+          # Because hw_weight is integer weights, set scale = scale * m_i / m
+          # so that when we can multiply scale with the integer weight
+          # during hardware inference to get the fixed point weights
           scale = scale * m_i / m
           has_scale = True
           scales.append(scale)
@@ -229,7 +357,8 @@ def model_save_quantized_weights(model, filename=None):
         hw_weights.append(hw_weight)
 
       # Save the weights in the format that hardware inference uses
-      saved_weights[layer.name] = {"weights": hw_weights}
+      saved_weights[layer.name] = {"weights": hw_weights,
+                                   "enable_bn_fusing": enable_bn_fusing}
       if has_sign:
         saved_weights[layer.name]["signs"] = signs
       if has_scale:
@@ -241,6 +370,15 @@ def model_save_quantized_weights(model, filename=None):
       else:
         print(layer.name, " conv and batchnorm weights cannot be seperately"
               " quantized because they will be folded before quantization.")
+
+      # adjust weights for bn fusing if necessary
+      if layer.name in conv_bn_pair_dict.keys():
+        print(f"Fuse {layer.name} output with {conv_bn_pair_dict[layer.name]} "
+              "for hardware inference ...")
+        add_bn_fusing_weights(
+            conv_layer=layer,
+            bn_layer=model.get_layer(conv_bn_pair_dict[layer.name]),
+            saved_weights=saved_weights)
     else:
       if layer.get_weights():
         print(" ", layer.name, "has not been quantized")
