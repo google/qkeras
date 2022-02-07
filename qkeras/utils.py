@@ -100,14 +100,14 @@ REGISTERED_LAYERS = [
 ]
 
 
-def find_conv_bn_pair(model):
-  """Finds all the conv batchnorm pairs that need to be fused.
+def find_bn_fusing_layer_pair(model):
+  """Finds layers that can be fused with the following batchnorm layers.
 
   Args:
     model: input model
 
   Returns:
-    Dict that marks all the conv bn layer pairs that need to be fused.
+    Dict that marks all the layer pairs that need to be fused.
 
   Note: supports sequential and non-sequential model
   """
@@ -133,36 +133,36 @@ def find_conv_bn_pair(model):
       followed_by_bn = (successor_layer.__class__.__name__ ==
                         "QBatchNormalization")
       # TODO(lishanok): extend to QDense types
-      enable_bn_fuse = layer.__class__.__name__ in [
+      enable_bn_fusing = layer.__class__.__name__ in [
           "QConv2D", "QDepthwiseConv2D"
       ] and is_single and followed_by_bn
 
-      if enable_bn_fuse:
+      if enable_bn_fusing:
         layers_followed_by_bn[layer.name] = successor_layer.name
         bn_layers_to_skip.add(successor_layer.name)
 
   return (layers_followed_by_bn, bn_layers_to_skip)
 
 
-def add_bn_fusing_weights(conv_layer, bn_layer, saved_weights):
+def add_bn_fusing_weights(prev_layer, bn_layer, saved_weights):
   """Adds additional fusing weights to saved_weights.
 
-  In hardware inference, we need to combined fuse conv output with
+  In hardware inference, we need to combined fuse previous layer's output with
   the following batchnorm op.
   z[i] = bn(y[i]) = inv[i] * y'[i] * scale[i] - bias'[i] is the final output
-  of the conv and bn layer, with:
+  of the previous layer and bn layer, with:
     inv[i] = gamma[i]* rsqrt(variance[i]^2+epsilon) is computed from the
       bn layer weights
-    y'[i] is the i-th channel output from the conv layer (before scale)
+    y'[i] is the i-th channel output from the previous layer (before scale)
     scale[i] is the i-th channel kernel quantizer scale
-    bias'[i] = inv[i] * bias[i] + beta[i] - inv[i]*mean[i] where bias is
-      the bias term from the conv layer, beta and mean are the bn
+    fused_bias[i] = inv[i] * bias[i] + beta[i] - inv[i]*mean[i] where bias is
+      the bias term from the previous layer, beta and mean are the bn
       layer weights.
 
   Args:
-    conv_layer: QKeras conv layer, could be QConv2D/QDepthwiseConv2D.
+    prev_layer: QKeras layer, could be QConv2D/QDepthwiseConv2D/QDense.
     bn_layer: The following QBatchNormalization layer that needs to be
-      fused with the previous conv layer.
+      fused with the previous layer.
     saved_weights: Dict. The centralized weights dictionary that exports
       relevant weights and parameters for hardware inference.
   """
@@ -203,20 +203,20 @@ def add_bn_fusing_weights(conv_layer, bn_layer, saved_weights):
     quantizer = bn_layer.inverse_quantizer_internal
     inv = tf.keras.backend.eval(quantizer(inv))
 
-  # Compute bias'[i]
-  if conv_layer.use_bias:
-    cur_weights = conv_layer.get_weights()
+  # Compute fused_bias[i]
+  if prev_layer.use_bias:
+    cur_weights = prev_layer.get_weights()
     assert len(cur_weights) == 2, ("Weights should have length of 2. Found"
                                    f"{len(cur_weights)} instead.")
-    conv_bias = cur_weights[-1]
+    prev_bias = cur_weights[-1]
   else:
-    conv_bias = 0
-  b_prime = inv * conv_bias + beta - inv * mean
+    prev_bias = 0
+  b_prime = inv * prev_bias + beta - inv * mean
 
-  saved_weights[conv_layer.name]["enable_bn_fusing"] = True
-  saved_weights[conv_layer.name]["fused_bn_layer_name"] = bn_layer.name
-  saved_weights[conv_layer.name]["bn_inv"] = inv
-  saved_weights[conv_layer.name]["fused_bias"] = b_prime
+  saved_weights[prev_layer.name]["enable_bn_fusing"] = True
+  saved_weights[prev_layer.name]["fused_bn_layer_name"] = bn_layer.name
+  saved_weights[prev_layer.name]["bn_inv"] = inv
+  saved_weights[prev_layer.name]["fused_bias"] = b_prime
 
 
 # Model utilities: before saving the weights, we want to apply the quantizers
@@ -251,8 +251,8 @@ def model_save_quantized_weights(model, filename=None):
 
   saved_weights = {}
 
-  # Find the conv layers followed by Batchnorm layers
-  (conv_bn_pair_dict, bn_layers_to_skip) = find_conv_bn_pair(model)
+  # Find the conv/dense layers followed by Batchnorm layers
+  (fusing_layer_pair_dict, bn_layers_to_skip) = find_bn_fusing_layer_pair(model)
 
   print("... quantizing model")
   for layer in model.layers:
@@ -281,7 +281,7 @@ def model_save_quantized_weights(model, filename=None):
 
       if (isinstance(layer, QBatchNormalization) and
           layer.name in bn_layers_to_skip):
-        # Mark current bn layer to be fused with the previous conv layer
+        # Mark current bn layer to be fused with the previous layer
         enable_bn_fusing = True
 
       for quantizer, weight in zip(qs, ws):
@@ -372,12 +372,12 @@ def model_save_quantized_weights(model, filename=None):
               " quantized because they will be folded before quantization.")
 
       # adjust weights for bn fusing if necessary
-      if layer.name in conv_bn_pair_dict.keys():
-        print(f"Fuse {layer.name} output with {conv_bn_pair_dict[layer.name]} "
-              "for hardware inference ...")
+      if layer.name in fusing_layer_pair_dict.keys():
+        print(f"Fuse {layer.name} output with "
+              f"{fusing_layer_pair_dict[layer.name]} for hardware inference.")
         add_bn_fusing_weights(
-            conv_layer=layer,
-            bn_layer=model.get_layer(conv_bn_pair_dict[layer.name]),
+            prev_layer=layer,
+            bn_layer=model.get_layer(fusing_layer_pair_dict[layer.name]),
             saved_weights=saved_weights)
     else:
       if layer.get_weights():

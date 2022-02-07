@@ -21,6 +21,7 @@ from __future__ import division
 from __future__ import print_function
 
 import abc
+import copy
 
 from absl import logging
 from qkeras.qtools.quantized_operators import divider_impl
@@ -107,14 +108,17 @@ class IDivider(abc.ABC):
                      denominator_quantizer: quantizer_impl.IQuantizer):
     """make the quantizer."""
 
-    self.numerator_quantizer = numerator_quantizer
-    self.denominator_quantizer = denominator_quantizer
+    # Create a local copy so that the changes made here won't change the input
+    local_numerator_quantizer = copy.deepcopy(numerator_quantizer)
+    local_denominator_quantizer = copy.deepcopy(denominator_quantizer)
 
-    mode1 = numerator_quantizer.mode
-    mode2 = denominator_quantizer.mode
+    mode1 = local_numerator_quantizer.mode
+    mode2 = local_denominator_quantizer.mode
 
     (divider_impl_class, output_quantizer) = self.divider_impl_table[
         mode1][mode2]
+
+    local_output_quantizer = copy.deepcopy(output_quantizer)
 
     if divider_impl_class is None:
       raise UnacceptedQuantizerError(
@@ -126,7 +130,7 @@ class IDivider(abc.ABC):
         divider_impl_class.implemented_as())
 
     return divider_impl_class(
-        numerator_quantizer,
-        denominator_quantizer,
-        output_quantizer
+        local_numerator_quantizer,
+        local_denominator_quantizer,
+        local_output_quantizer
     )

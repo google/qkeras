@@ -35,6 +35,7 @@ from qkeras.qtools import run_qtools
 from qkeras.qtools import settings as qtools_settings
 from qkeras.qtools.quantized_operators import divider_factory
 from qkeras.qtools import generate_layer_data_type_map
+from qkeras.utils import model_save_quantized_weights
 
 
 
@@ -153,48 +154,30 @@ def qbn_model_inference():
   x = x_in = keras.layers.Input((23, 23, 1), name="input")
   x = QConv2D(
       4, 2, 23,
-      kernel_quantizer=quantizers.quantized_ulaw(4, 1, 1),
-      bias_quantizer=quantizers.stochastic_ternary(),
+      kernel_quantizer=quantizers.quantized_bits(4, 0, 1),
+      bias_quantizer=quantizers.quantized_bits(4, 0, 1),
       use_bias=False,
       name="qconv2d_1")(x)
   x = QBatchNormalization(
-      gamma_quantizer=quantizers.quantized_relu_po2(3, 2),
-      variance_quantizer=quantizers.quantized_po2(
-          3, 2, quadratic_approximation=False),
+      mean_quantizer=quantizers.quantized_bits(6, 0, 1),
+      gamma_quantizer=None,
+      variance_quantizer=None,
       beta_quantizer=quantizers.quantized_bits(6, 0, 1),
+      inverse_quantizer=quantizers.quantized_bits(16, 0, 1),
       scale=False,
       center=False,
       gamma_range=8, beta_range=4, name="qbn_2")(x)
 
   x = QConv2D(
       2, 1, 1,
-      kernel_quantizer=quantizers.quantized_po2(3, 0),
-      bias_quantizer=quantizers.quantized_po2(3, 2),
+      kernel_quantizer=quantizers.quantized_bits(3, 0),
+      bias_quantizer=quantizers.quantized_bits(3, 2),
       name="qconv2d_3")(x)
 
   model = keras.Model(inputs=[x_in], outputs=[x])
+  hw_weight_dict = model_save_quantized_weights(model)
 
-  layer = model.get_layer("qbn_2")
-
-  weight_arr = [np.array([3, 4, 1, 7]), np.array([6, 4, 1, -7]),
-                np.array([2, 7, -8, 2]), np.array([-1, -7, 4, 9])]
-
-  # quantize the weights
-  quantizer_list = layer.get_quantizers()
-  for (i, quantizer) in enumerate(quantizer_list):
-    if quantizer is not None:
-      weight_arr[i] = keras.backend.eval(
-          quantizer(keras.backend.constant(weight_arr[i])))
-
-  num_weights = 4
-  if not layer.scale:
-    num_weights -= 1
-  if not layer.center:
-    num_weights -= 1
-
-  layer.set_weights(weight_arr[:num_weights])
-
-  return model
+  return (hw_weight_dict, model)
 
 
 def add_qmodel(quantizer1, quantizer2, quantizer3):
@@ -349,14 +332,15 @@ def concatenate_qmodel(quantizer1, quantizer2, quantizer3):
 
 
 def run(model, input_quantizers, is_inference=False,
-        verbose=False):
+        verbose=False, hw_weight_dict=None):
   (graph, source_quantizer_list) = qgraph.CreateGraph(
       model, input_quantizers)
   # qgraph.PrintGraph(graph)
   qgraph.GraphPropagateActivationsToEdges(graph)
 
   layer_map = generate_layer_data_type_map.generate_layer_data_type_map(
-      graph, source_quantizer_list, is_inference)
+      graph=graph, source_quantizer_list=source_quantizer_list,
+      is_inference=is_inference, hw_weight_dict=hw_weight_dict)
 
   # interface.print_layer_data_type_map(dict)
   output_dict = interface.map_to_json(layer_map)
@@ -398,29 +382,32 @@ def test_wrong_input_quantizers():
 
 def test_qbn_inference():
   input_quantizers = [quantizers.quantized_bits(4, 0, 1)]
-  model = qbn_model_inference()
+  (hw_weight_dict, model) = qbn_model_inference()
 
-  dtype_dict = run(model, input_quantizers, is_inference=True)
-  multiplier = dtype_dict["qconv2d_3"]["multiplier"]
-  accumulator = dtype_dict["qconv2d_3"]["accumulator"]
-  output = dtype_dict["qconv2d_3"]["output_quantizer"]
+  dtype_dict = run(model, input_quantizers, is_inference=True,
+                   hw_weight_dict=hw_weight_dict)
+  multiplier = dtype_dict["qconv2d_1"]["multiplier"]
+  accumulator = dtype_dict["qconv2d_1"]["accumulator"]
+  output = dtype_dict["qconv2d_1"]["output_quantizer"]
+  fused_accumulator = dtype_dict["qconv2d_1"]["fused_accumulator"]
 
   assert multiplier["quantizer_type"] == "quantized_bits"
-  assert multiplier["bits"] == 15
-  assert multiplier["int_bits"] == 7
+  assert multiplier["bits"] == 9
+  assert multiplier["int_bits"] == 2
   assert multiplier["is_signed"] == 1
-  assert multiplier["op_type"] == "shifter"
+  assert multiplier["op_type"] == "mul"
 
   assert accumulator["quantizer_type"] == "quantized_bits"
-  assert accumulator["bits"] == 18
-  assert accumulator["int_bits"] == 10
+  assert accumulator["bits"] == 11
+  assert accumulator["int_bits"] == 4
   assert accumulator["is_signed"] == 1
   assert accumulator["op_type"] == "add"
 
-  assert output["quantizer_type"] == "quantized_bits"
-  assert output["bits"] == 18
-  assert output["int_bits"] == 10
-  assert output["is_signed"] == 1
+  assert fused_accumulator["quantizer_type"] == "quantized_bits"
+  assert fused_accumulator["bits"] == 28
+  assert fused_accumulator["int_bits"] == 5
+  assert accumulator["is_signed"] == 1
+  assert fused_accumulator["op_type"] == "add"
 
 
 def test_invalid_denominator_qbn():
@@ -482,8 +469,8 @@ def test_qdense_model_fork():
 
   accumulator = dtype_dict["qdense_3"]["accumulator"]
   assert accumulator["quantizer_type"] == "quantized_bits"
-  assert accumulator["bits"] == 10
-  assert accumulator["int_bits"] == 6
+  assert accumulator["bits"] == 11
+  assert accumulator["int_bits"] == 7
   assert accumulator["is_signed"] == 1
   assert accumulator["op_type"] == "add"
 
@@ -517,8 +504,8 @@ def test_util_layers():
 
   accumulator = dtype_dict["qdense_4"]["accumulator"]
   assert accumulator["quantizer_type"] == "quantized_bits"
-  assert accumulator["bits"] == 14
-  assert accumulator["int_bits"] == 9
+  assert accumulator["bits"] == 15
+  assert accumulator["int_bits"] == 10
   assert accumulator["is_signed"] == 1
   assert accumulator["op_type"] == "add"
 
@@ -669,26 +656,26 @@ def test_qenergy():
   # Trial
   tmp = trial_energy_dict["d0"]["energy"]
   assert tmp["inputs"] == pytest.approx(372.77, abs=0.1)
-  assert tmp["outputs"] == pytest.approx(323.32, abs=0.1)
+  assert tmp["outputs"] == pytest.approx(342.34, abs=0.1)
   assert tmp["parameters"] == pytest.approx(13997.95, abs=0.1)
-  assert tmp["op_cost"] == pytest.approx(14994.0, abs=0.1)
+  assert tmp["op_cost"] == pytest.approx(15729.0, abs=0.1)
 
   tmp = trial_energy_dict["d1"]["energy"]
   assert tmp["inputs"] == pytest.approx(72.27, abs=0.1)
-  assert tmp["outputs"] == pytest.approx(102.7, abs=0.1)
+  assert tmp["outputs"] == pytest.approx(110.31, abs=0.1)
   assert tmp["parameters"] == pytest.approx(7158.73, abs=0.1)
-  assert tmp["op_cost"] == pytest.approx(3156.25, abs=0.1)
+  assert tmp["op_cost"] == pytest.approx(3250.0, abs=0.1)
 
   tmp = trial_energy_dict["d2"]["energy"]
   assert tmp["inputs"] == pytest.approx(26.63, abs=0.1)
   assert tmp["outputs"] == pytest.approx(11.41, abs=0.1)
   assert tmp["parameters"] == pytest.approx(243.44, abs=0.1)
-  assert tmp["op_cost"] == pytest.approx(98.96, abs=0.1)
+  assert tmp["op_cost"] == pytest.approx(102.08, abs=0.1)
 
   # print(ref_energy_dict)
   # print(trial_energy_dict)
   assert int(reference_size) == 226629
-  assert int(trial_size) == 40238
+  assert int(trial_size) == 41070
 
 
 def test_quntized_reference_energy_same_as_floating_trial():

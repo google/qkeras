@@ -28,7 +28,7 @@ from qkeras.utils import get_model_sparsity
 from qkeras.utils import model_quantize
 from qkeras.utils import convert_to_folded_model
 from qkeras.utils import is_TFOpLambda_layer
-from qkeras.utils import find_conv_bn_pair
+from qkeras.utils import find_bn_fusing_layer_pair
 from qkeras.utils import add_bn_fusing_weights
 
 
@@ -163,7 +163,7 @@ def test_convert_to_folded_model():
   assert isinstance(fmodel.layers[5], Multiply)
 
 
-def test_find_conv_bn_pair():
+def test_find_bn_fusing_layer_pair():
   x = x_in = Input((23, 23, 1), name="input")
   x1 = QConv2D(
       2, 2, 1,
@@ -194,7 +194,7 @@ def test_find_conv_bn_pair():
   x = Add(name="add")([x1, x2])
   model = Model(inputs=[x_in], outputs=[x])
 
-  (conv_bn_pair_dict, _) = find_conv_bn_pair(model)
+  (conv_bn_pair_dict, _) = find_bn_fusing_layer_pair(model)
   assert conv_bn_pair_dict["conv1"] == "bn1"
   assert conv_bn_pair_dict["conv2"] == "bn2"
 

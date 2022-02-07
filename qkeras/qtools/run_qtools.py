@@ -37,7 +37,8 @@ class QTools:
                is_inference=False, weights_path=None,
                keras_quantizer=None, keras_accumulator=None,
                for_reference=False,
-               model_weights_already_quantized=True):
+               model_weights_already_quantized=True,
+               hw_weight_dict=None):
 
     if model is not None:
       self._model = model
@@ -57,7 +58,8 @@ class QTools:
     self._layer_map = generate_layer_data_type_map.generate_layer_data_type_map(
         graph, source_quantizer_list, is_inference,
         keras_quantizer, keras_accumulator, for_reference,
-        model_weights_already_quantized=model_weights_already_quantized)
+        model_weights_already_quantized=model_weights_already_quantized,
+        hw_weight_dict=hw_weight_dict)
 
     self._output_dict = interface.map_to_json(self._layer_map)
 

@@ -21,6 +21,7 @@ from __future__ import division
 from __future__ import print_function
 
 import abc
+import copy
 
 from absl import logging
 from qkeras.qtools.quantized_operators import adder_impl
@@ -86,11 +87,11 @@ class IAdder(abc.ABC):
                      quantizer_2: quantizer_impl.IQuantizer):
     """make adder quantizer."""
 
-    self.quantizer_1 = quantizer_1
-    self.quantizer_2 = quantizer_2
+    local_quantizer_1 = copy.deepcopy(quantizer_1)
+    local_quantizer_2 = copy.deepcopy(quantizer_2)
 
-    mode1 = quantizer_1.mode
-    mode2 = quantizer_2.mode
+    mode1 = local_quantizer_1.mode
+    mode2 = local_quantizer_2.mode
 
     adder_impl_class = self.adder_impl_table[mode1][mode2]
     logging.debug(
@@ -98,6 +99,6 @@ class IAdder(abc.ABC):
         adder_impl_class.implemented_as())
 
     return adder_impl_class(
-        quantizer_1,
-        quantizer_2
+        local_quantizer_1,
+        local_quantizer_2
     )
