@@ -28,6 +28,17 @@ from qkeras import quantizers
 FLOATINGPOINT_BITS = 32
 
 
+def get_np_value(val):
+  if hasattr(val, "numpy"):
+    val = val.numpy()
+    if isinstance(val, np.ndarray) and len(val) == 1:
+      return val[0]
+    else:
+      return val
+  else:
+    return val
+
+
 def get_exp(quantizer):
   """get max/min exp value for relu_po2 or quantized_po2."""
 
@@ -91,7 +102,7 @@ class QuantizedBits(IQuantizer):
       self, quantizer: quantizers.quantized_bits):
     self.mode = 0
     self.bits = quantizer.bits
-    self.int_bits = quantizer.integer
+    self.int_bits = get_np_value(quantizer.integer)
     self.is_signed = quantizer.keep_negative
 
   def convert_to_qkeras_quantizer(
@@ -140,7 +151,7 @@ class QuantizedUlaw(QuantizedBits):
       self, quantizer: quantizers.quantized_ulaw):
     self.mode = 0
     self.bits = quantizer.bits
-    self.int_bits = quantizer.integer
+    self.int_bits = get_np_value(quantizer.integer)
     self.is_signed = 1
 
   def convert_to_qkeras_quantizer(self, symmetric=0, u=255.0):
@@ -238,7 +249,7 @@ class QuantizedRelu(IQuantizer):
     """convert from qkeras quantizer."""
 
     bits = quantizer.bits
-    int_bits = quantizer.integer
+    int_bits = get_np_value(quantizer.integer)
 
     if bits == 1 and int_bits == 1:
       mode = 4

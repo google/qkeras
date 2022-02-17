@@ -53,10 +53,16 @@ class FixedPointAdder(IAdderImpl):
 
   def __init__(self, quantizer_1, quantizer_2):
     self.output = quantizer_impl.QuantizedBits()
-    self.output.bits = max(quantizer_1.bits, quantizer_2.bits) + 1
     self.output.int_bits = max(quantizer_1.int_bits,
                                quantizer_2.int_bits) + 1
+    fractional_bits1 = (quantizer_1.bits - int(quantizer_1.is_signed)
+                        - quantizer_1.int_bits)
+    fractional_bits2 = (quantizer_2.bits - int(quantizer_2.is_signed)
+                        - quantizer_2.int_bits)
+    fractional_bits = max(fractional_bits1, fractional_bits2)
     self.output.is_signed = quantizer_1.is_signed | quantizer_2.is_signed
+    self.output.bits = (self.output.int_bits + int(self.output.is_signed) +
+                        fractional_bits)
     self.output.mode = 0
     self.output.is_floating_point = False
     self.output.is_po2 = 0

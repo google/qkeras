@@ -36,7 +36,8 @@ from qkeras.qtools import settings as qtools_settings
 from qkeras.qtools.quantized_operators import divider_factory
 from qkeras.qtools import generate_layer_data_type_map
 from qkeras.utils import model_save_quantized_weights
-
+from qkeras.qtools.quantized_operators import adder_impl
+from qkeras.qtools.quantized_operators import quantizer_impl
 
 
 def qdense_model_fork():
@@ -815,6 +816,19 @@ def test_auto_po2():
   assert multiplier["quantizer_type"] == "quantized_bits"
   assert multiplier["bits"] == 14
   assert multiplier["int_bits"] == 1
+
+
+def test_big_bias_quantizer():
+  q1 = quantizer_impl.QuantizedBits()
+  q1.convert_qkeras_quantizer(quantizers.quantized_bits(8, 3))
+  q2 = quantizer_impl.QuantizedBits()
+  q2.convert_qkeras_quantizer(quantizers.quantized_bits(16, 4))
+  r = adder_impl.FixedPointAdder(q1, q2)
+
+  # int_bits = max(q1.int_bits, q2.int_bits) + 1
+  # bits = int_bits + sign_bit + max(q1_fraction_bit, q2_fraction bit)
+  assert r.output.bits == 17
+  assert r.output.int_bits == 5
 
 
 if __name__ == "__main__":
