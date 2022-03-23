@@ -131,6 +131,7 @@ def map_to_json(mydict):
     output_dict["source_quantizers"] = q_list
 
   def get_val(feature, key):
+    # Return feature[key] or feature.key
     if isinstance(feature, dict):
       val = feature.get(key, None)
     else:
@@ -139,7 +140,28 @@ def map_to_json(mydict):
 
   def set_layer_item(layer_item, key, feature, shape=None,
                      is_compound_datatype=False, output_key_name=None):
+    """Generates the quantizer entry to a given layer_item.
 
+    This function extracts relevanant quantizer fields using the key (
+    quantizer name) from a given feature (layer entry from layer_data_type_map).
+
+    Args:
+      layer_item: Layer entry in the output dictionary. It includes the
+        info such as quantizers, output shape, etc. of each layer
+      key: Quantizer, such as kernel/bias quantizer, etc. If feature
+      feature: layer_data_type_map entry of each layer. This feature will be
+        parsed and converted to layer_item for the output dictionary.
+      shape: quantizer input shape
+      is_compound_datatype: Bool. Wether the quantizer is a compound
+        or unitary quantizer type. For example, kernel quantizer and bias
+        quantizer are unitary quantizer types, multiplier and accumulator
+        are compound quantizer types.
+      output_key_name: str. Change key to output_key_name in layer_item. If
+        None, will use the existing key.
+
+    Return:
+      None
+    """
     val = get_val(feature, key)
     if val is not None:
       quantizer = val
@@ -172,10 +194,20 @@ def map_to_json(mydict):
                   "variance_quantizer", "variance_quantizer"]:
         set_layer_item(layer_item, key=key, feature=feature)
 
-      for key in ["internal_divide_quantizer", "internal_divide_quantizer",
+      for key in ["internal_divide_quantizer",
                   "internal_multiplier", "internal_accumulator"]:
         set_layer_item(layer_item, key=key, feature=feature,
                        is_compound_datatype=True)
+
+    elif layer_item["layer_type"] in [
+        "AveragePooling2D", "AvgPool2D", "GlobalAvgPool2D",
+        "GlobalAveragePooling2D", "QAveragePooling2D",
+        "QGlobalAveragePooling2D"]:
+      set_layer_item(layer_item, key="average_quantizer", feature=feature)
+      for key in ["pool_sum_accumulator", "pool_avg_multiplier"]:
+        set_layer_item(layer_item, key=key, feature=feature,
+                       is_compound_datatype=True)
+
     else:
       # populate the feature to dictionary
       set_layer_item(layer_item, key="weight_quantizer", feature=feature,
@@ -201,8 +233,7 @@ def map_to_json(mydict):
         set_layer_item(layer_item, key="fused_accumulator", feature=feature,
                        is_compound_datatype=True)
 
-      layer_item["operation_count"] = get_val(feature, "operation_count")
-
+    layer_item["operation_count"] = get_val(feature, "operation_count")
     output_dict[layer.name] = layer_item
 
   return output_dict

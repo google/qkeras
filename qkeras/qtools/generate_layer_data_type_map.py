@@ -376,7 +376,7 @@ def generate_layer_data_type_map(
         "GlobalAveragePooling2D", "QAveragePooling2D",
         "QGlobalAveragePooling2D"]:
       (input_quantizer, _) = input_qe_list[0]
-
+      qtools_average_quantizer = None
       # This is a hack. We don't want to implement a new accumulator class
       # just for averagpooling. So we re-use accumulator type in conv/dense
       # layers which need multiplier and kernel as input parameters.
@@ -447,18 +447,15 @@ def generate_layer_data_type_map(
       output_quantizer = update_output_quantizer_in_graph(
           graph, node_id, quantizer_factory, layer_quantizer, for_reference)
 
-      layer_data_type_map[layer] = LayerDataType(
-          input_quantizer_list,
-          multiplier,
-          accumulator,
-          None,
-          None,
-          None,
-          None,
-          output_quantizer,
-          output_shapes,
-          operation_count
-      )
+      layer_data_type_map[layer] = {
+          "input_quantizer_list": input_quantizer_list,
+          "average_quantizer": qtools_average_quantizer,
+          "pool_sum_accumulator": accumulator,
+          "pool_avg_multiplier": multiplier,
+          "output_quantizer": output_quantizer,
+          "output_shapes": output_shapes,
+          "operation_count": operation_count
+      }
 
     # If it's a Quantized Activation layer.
     elif node_type in ["QActivation", "QAdaptiveActivation", "Activation"]:

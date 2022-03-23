@@ -204,8 +204,9 @@ def test_qpooling_in_qtools():
   dtype_dict = interface.map_to_json(layer_map)
 
   # Checks the QAveragePpooling layer datatype
-  multiplier = dtype_dict["pooling"]["multiplier"]
-  accumulator = dtype_dict["pooling"]["accumulator"]
+  multiplier = dtype_dict["pooling"]["pool_avg_multiplier"]
+  accumulator = dtype_dict["pooling"]["pool_sum_accumulator"]
+  average_quantizer  = dtype_dict["pooling"]["average_quantizer"]
   output = dtype_dict["pooling"]["output_quantizer"]
 
   assert_equal(multiplier["quantizer_type"], "quantized_bits")
@@ -225,9 +226,15 @@ def test_qpooling_in_qtools():
   assert_equal(output["int_bits"], 1)
   assert_equal(output["is_signed"], 1)
 
+  assert_equal(average_quantizer["quantizer_type"], "binary")
+  assert_equal(average_quantizer["bits"], 1)
+  assert_equal(average_quantizer["int_bits"], 1)
+  assert_equal(average_quantizer["is_signed"], 1)
+
   # Checks the QGlobalAveragePooling layer datatype
-  multiplier = dtype_dict["global_pooling"]["multiplier"]
-  accumulator = dtype_dict["global_pooling"]["accumulator"]
+  multiplier = dtype_dict["global_pooling"]["pool_avg_multiplier"]
+  accumulator = dtype_dict["global_pooling"]["pool_sum_accumulator"]
+  average_quantizer  = dtype_dict["global_pooling"]["average_quantizer"]
   output = dtype_dict["global_pooling"]["output_quantizer"]
 
   assert_equal(multiplier["quantizer_type"], "quantized_bits")
@@ -246,6 +253,39 @@ def test_qpooling_in_qtools():
   assert_equal(output["bits"], 2)
   assert_equal(output["int_bits"], 2)
   assert_equal(output["is_signed"], 1)
+
+  assert_equal(average_quantizer["quantizer_type"], "quantized_bits")
+  assert_equal(average_quantizer["bits"], 4)
+  assert_equal(average_quantizer["int_bits"], 1)
+  assert_equal(average_quantizer["is_signed"], 1)
+
+
+def test_QAveragePooling_output():
+  # Checks if the output of QAveragePooling layer with average_quantizer
+  # is correct.
+  x = np.ones(shape=(2, 6, 6, 1))
+  x[0, 0, :, :] = 0
+  x = tf.constant(x)
+
+  y = QAveragePooling2D(
+      pool_size=(3, 3),
+      strides=3,
+      padding="valid",
+      average_quantizer="quantized_bits(8, 1, 1)")(x)
+  y = y.numpy()
+  assert np.all(y == [[[[0.65625], [0.65625]], [[0.984375], [0.984375]]],
+                      [[[0.984375], [0.984375]], [[0.984375], [0.984375]]]])
+
+
+def test_QGlobalAveragePooling_output():
+  # Checks if the output of QGlobalAveragePooling layer with average_quantizer
+  # is correct.
+  x = np.ones(shape=(2, 3, 3, 2))
+  x[0, 0, 1, :] = 0
+  x = tf.constant(x)
+  y = QGlobalAveragePooling2D(average_quantizer="quantized_bits(8, 1, 1)")(x)
+  y = y.numpy()
+  assert np.all(y == np.array([[0.875, 0.875], [0.984375, 0.984375]]))
 
 
 if __name__ == "__main__":

@@ -566,12 +566,12 @@ def test_pooling():
   model = pooling_qmodel()
   dtype_dict = run(model, input_quantizers)
 
-  accumulator = dtype_dict["avg_pooling"]["accumulator"]
+  accumulator = dtype_dict["avg_pooling"]["pool_sum_accumulator"]
   assert accumulator["quantizer_type"] == "quantized_bits"
   assert accumulator["bits"] == 10
   assert accumulator["int_bits"] == 3
 
-  accumulator = dtype_dict["global_avg_pooling"]["accumulator"]
+  accumulator = dtype_dict["global_avg_pooling"]["pool_sum_accumulator"]
   assert accumulator["quantizer_type"] == "quantized_bits"
   assert accumulator["bits"] == 16
   assert accumulator["int_bits"] == 9
