@@ -155,8 +155,8 @@ def qbn_model_inference():
   x = x_in = keras.layers.Input((23, 23, 1), name="input")
   x = QConv2D(
       4, 2, 23,
-      kernel_quantizer=quantizers.quantized_bits(4, 0, 1),
-      bias_quantizer=quantizers.quantized_bits(4, 0, 1),
+      kernel_quantizer=quantizers.quantized_bits(4, 0, 1, alpha=1.0),
+      bias_quantizer=quantizers.quantized_bits(4, 0, 1, alpha=1.0),
       use_bias=False,
       name="qconv2d_1")(x)
   x = QBatchNormalization(
@@ -393,20 +393,20 @@ def test_qbn_inference():
   fused_accumulator = dtype_dict["qconv2d_1"]["fused_accumulator"]
 
   assert multiplier["quantizer_type"] == "quantized_bits"
-  assert multiplier["bits"] == 9
-  assert multiplier["int_bits"] == 2
+  assert multiplier["bits"] == 7
+  assert multiplier["int_bits"] == 1
   assert multiplier["is_signed"] == 1
   assert multiplier["op_type"] == "mul"
 
   assert accumulator["quantizer_type"] == "quantized_bits"
-  assert accumulator["bits"] == 11
-  assert accumulator["int_bits"] == 4
+  assert accumulator["bits"] == 9
+  assert accumulator["int_bits"] == 3
   assert accumulator["is_signed"] == 1
   assert accumulator["op_type"] == "add"
 
   assert fused_accumulator["quantizer_type"] == "quantized_bits"
-  assert fused_accumulator["bits"] == 28
-  assert fused_accumulator["int_bits"] == 5
+  assert fused_accumulator["bits"] == 25
+  assert fused_accumulator["int_bits"] == 4
   assert accumulator["is_signed"] == 1
   assert fused_accumulator["op_type"] == "add"
 
@@ -535,7 +535,7 @@ def test_merge_layers():
   dtype_dict = run(model, input_quantizers)
   merge_quantizer = dtype_dict["multiply"]["Multiply_quantizer"]
   assert merge_quantizer["quantizer_type"] == "quantized_bits"
-  assert merge_quantizer["bits"] == 15
+  assert merge_quantizer["bits"] == 13
   assert merge_quantizer["int_bits"] == 1
   assert merge_quantizer["is_signed"] == 1
   assert merge_quantizer["op_type"] == "mul"
@@ -556,7 +556,7 @@ def test_merge_layers():
   dtype_dict = run(model, input_quantizers)
   merge_quantizer = dtype_dict["concatenate"]["Concatenate_quantizer"]
   assert merge_quantizer["quantizer_type"] == "quantized_bits"
-  assert merge_quantizer["bits"] == 15
+  assert merge_quantizer["bits"] == 14
   assert merge_quantizer["int_bits"] == 4
   assert merge_quantizer["is_signed"] == 1
 

@@ -348,9 +348,21 @@ class FixedPointMultiplier(IMultiplier):
     super().__init__(weight_quantizer, input_quantizer,
                      output_quantizer)
 
-    self.output.bits = self.input.bits + self.weights.bits
+    # Total int bits is the sum of individual int bits.
     self.output.int_bits = self.input.int_bits + self.weights.int_bits
+
+    # Total fractional bits is the sum of individual fractional bits
+    fractional_bits1 = (self.input.bits - int(self.input.is_signed)
+                        - self.input.int_bits)
+    fractional_bits2 = (self.weights.bits - int(self.weights.is_signed)
+                        - self.weights.int_bits)
+    fractional_bits = fractional_bits1 + fractional_bits2
+
     self.output.is_signed = self.input.is_signed | self.weights.is_signed
+
+    # Total bits is the sum of int bits, fractional bits and sign bit
+    self.output.bits = self.output.int_bits + fractional_bits + int(
+        self.output.is_signed)
 
     assert_neither_input_and_weights_is_floating_point(self)
     self.output.is_floating_point = False

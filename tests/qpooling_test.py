@@ -231,7 +231,7 @@ def test_qpooling_in_qtools():
   output = dtype_dict["global_pooling"]["output_quantizer"]
 
   assert_equal(multiplier["quantizer_type"], "quantized_bits")
-  assert_equal(multiplier["bits"], 14)
+  assert_equal(multiplier["bits"], 13)
   assert_equal(multiplier["int_bits"], 7)
   assert_equal(multiplier["is_signed"], 1)
   assert_equal(multiplier["op_type"], "mul")
