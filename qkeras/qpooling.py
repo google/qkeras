@@ -143,7 +143,8 @@ class QGlobalAveragePooling2D(GlobalAveragePooling2D):
         data_format=data_format, **kwargs)
 
   def compute_pooling_area(self, input_shape):
-    input_shape = input_shape.as_list()
+    if not isinstance(input_shape, tuple):
+      input_shape = input_shape.as_list()
     if self.data_format == "channels_last":
       return input_shape[1] * input_shape[2]
     else:

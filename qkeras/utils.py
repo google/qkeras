@@ -359,6 +359,23 @@ def model_save_quantized_weights(model, filename=None):
       # Save the weights in the format that hardware inference uses
       saved_weights[layer.name] = {"weights": hw_weights,
                                    "enable_bn_fusing": enable_bn_fusing}
+
+      if (isinstance(layer, QAveragePooling2D) or
+          isinstance(layer, QGlobalAveragePooling2D)):
+        if isinstance(layer, QAveragePooling2D):
+          pool_area = layer.pool_size
+          if isinstance(layer.pool_size, int):
+            pool_area = layer.pool_size * layer.pool_size
+          else:
+            pool_area = np.prod(layer.pool_size)
+        else:
+          pool_area = layer.compute_pooling_area(input_shape=layer.input_shape)
+        saved_weights[
+            layer.name]["q_mult_factor"] = layer.average_quantizer_internal(
+                1.0 / pool_area).numpy()
+        saved_weights[layer.name]["mult_factor"] = 1.0 / pool_area
+        saved_weights[layer.name]["pool_area"] = pool_area
+
       if has_sign:
         saved_weights[layer.name]["signs"] = signs
       if has_scale:
