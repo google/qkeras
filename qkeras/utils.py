@@ -382,7 +382,7 @@ def model_save_quantized_weights(model, filename=None):
       if has_scale:
         saved_weights[layer.name]["scales"] = scales
       if not any(isinstance(layer, t) for t in [
-          QConv2DBatchnorm, QDepthwiseConv2DBatchnorm]):
+          QConv2DBatchnorm, QDenseBatchnorm, QDepthwiseConv2DBatchnorm]):
         # Set layer weights in the format that software inference uses
         layer.set_weights(weights)
       else:
