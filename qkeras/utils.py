@@ -266,7 +266,7 @@ def model_save_quantized_weights(model, filename=None):
       hw_weights = []
 
       if any(isinstance(layer, t) for t in [
-          QConv2DBatchnorm, QDepthwiseConv2DBatchnorm]):
+          QConv2DBatchnorm, QDenseBatchnorm, QDepthwiseConv2DBatchnorm]):
         qs = layer.get_quantizers()
         ws = layer.get_folded_weights()
       elif any(isinstance(layer, t) for t in [QSimpleRNN, QLSTM, QGRU]):
