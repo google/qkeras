@@ -17,6 +17,7 @@
 import collections
 import copy
 import numpy as np
+import sys
 
 import networkx as nx
 from qkeras.qtools import qgraph
@@ -56,8 +57,6 @@ QKERAS_LAYERS = [
     "QConv1D",
     "QConv2D",
     "QDepthwiseConv2D",
-    "QSeparableConv2D",
-    "QOctaveConv2D",
 ]
 
 KERAS_LAYERS = [
@@ -65,8 +64,6 @@ KERAS_LAYERS = [
     "Conv1D",
     "Conv2D",
     "DepthwiseConv2D",
-    "SeparableConv2D",
-    "OctaveConv2D",
 ]
 
 
@@ -660,11 +657,18 @@ def generate_layer_data_type_map(
       weights = layer.get_weights()
       kernel = weights[0]
 
+      kernel_shape = kernel.shape
+      # depthwise_kernel_shape = kernel_size + (input_dim, depth_multiplier)
+      # When computing accumulator bitwidth for dw conv2d layer, we do not
+      # need to count the last two dimensions
+      if node_type in ["QDepthwiseConv2D", "DepthwiseConv2D"]:
+        kernel_shape = kernel.shape[:-2] + (1, 1)
+
       kernel_accumulator_factory = quantized_operators.AccumulatorFactory()
       # Set use_bias=False so that the accumulator doesn't account for bias
       # bitwdith
       kernel_accumulator = kernel_accumulator_factory.make_accumulator(
-          kernel.shape, multiplier, use_bias=False)
+          kernel_shape, multiplier, use_bias=False)
 
       if not layer.use_bias:
         bias_quantizer = None
@@ -873,6 +877,10 @@ def generate_layer_data_type_map(
     elif node_type:
       # Any other unsupported layer types -> pass the input quantizer
       # type to output in qraph
+      print(f"[WARNING] QTools cannot parse {node_type}. The input quatnizer"
+            " of this layer is directly passed through to the output!",
+            file=sys.stderr)
+
       (input_quantizer, _) = input_qe_list[0]
 
       if for_reference and keras_accumulator and not is_input_layer:

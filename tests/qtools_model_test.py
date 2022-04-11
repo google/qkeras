@@ -27,6 +27,7 @@ from qkeras import QActivation
 from qkeras import QAdaptiveActivation
 from qkeras import QBatchNormalization
 from qkeras import QConv2D
+from qkeras import QDepthwiseConv2D
 from qkeras import QDense
 from qkeras import quantizers
 from qkeras.qtools import interface
@@ -829,6 +830,42 @@ def test_big_bias_quantizer():
   # bits = int_bits + sign_bit + max(q1_fraction_bit, q2_fraction bit)
   assert r.output.bits == 17
   assert r.output.int_bits == 5
+
+
+def test_qdepthwiseconv2d():
+  x = x_in = keras.layers.Input((64, 64, 3), name="input")
+  x = QDepthwiseConv2D(
+      kernel_size=(1, 7),
+      depthwise_quantizer=quantizers.quantized_bits(8, 0, 1, alpha=1.0),
+      bias_quantizer=quantizers.quantized_bits(12, 6, 1, alpha=1.0),
+      name="dw_conv")(x)
+  x = QConv2D(
+      filters=16,
+      kernel_size=(1, 1),
+      bias_quantizer=quantizers.quantized_bits(12, 4, 1, alpha=1.0),
+      kernel_quantizer=quantizers.quantized_bits(4,0, 1, alpha=1.0),
+      name="pw_conv")(x)
+
+  model = keras.Model(inputs=[x_in], outputs=[x])
+
+  input_quantizers = [quantizers.quantized_bits(8, 0, 1)]
+  dtype_dict = run(model, input_quantizers)
+
+  # multiplier_int_bits = 0(x_int_bits) + 0(w_int_bits) = 0 (excluding sign_bit)
+  # multiplier_fractional_bits = 7(x_fractional) + 7(w_fractional) = 14
+  # multiplier_bits = 0 + 14 + sign_bit = 15
+  assert dtype_dict["dw_conv"]["multiplier"]["bits"] == 15
+  assert dtype_dict["dw_conv"]["multiplier"]["int_bits"] == 1
+  # accumulator_int_bits = max(bias_int_bits, log7 + 0) + 1 = 7
+  # accumulator_fractional_bits = max(bias_fractional, 14) = 14
+  # accumulator_bits = int_bits + fractional_bits + sign_bit = 22
+  assert dtype_dict["dw_conv"]["accumulator"]["bits"] == 22
+  assert dtype_dict["dw_conv"]["accumulator"]["int_bits"] == 8
+
+  assert dtype_dict["pw_conv"]["multiplier"]["bits"] == 25
+  assert dtype_dict["pw_conv"]["multiplier"]["int_bits"] == 8
+  assert dtype_dict["pw_conv"]["accumulator"]["bits"] == 28
+  assert dtype_dict["pw_conv"]["accumulator"]["int_bits"] == 11
 
 
 if __name__ == "__main__":
