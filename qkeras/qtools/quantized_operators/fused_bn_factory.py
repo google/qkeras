@@ -28,7 +28,8 @@ from qkeras.qtools.quantized_operators import adder_factory
 from qkeras.qtools.quantized_operators import divider_factory
 from qkeras.qtools.quantized_operators import multiplier_factory
 from qkeras.qtools.quantized_operators import quantizer_impl
-
+from qkeras.qtools import qtools_util
+from qkeras import quantizers
 
 class FusedBNFactory:
   """determine which quantizer implementation to use.
@@ -54,6 +55,7 @@ class FusedBNFactory:
       prev_bias_quantizer: quantizer_impl.IQuantizer,
       use_beta: bool,
       use_bias: bool,
+      qkeras_inverse_quantizer:quantizers.BaseQuantizer
   ):
     """Makes a fused_bn quantizer.
 
@@ -65,7 +67,8 @@ class FusedBNFactory:
       prev_bias_quantizer: IQuantizer type. conv layer bias quantizer
       use_beta: Bool. whether enabling beta in batch_normalization layer
       use_bias: Bool. Whether bias is used in conv layer.
-
+      qkeras_inverse_quantizer: QKeras quantizer type. bn layer inverse
+        quantizer with QKeras quantizer type
     Returns:
       None
     """
@@ -79,16 +82,26 @@ class FusedBNFactory:
     multiplier_x = multiplier_instance.make_multiplier(
         inverse_quantizer, prev_output_quantizer)
 
+    qtools_util.adjust_multiplier_for_auto_po2(
+        multiplier_x, qkeras_inverse_quantizer)
+
     # fused_bias = bn_inv * bias + beta - bn_inv*mean
     # This step derives the datatype for bn_inv * mean
     multiplier_mean = multiplier_instance.make_multiplier(
         inverse_quantizer, mean_quantizer)
+
+    qtools_util.adjust_multiplier_for_auto_po2(
+        multiplier_mean, qkeras_inverse_quantizer)
 
     adder_instance = adder_factory.IAdder()
     if use_bias:
       # Derives datatype of bn_inv*bias
       multiplier_bias = multiplier_instance.make_multiplier(
           inverse_quantizer, prev_bias_quantizer)
+
+      qtools_util.adjust_multiplier_for_auto_po2(
+          multiplier_bias, qkeras_inverse_quantizer)
+
       # Derives datatype of bn_inv*bias - bn_inv*mean
       adder_1 = adder_instance.make_quantizer(
           multiplier_bias.output, multiplier_mean.output)

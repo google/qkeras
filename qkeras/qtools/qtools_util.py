@@ -234,6 +234,8 @@ def adjust_multiplier_for_auto_po2(multiplier, qkeras_weight_quantizer):
     bits = output_quantizer.bits
     int_bits = output_quantizer.int_bits
     scale = qkeras_weight_quantizer.scale
+    sign_bit = int(output_quantizer.is_signed)
+
     if hasattr(scale, "numpy"):
       # if scale doesn't have numpy() function, it means the quantizer has
       # never being called. Therfore we skip the following steps
@@ -252,9 +254,9 @@ def adjust_multiplier_for_auto_po2(multiplier, qkeras_weight_quantizer):
       # In order to set a general quantizer for different output channels,
       # we need to set both fractional bits and integer bits as the max required
       # bits for different output channels
-      max_fractional_bits = bits - int_bits - min_shift
+      max_fractional_bits = bits - int_bits - sign_bit - min_shift
       max_int_bits = int_bits + max_shift
-      total_bits = max_int_bits + max_fractional_bits
+      total_bits = max_int_bits + max_fractional_bits + sign_bit
 
       output_quantizer.bits = total_bits
       output_quantizer.int_bits = max_int_bits

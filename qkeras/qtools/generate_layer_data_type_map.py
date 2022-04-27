@@ -715,6 +715,7 @@ def generate_layer_data_type_map(
              bn_layer, quantizer_factory, cfg, keras_quantizer, input_quantizer,
              is_inference, for_reference, model_weights_already_quantized)
 
+        qkeras_inverse_quantizer = bn_layer.inverse_quantizer_internal
         fused_bn = FusedBNFactory()
         fused_bn.make_quantizer(
             prev_output_quantizer=kernel_accumulator.output,
@@ -724,6 +725,7 @@ def generate_layer_data_type_map(
             inverse_quantizer=inverse_quantizer,
             use_beta=bn_layer.center,
             use_bias=layer.use_bias,
+            qkeras_inverse_quantizer=qkeras_inverse_quantizer
         )
         if for_reference or not hasattr(layer, "get_quantizers"):
           fused_bn.internal_accumulator.output = (

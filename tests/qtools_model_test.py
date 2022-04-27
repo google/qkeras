@@ -168,16 +168,41 @@ def qbn_model_inference():
       scale=False,
       center=False,
       gamma_range=8, beta_range=4, name="qbn_2")(x)
-
+  x = QActivation(activation="quantized_bits(5, 0, 1)", name="act")(x)
   x = QConv2D(
       2, 1, 1,
       kernel_quantizer=quantizers.quantized_bits(3, 0),
       bias_quantizer=quantizers.quantized_bits(3, 2),
       name="qconv2d_3")(x)
+  # Add an extra QNormalization here to test auto_po2 type of inverse_quantizer
+  # in batchnorm fusing.
+  x = QBatchNormalization(
+      mean_quantizer=quantizers.quantized_bits(6, 0, 1),
+      gamma_quantizer=None,
+      variance_quantizer=None,
+      beta_quantizer=quantizers.quantized_bits(6, 0, 1),
+      inverse_quantizer=quantizers.quantized_bits(8, 0, 1, alpha="auto_po2"),
+      scale=False,
+      center=False,
+      gamma_range=8, beta_range=4, name="qbn_4")(x)
 
   model = keras.Model(inputs=[x_in], outputs=[x])
-  hw_weight_dict = model_save_quantized_weights(model)
+  model.compile(loss="mse", run_eagerly=True)
+  model.get_layer("qconv2d_1").set_weights([
+      np.array([[[[0.11, -0.5, -0.14, -0.41]], [[-0.4, 0.9, 0.6, -1.]]],
+                [[[-0.35, 1., 0.54, 0.17]], [[0.39, -0.2, -0.41, -0.7]]]])
+  ])
+  model.get_layer("qbn_2").set_weights(
+      [np.array([0., 0, 0, 0.]),
+       np.array([1, 1, 1, 1])])
+  model.get_layer("qconv2d_3").set_weights([
+      np.array([[[[1.2, -1.5], [10., 1.3], [-0.7, 1.2], [1.7, 1.5]]]]),
+      np.array([0.7, 0.8])
+  ])
+  model.get_layer("qbn_4").set_weights(
+      [np.array([0, 0]), np.array([0.3, 16.8])])
 
+  hw_weight_dict = model_save_quantized_weights(model)
   return (hw_weight_dict, model)
 
 
@@ -407,6 +432,43 @@ def test_qbn_inference():
   assert fused_accumulator["quantizer_type"] == "quantized_bits"
   assert fused_accumulator["bits"] == 25
   assert fused_accumulator["int_bits"] == 4
+  assert accumulator["is_signed"] == 1
+  assert fused_accumulator["op_type"] == "add"
+
+  # Tests auto_po2 type of quantizer in conv2d and batchnorm fusing. Here
+  # we set the layer weights in a way that scale value would be !=1 so that
+  # we need to check bits and int_bits are adjusted properly to incorporate
+  # the scale value.
+  multiplier = dtype_dict["qconv2d_3"]["multiplier"]
+  accumulator = dtype_dict["qconv2d_3"]["accumulator"]
+  output = dtype_dict["qconv2d_3"]["output_quantizer"]
+  fused_accumulator = dtype_dict["qconv2d_3"]["fused_accumulator"]
+
+  # w_bits = 3, w_intbits =0
+  # x_bits = 5, x_intbits =0
+  # weight scale = [[[[16.  2.]]]]
+  # before scale adjustment: m_bits=(3-1)+(5-1)+1=7   m_intbits = 0
+  # after scale adjustment: m_bits=7+(log16-log2)=10  m_intbits = 0+log16=4
+  # Note: dict here added sign bit to the intbit to match hardware format.
+  assert multiplier["quantizer_type"] == "quantized_bits"
+  assert multiplier["bits"] == 10
+  assert multiplier["int_bits"] == 5
+  assert multiplier["is_signed"] == 1
+  assert multiplier["op_type"] == "mul"
+
+  assert accumulator["quantizer_type"] == "quantized_bits"
+  assert accumulator["bits"] == 13
+  assert accumulator["int_bits"] == 8
+  assert accumulator["is_signed"] == 1
+  assert accumulator["op_type"] == "add"
+
+  # Calculates fused_accumulator according to fused_bn_factory/FusedBNFactory.
+  # For example, wiht inv_quantizer scale:[2. 2.] we have here,
+  # multiplier_x before adjust - bits:19 int_bits:6
+  # multiplier_x after adjust - bits:19 int_bits:7
+  assert fused_accumulator["quantizer_type"] == "quantized_bits"
+  assert fused_accumulator["bits"] == 20
+  assert fused_accumulator["int_bits"] == 9
   assert accumulator["is_signed"] == 1
   assert fused_accumulator["op_type"] == "add"
 
