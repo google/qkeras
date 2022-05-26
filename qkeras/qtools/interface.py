@@ -130,14 +130,6 @@ def map_to_json(mydict):
   if bool(q_list):
     output_dict["source_quantizers"] = q_list
 
-  def get_val(feature, key):
-    # Return feature[key] or feature.key
-    if isinstance(feature, dict):
-      val = feature.get(key, None)
-    else:
-      val = getattr(feature, key, None)
-    return val
-
   def set_layer_item(layer_item, key, feature, shape=None,
                      is_compound_datatype=False, output_key_name=None):
     """Generates the quantizer entry to a given layer_item.
@@ -162,7 +154,7 @@ def map_to_json(mydict):
     Return:
       None
     """
-    val = get_val(feature, key)
+    val = qtools_util.get_val(feature, key)
     if val is not None:
       quantizer = val
       implemented_as = None
@@ -182,10 +174,11 @@ def map_to_json(mydict):
     layer_item = collections.OrderedDict()
     layer_item["layer_type"] = layer.__class__.__name__
     layer_item["input_quantizer_list"] = [
-        populate_quantizer(q) for q in get_val(feature, "input_quantizer_list")]
+        populate_quantizer(q) for q in qtools_util.get_val(
+            feature, "input_quantizer_list")]
 
     set_layer_item(layer_item, key="output_quantizer", feature=feature,
-                   shape=get_val(feature, "output_shapes"))
+                   shape=qtools_util.get_val(feature, "output_shapes"))
 
     if layer_item["layer_type"] in [
         "QBatchNormalization", "BatchNormalization"]:
@@ -211,9 +204,9 @@ def map_to_json(mydict):
     else:
       # populate the feature to dictionary
       set_layer_item(layer_item, key="weight_quantizer", feature=feature,
-                     shape=get_val(feature, "w_shapes"))
+                     shape=qtools_util.get_val(feature, "w_shapes"))
       set_layer_item(layer_item, key="bias_quantizer", feature=feature,
-                     shape=get_val(feature, "b_shapes"))
+                     shape=qtools_util.get_val(feature, "b_shapes"))
 
       output_key_name = None
       if qtools_util.is_merge_layers(layer):
@@ -224,7 +217,7 @@ def map_to_json(mydict):
       set_layer_item(layer_item, key="accumulator", feature=feature,
                      is_compound_datatype=True)
 
-      if get_val(feature, "fused_accumulator"):
+      if qtools_util.get_val(feature, "fused_accumulator"):
         # Add fused weights to the dictionary
         for key in ["bn_beta_quantizer", "bn_mean_quantizer",
                     "bn_inverse_quantizer"]:
@@ -233,7 +226,8 @@ def map_to_json(mydict):
         set_layer_item(layer_item, key="fused_accumulator", feature=feature,
                        is_compound_datatype=True)
 
-    layer_item["operation_count"] = get_val(feature, "operation_count")
+    layer_item["operation_count"] = qtools_util.get_val(
+        feature, "operation_count")
     output_dict[layer.name] = layer_item
 
   return output_dict

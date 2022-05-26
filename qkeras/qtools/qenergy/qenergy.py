@@ -25,6 +25,8 @@ from qkeras.qtools.generate_layer_data_type_map import KERAS_LAYERS
 from qkeras.qtools.generate_layer_data_type_map import QKERAS_LAYERS
 from qkeras.qtools.quantized_operators.quantizer_impl import IQuantizer
 from qkeras.qtools.settings import cfg
+from qkeras.qtools import qtools_util
+
 
 # Model based on：
 #   Mark Horowitz, Computing’s Energy Problem (and what we can
@@ -136,10 +138,10 @@ def parameter_read_energy(
             q.bits, is_tensor=False)
 
   elif node_type in QKERAS_LAYERS or node_type in KERAS_LAYERS:
-    weight_quantizer = layer_item.weight_quantizer
-    w_shapes = layer_item.w_shapes
-    bias_quantizer = layer_item.bias_quantizer
-    b_shapes = layer_item.b_shapes
+    weight_quantizer = qtools_util.get_val(layer_item, "weight_quantizer")
+    w_shapes = qtools_util.get_val(layer_item, "w_shapes")
+    bias_quantizer = qtools_util.get_val(layer_item, "bias_quantizer")
+    b_shapes = qtools_util.get_val(layer_item, "b_shapes")
 
     rd_energy += memory_read_energy(
         False, w_shapes, weights_on_memory, min_sram_size, rd_wr_on_io,
@@ -218,17 +220,11 @@ def energy_estimate(model, layer_map, weights_on_memory,
       continue
 
     layer_item = layer_data_type_map[layer]
-
-    if hasattr(layer_item, "input_quantizer_list"):
-      input_quantizer_list = layer_item.input_quantizer_list
-      operation_count = layer_item.operation_count
-      output_shapes = layer_item.output_shapes
-      output_quantizer = layer_item.output_quantizer
-    else:
-      input_quantizer_list = layer_item["input_quantizer_list"]
-      operation_count = layer_item["operation_count"]
-      output_shapes = layer_item["output_shapes"]
-      output_quantizer = layer_item["output_quantizer"]
+    input_quantizer_list = qtools_util.get_val(
+        layer_item, "input_quantizer_list")
+    operation_count = qtools_util.get_val(layer_item, "operation_count")
+    output_shapes = qtools_util.get_val(layer_item, "output_shapes")
+    output_quantizer = qtools_util.get_val(layer_item, "output_quantizer")
 
     is_input_layer = layer in input_layers
     is_output_layer = layer in output_layers
@@ -286,9 +282,10 @@ def energy_estimate(model, layer_map, weights_on_memory,
 
       # multiply or add operation energy
       # TODO(lishanok): check energy for concatenate
-      merge_quantizer = layer_item.multiplier
+      merge_quantizer = qtools_util.get_val(layer_item, "multiplier")
       mode = merge_quantizer.implemented_as()
-      number_of_inputs = len(layer_item.input_quantizer_list)
+      number_of_inputs = len(qtools_util.get_val(
+          layer_item, "input_quantizer_list"))
       gate_factor = merge_quantizer.gate_factor
 
       q = get_op_type(merge_quantizer.output)
@@ -301,7 +298,7 @@ def energy_estimate(model, layer_map, weights_on_memory,
         "AveragePooling2D", "AvgPool2D", "GlobalAvgPool2D",
         "GlobalAveragePooling2D"]:
       # accumulation operation energy
-      accumulator = layer_item.accumulator
+      accumulator = qtools_util.get_val(layer_item, "accumulator")
       add_energy = OP[get_op_type(accumulator.output)]["add"](
           accumulator.output.bits)
       energy_op = operation_count * add_energy
@@ -310,8 +307,8 @@ def energy_estimate(model, layer_map, weights_on_memory,
     elif layer.__class__.__name__ in ["QConv2D", "QConv1D", "QDepthwiseConv2D",
                                       "QDense", "Conv2D", "Conv1D",
                                       "DepthwiseConv2D", "Dense"]:
-      multiplier = layer_item.multiplier
-      accumulator = layer_item.accumulator
+      multiplier = qtools_util.get_val(layer_item, "multiplier")
+      accumulator = qtools_util.get_val(layer_item, "accumulator")
 
       # implementation mode: xor/andgate/shift etc.
       mode = multiplier.implemented_as()

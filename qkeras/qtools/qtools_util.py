@@ -24,6 +24,17 @@ import numpy as np
 import tensorflow.keras.backend as K
 import sys
 
+from qkeras.qtools import quantized_operators
+
+
+def get_val(feature, key):
+  # Return feature[key] or feature.key
+  if isinstance(feature, dict):
+    val = feature.get(key, None)
+  else:
+    val = getattr(feature, key, None)
+  return val
+
 
 def is_shape_alternation_layers(layer):
   lname = layer.__class__.__name__
@@ -226,7 +237,7 @@ def adjust_multiplier_for_auto_po2(multiplier, qkeras_weight_quantizer):
   Therefore we set a general multiplier quantizers so that it provides enough
   fractional bits and integer bits for all output channels.
   """
-
+  print("adjust multiplier for auto_po2 ...")
   output_quantizer = multiplier.output
   if (hasattr(qkeras_weight_quantizer, "__str__") and
       "quantized_bits" in qkeras_weight_quantizer.__str__() and
@@ -234,8 +245,6 @@ def adjust_multiplier_for_auto_po2(multiplier, qkeras_weight_quantizer):
     bits = output_quantizer.bits
     int_bits = output_quantizer.int_bits
     scale = qkeras_weight_quantizer.scale
-    sign_bit = int(output_quantizer.is_signed)
-
     if hasattr(scale, "numpy"):
       # if scale doesn't have numpy() function, it means the quantizer has
       # never being called. Therfore we skip the following steps
@@ -254,9 +263,9 @@ def adjust_multiplier_for_auto_po2(multiplier, qkeras_weight_quantizer):
       # In order to set a general quantizer for different output channels,
       # we need to set both fractional bits and integer bits as the max required
       # bits for different output channels
-      max_fractional_bits = bits - int_bits - sign_bit - min_shift
+      max_fractional_bits = bits - int_bits - min_shift
       max_int_bits = int_bits + max_shift
-      total_bits = max_int_bits + max_fractional_bits + sign_bit
+      total_bits = max_int_bits + max_fractional_bits
 
       output_quantizer.bits = total_bits
       output_quantizer.int_bits = max_int_bits
@@ -272,3 +281,38 @@ def adjust_multiplier_for_auto_po2(multiplier, qkeras_weight_quantizer):
           f" given quantizer type: {type(qkeras_weight_quantizer)}."
           "Therefore we do not adjust the multiplier and accumulator bit width")
 
+
+def adjust_accumulator_for_auto_po2(
+    layer, multiplier, qkeras_weight_quantizer, bias_quantizer):
+  """Adjust accumulator when weight quantizer is auto_po2 type."""
+
+  fused_multiplier = copy.deepcopy(multiplier)
+  adjust_multiplier_for_auto_po2(fused_multiplier, qkeras_weight_quantizer)
+  weights = layer.get_weights()
+  kernel = weights[0]
+
+  kernel_shape = kernel.shape
+  # depthwise_kernel_shape = kernel_size + (input_dim, depth_multiplier)
+  # When computing accumulator bitwidth for dw conv2d layer, we do not
+  # need to count the last two dimensions
+  if layer.__class__.__name__ in ["QDepthwiseConv2D", "DepthwiseConv2D"]:
+    assert kernel_shape[-1] == 1, ("depth_multiplier must be 1, "
+                                   f"{kernel_shape[-1]} found instead!")
+    kernel_shape = kernel.shape[:-2] + (1, 1)
+
+  kernel_accumulator_factory = quantized_operators.AccumulatorFactory()
+  # Sets use_bias=False so that the accumulator doesn't account for bias
+  # bitwdith.
+  fused_kernel_accumulator = kernel_accumulator_factory.make_accumulator(
+      kernel_shape, fused_multiplier, use_bias=False)
+
+  if not layer.use_bias:
+    bias_quantizer = None
+    fused_accumulator = fused_kernel_accumulator
+  else:
+    # Add bias quantizer bitwidth to the overall accumulator
+    bias_accumulator_instance = quantized_operators.adder_factory.IAdder()
+    fused_accumulator = bias_accumulator_instance.make_quantizer(
+        fused_kernel_accumulator.output, bias_quantizer)
+
+  return fused_accumulator

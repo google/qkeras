@@ -862,21 +862,38 @@ def test_auto_po2():
       quantizers.quantized_bits(bits=8, integer=0, keep_negative=False)
   ]
   dtype_dict = run(model, input_quantizers)
+
+  # Original multiplier has 16 bits(16=8+8) and 3 int_bits
   multiplier = dtype_dict["conv"]["multiplier"]
   assert multiplier["quantizer_type"] == "quantized_bits"
-  # Original multiplier has 16 bits(16=8+8) and 3 int_bits
-  # Modified multiplier has bits = max_fractional_bits + max_int_bits
-  #                             = bits + max_shift - min_shift
-  # max_shift = log2(0.0625) = -4  min_shift=log2(0.03125) = -5
-  # Therefore modified multiplier bits = 17
-  assert multiplier["bits"] == 17
+  assert multiplier["bits"] == 16
+  assert multiplier["int_bits"] == 4
+
+  # Original accumulator has 16+log2(4*4*3)+1 bits,
+  # and 4+log2(4*4*3)+1 int_bits
+  accumulator = dtype_dict["conv"]["accumulator"]
+  assert accumulator["quantizer_type"] == "quantized_bits"
+  assert accumulator["bits"] == 23
+  assert accumulator["int_bits"] == 11
+
+  # adjusting multiplier with auto_po2:
+  # bits = max_fractional_bits + max_int_bits = bits + max_shift - min_shift
+  # max_shift = log2(0.0625) = -4
+  # min_shift=log2(0.03125) = -5
+  # So adjusted multiplier bits=17, 1 bit bigger than original multiplier.
   # Modified multiplier int_bits = int_bits + max_shift = 3 - 4 = -1
-  # Because in datatype map we add int_bits with 1 extra sign bit, therefore
-  # we expect to see multiplier["int_bits"] == 0.
-  assert multiplier["int_bits"] == 0
+  # Because in datatype map we add int_bits with 1 extra sign bit,
+  # adjusted multiplier int_bits = 0, 4 bit smaller than original multiplier.
+  # When we pass the adjusted multiplier to fused_accumulator, we
+  # get bits = 23+1=24, and int_bits = 11-4=7
+  fused_accumulator = dtype_dict["conv"]["fused_accumulator"]
+  assert fused_accumulator["quantizer_type"] == "quantized_bits"
+  assert fused_accumulator["bits"] == 24
+  assert fused_accumulator["int_bits"] == 7
+
   multiplier = dtype_dict["dense"]["multiplier"]
   assert multiplier["quantizer_type"] == "quantized_bits"
-  assert multiplier["bits"] == 14
+  assert multiplier["bits"] == 12
   assert multiplier["int_bits"] == 1
 
 

@@ -651,9 +651,20 @@ def generate_layer_data_type_map(
       multiplier_factory = quantized_operators.MultiplierFactory()
       multiplier = multiplier_factory.make_multiplier(
           weight_quantizer, input_quantizer)
-      if qkeras_weight_quantizer:
+
+      enable_bn_fusing = (
+          hw_weight_dict is not None and hw_weight_dict.get(layer.name, None)
+          and hw_weight_dict[layer.name].get("enable_bn_fusing", None))
+
+      if enable_bn_fusing and qkeras_weight_quantizer:
+        # When conv layer is fused wiht bn, multiplier bitwidth is ajusted by
+        # kernel quantizer scale values (for auto_po2 type of quantizer only).
+        # For conv layer without fusing, multiplier bitwidth is not adjusted
+        # even if auto_po2 is used in quantizer. Instead, we directly adjusted
+        # the accumulator and store that in fused_accumulator.
         qtools_util.adjust_multiplier_for_auto_po2(
             multiplier, qkeras_weight_quantizer)
+
       weights = layer.get_weights()
       kernel = weights[0]
 
@@ -665,8 +676,8 @@ def generate_layer_data_type_map(
         kernel_shape = kernel.shape[:-2] + (1, 1)
 
       kernel_accumulator_factory = quantized_operators.AccumulatorFactory()
-      # Set use_bias=False so that the accumulator doesn't account for bias
-      # bitwdith
+      # Sets use_bias=False so that the accumulator doesn't account for bias
+      # bitwdith.
       kernel_accumulator = kernel_accumulator_factory.make_accumulator(
           kernel_shape, multiplier, use_bias=False)
 
@@ -698,9 +709,7 @@ def generate_layer_data_type_map(
           multiplier.output = quantizer_factory.make_default_quantizer(
               mode=keras_accumulator)
 
-      if (hw_weight_dict is not None and
-          hw_weight_dict.get(layer.name, None) and
-          hw_weight_dict[layer.name].get("enable_bn_fusing", None)):
+      if enable_bn_fusing:
         bn_layer_name = hw_weight_dict[layer.name]["fused_bn_layer_name"]
         successor_ids = list(graph.successors(node_id))
         bn_layer = graph.nodes[successor_ids[0]]["layer"][0]
@@ -757,22 +766,34 @@ def generate_layer_data_type_map(
             "operation_count": operation_count
         }
       else:
+        # Correct accumulator bitwith with the scale values from
+        # auto-po2 type of quantizers and store them in fused_accumulator.
+        if (
+            hasattr(qkeras_weight_quantizer, "__str__") and
+            "quantized_bits" in qkeras_weight_quantizer.__str__() and
+            qkeras_weight_quantizer.alpha == "auto_po2"):
+          fused_accumulator = qtools_util.adjust_accumulator_for_auto_po2(
+              layer, multiplier, qkeras_weight_quantizer, bias_quantizer)
+        else:
+          fused_accumulator = accumulator
+
         layer_quantizer = accumulator.output
         output_quantizer = update_output_quantizer_in_graph(
             graph, node_id, quantizer_factory, layer_quantizer, for_reference)
 
-        layer_data_type_map[layer] = LayerDataType(
-            input_quantizer_list,
-            multiplier,
-            accumulator,
-            weight_quantizer,
-            w_shapes,
-            bias_quantizer,
-            b_shapes,
-            output_quantizer,
-            output_shapes,
-            operation_count
-        )
+        layer_data_type_map[layer] = {
+            "input_quantizer_list": input_quantizer_list,
+            "multiplier": multiplier,
+            "accumulator": accumulator,
+            "weight_quantizer": weight_quantizer,
+            "w_shapes": w_shapes,
+            "bias_quantizer": bias_quantizer,
+            "b_shapes": b_shapes,
+            "fused_accumulator": fused_accumulator,
+            "output_quantizer": output_quantizer,
+            "output_shapes": output_shapes,
+            "operation_count": operation_count
+        }
     elif node_type in ["QConv2DBatchnorm", "QDepthwiseConv2DBatchnorm"]:
       # Datatype for Folded Conv/DepthwiseConv layer
       # TODO(lishanok): Add additional support for Folded Dense layer
