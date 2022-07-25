@@ -265,7 +265,7 @@ def stochastic_round(x, precision=0.5):
 
 def stochastic_round_po2(x):
   """Performs stochastic rounding for the power of two."""
-  # TODO(hzhuang): test stochastic_round_po2 and constraint.
+  # TODO(b/237832905): test stochastic_round_po2 and constraint.
   # because quantizer is applied after constraint.
   y = tf.abs(x)
   eps = tf.keras.backend.epsilon()
@@ -904,7 +904,7 @@ class ternary(BaseQuantizer):  # pylint: disable=invalid-name
     if isinstance(self.alpha, six.string_types):
       # It is for parameters
       # first, compute which asix corresponds to the channels.
-      # TODO(hzhuang): support channels_first
+      # TODO(b/237833510): support channels_first
       try:
         len_axis = len(x.shape.as_list())
       except AttributeError:
