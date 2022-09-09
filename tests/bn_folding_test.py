@@ -39,6 +39,12 @@ from qkeras import QDepthwiseConv2DBatchnorm
 from qkeras import utils as qkeras_utils
 from qkeras import bn_folding_utils
 
+def get_sgd_optimizer(learning_rate):
+  if hasattr(tf.keras.optimizers, "legacy"):
+    return tf.keras.optimizers.legacy.SGD(learning_rate)
+  else:
+    return tf.keras.optimizers.SGD(learning_rate)
+
 
 def get_qconv2d_model(input_shape, kernel_size, kernel_quantizer=None):
   num_class = 2
@@ -108,7 +114,7 @@ def get_models_with_one_layer(kernel_quantizer, folding_mode, ema_freeze_delay):
 
   x_shape = (2, 2, 1)
   loss_fn = tf.keras.losses.MeanSquaredError()
-  optimizer = tf.keras.optimizers.SGD(learning_rate=1e-3)
+  optimizer = get_sgd_optimizer(learning_rate=1e-3)
 
   # define a model with seperate conv2d and bn layers
   x = x_in = layers.Input(x_shape, name="input")
@@ -349,7 +355,7 @@ def test_loading():
 
   loss_fn = tf.keras.losses.MeanSquaredError()
   loss_metric = metrics.Mean()
-  optimizer = tf.keras.optimizers.SGD(learning_rate=1e-3)
+  optimizer = get_sgd_optimizer(learning_rate=1e-3)
   x_shape = (2, 2, 1)
 
   custom_objects = {}
@@ -397,7 +403,7 @@ def test_same_training_and_prediction():
   epochs = 5
   loss_fn = tf.keras.losses.MeanSquaredError()
   loss_metric = metrics.Mean()
-  optimizer = tf.keras.optimizers.SGD(learning_rate=1e-3)
+  optimizer = get_sgd_optimizer(learning_rate=1e-3)
 
   x_shape = (2, 2, 1)
   kernel = np.array([[[[1., 1.]], [[1., 0.]]], [[[1., 1.]], [[0., 1.]]]])
@@ -568,7 +574,7 @@ def test_same_training_and_prediction():
   epochs = 5
   loss_fn = tf.keras.losses.MeanSquaredError()
   loss_metric = metrics.Mean()
-  optimizer = tf.keras.optimizers.SGD(learning_rate=1e-3)
+  optimizer = get_sgd_optimizer(learning_rate=1e-3)
 
   pred1 = run_training(
       model, epochs, loss_fn, loss_metric, optimizer, train_ds, do_print=False)
