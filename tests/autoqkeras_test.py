@@ -35,6 +35,13 @@ from tensorflow.keras.utils import to_categorical
 from qkeras.autoqkeras import AutoQKerasScheduler
 
 
+def get_adam_optimizer(learning_rate):
+  if hasattr(tf.keras.optimizers, "legacy"):
+    return tf.keras.optimizers.legacy.Adam(learning_rate)
+  else:
+    return tf.keras.optimizers.Adam(learning_rate)
+
+
 def dense_model():
   """Creates test dense model."""
 
@@ -104,7 +111,7 @@ def test_autoqkeras():
 
   model = dense_model()
   model.summary()
-  optimizer = Adam(lr=0.01)
+  optimizer = get_adam_optimizer(learning_rate=0.01)
   model.compile(optimizer=optimizer, loss="categorical_crossentropy",
                 metrics=["acc"])
 
@@ -140,7 +147,7 @@ def test_autoqkeras():
 
   qmodel = autoqk.get_best_model()
 
-  optimizer = Adam(lr=0.01)
+  optimizer = get_adam_optimizer(learning_rate=0.01)
   qmodel.compile(optimizer=optimizer, loss="categorical_crossentropy",
                  metrics=["acc"])
   history = qmodel.fit(x_train, y_train, epochs=5, batch_size=150,
