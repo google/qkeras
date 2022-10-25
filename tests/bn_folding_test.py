@@ -464,17 +464,13 @@ def test_same_training_and_prediction(model_name):
   if model_name == "conv2d":
     x_shape = (2, 2, 1)
     kernel = np.array([[[[1., 1.]], [[1., 0.]]], [[[1., 1.]], [[0., 1.]]]])
-    gamma = np.array([2., 1.])
-    beta = np.array([0., 1.])
-    moving_mean = np.array([1., 1.])
-    moving_variance = np.array([1., 2.])
   elif model_name == "dense":
     x_shape = (4,)
     kernel = np.array([[1., 1.], [1., 0.], [1., 1.], [0., 1.]])
-    gamma = np.array([2., 1.])
-    beta = np.array([0., 1.])
-    moving_mean = np.array([1., 1.])
-    moving_variance = np.array([1., 2.])
+  gamma = np.array([2., 1.])
+  beta = np.array([0., 1.])
+  moving_mean = np.array([1., 1.])
+  moving_variance = np.array([1., 2.])
   iteration = np.array(-1)
 
   train_ds = generate_dataset(train_size=10, batch_size=10, input_shape=x_shape,
