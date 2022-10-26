@@ -17,6 +17,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 import warnings
+
+from keras.utils import conv_utils
 import tensorflow as tf
 from tensorflow.keras import constraints
 from tensorflow.keras import initializers
@@ -31,7 +33,6 @@ from tensorflow.keras.layers import DepthwiseConv2D
 from tensorflow.keras.layers import Dropout
 from tensorflow.keras.layers import InputSpec
 from tensorflow.python.eager import context
-from tensorflow.python.keras.utils import conv_utils
 from tensorflow.python.ops import array_ops
 from .qlayers import get_auto_range_constraint_initializer
 from .qlayers import QActivation

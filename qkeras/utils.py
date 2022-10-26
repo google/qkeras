@@ -25,8 +25,7 @@ import re
 import networkx as nx
 import tensorflow as tf
 import tensorflow.keras.backend as K
-from tensorflow.keras import initializers
-from tensorflow.python.keras.layers.core import TFOpLambda
+from keras.layers.core import TFOpLambda
 
 from tensorflow.keras.models import Model
 from tensorflow.keras.models import model_from_json
