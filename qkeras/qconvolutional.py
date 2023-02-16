@@ -163,12 +163,14 @@ class QConv1D(Conv1D, PrunableLayer):
 
   def get_config(self):
     config = {
-        "kernel_quantizer":
-            constraints.serialize(self.kernel_quantizer_internal),
-        "bias_quantizer":
-            constraints.serialize(self.bias_quantizer_internal),
+        "kernel_quantizer": constraints.serialize(
+            self.kernel_quantizer_internal, use_legacy_format=True
+        ),
+        "bias_quantizer": constraints.serialize(
+            self.bias_quantizer_internal, use_legacy_format=True
+        ),
         "kernel_range": self.kernel_range,
-        "bias_range": self.bias_range
+        "bias_range": self.bias_range,
     }
     base_config = super(QConv1D, self).get_config()
     return dict(list(base_config.items()) + list(config.items()))
@@ -315,12 +317,14 @@ class QConv2D(Conv2D, PrunableLayer):
 
   def get_config(self):
     config = {
-        "kernel_quantizer":
-            constraints.serialize(self.kernel_quantizer_internal),
-        "bias_quantizer":
-            constraints.serialize(self.bias_quantizer_internal),
+        "kernel_quantizer": constraints.serialize(
+            self.kernel_quantizer_internal, use_legacy_format=True
+        ),
+        "bias_quantizer": constraints.serialize(
+            self.bias_quantizer_internal, use_legacy_format=True
+        ),
         "kernel_range": self.kernel_range,
-        "bias_range": self.bias_range
+        "bias_range": self.bias_range,
     }
     base_config = super(QConv2D, self).get_config()
     return dict(list(base_config.items()) + list(config.items()))
@@ -497,10 +501,12 @@ class QConv2DTranspose(Conv2DTranspose, PrunableLayer):
 
   def get_config(self):
     config = {
-        "kernel_quantizer":
-            constraints.serialize(self.kernel_quantizer_internal),
-        "bias_quantizer":
-            constraints.serialize(self.bias_quantizer_internal)
+        "kernel_quantizer": constraints.serialize(
+            self.kernel_quantizer_internal, use_legacy_format=True
+        ),
+        "bias_quantizer": constraints.serialize(
+            self.bias_quantizer_internal, use_legacy_format=True
+        ),
     }
     base_config = super(QConv2DTranspose, self).get_config()
     return dict(list(base_config.items()) + list(config.items()))
@@ -616,7 +622,7 @@ class QSeparableConv1D(SeparableConv1D, PrunableLayer):
   def call(self, inputs):
     if self.padding == 'causal':
       inputs = array_ops.pad(inputs, self._compute_causal_padding())
-    
+
     spatial_start_dim = 1 if self.data_format == 'channels_last' else 2
 
     # Explicitly broadcast inputs and kernels to 4D.
@@ -670,12 +676,15 @@ class QSeparableConv1D(SeparableConv1D, PrunableLayer):
 
   def get_config(self):
     config = {
-        "depthwise_quantizer":
-            constraints.serialize(self.depthwise_quantizer_internal),
-        "pointwise_quantizer":
-            constraints.serialize(self.pointwise_quantizer_internal),
-        "bias_quantizer":
-            constraints.serialize(self.bias_quantizer_internal)
+        "depthwise_quantizer": constraints.serialize(
+            self.depthwise_quantizer_internal, use_legacy_format=True
+        ),
+        "pointwise_quantizer": constraints.serialize(
+            self.pointwise_quantizer_internal, use_legacy_format=True
+        ),
+        "bias_quantizer": constraints.serialize(
+            self.bias_quantizer_internal, use_legacy_format=True
+        ),
     }
     base_config = super(QSeparableConv1D, self).get_config()
     return dict(list(base_config.items()) + list(config.items()))
@@ -828,12 +837,15 @@ class QSeparableConv2D(SeparableConv2D, PrunableLayer):
 
   def get_config(self):
     config = {
-        "depthwise_quantizer":
-            constraints.serialize(self.depthwise_quantizer_internal),
-        "pointwise_quantizer":
-            constraints.serialize(self.pointwise_quantizer_internal),
-        "bias_quantizer":
-            constraints.serialize(self.bias_quantizer_internal)
+        "depthwise_quantizer": constraints.serialize(
+            self.depthwise_quantizer_internal, use_legacy_format=True
+        ),
+        "pointwise_quantizer": constraints.serialize(
+            self.pointwise_quantizer_internal, use_legacy_format=True
+        ),
+        "bias_quantizer": constraints.serialize(
+            self.bias_quantizer_internal, use_legacy_format=True
+        ),
     }
     base_config = super(QSeparableConv2D, self).get_config()
     return dict(list(base_config.items()) + list(config.items()))
@@ -1011,15 +1023,20 @@ class QDepthwiseConv2D(DepthwiseConv2D, PrunableLayer):
     config.pop("kernel_constraint", None)
     config["depth_multiplier"] = self.depth_multiplier
     config["depthwise_initializer"] = initializers.serialize(
-        self.depthwise_initializer)
+        self.depthwise_initializer, use_legacy_format=True
+    )
     config["depthwise_regularizer"] = regularizers.serialize(
-        self.depthwise_regularizer)
+        self.depthwise_regularizer, use_legacy_format=True
+    )
     config["depthwise_constraint"] = constraints.serialize(
-        self.depthwise_constraint)
+        self.depthwise_constraint, use_legacy_format=True
+    )
     config["depthwise_quantizer"] = constraints.serialize(
-        self.depthwise_quantizer_internal)
+        self.depthwise_quantizer_internal, use_legacy_format=True
+    )
     config["bias_quantizer"] = constraints.serialize(
-        self.bias_quantizer_internal)
+        self.bias_quantizer_internal, use_legacy_format=True
+    )
     config["depthwise_range"] = self.depthwise_range
     config["bias_range"] = self.bias_range
     return config

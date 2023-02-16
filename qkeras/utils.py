@@ -714,6 +714,10 @@ def model_quantize(model,
         layer["config"]["recurrent_activation"] = recurrent_activation
     layer["class_name"] = q_name
 
+    registered_name = layer.pop("registered_name", None)
+    if registered_name:
+      layer["registered_name"] = q_name
+
   for layer in layers:
     layer_config = layer["config"]
 
@@ -904,7 +908,7 @@ def model_quantize(model,
         max_value = layer["config"]["max_value"]
         negative_slope = layer["config"]["alpha"]
         threshold = layer["config"]["threshold"]
-      else: # ReLU from mobilenet
+      else:  # ReLU from mobilenet
         max_value = layer["config"]["max_value"]
         negative_slope = layer["config"]["negative_slope"]
         threshold = layer["config"]["threshold"]
@@ -931,7 +935,7 @@ def model_quantize(model,
           del layer["config"]["max_value"]
           del layer["config"]["alpha"]
           del layer["config"]["threshold"]
-        else: # ReLU from mobilenet
+        else:  # ReLU from mobilenet
           del layer["config"]["max_value"]
           del layer["config"]["negative_slope"]
           del layer["config"]["threshold"]
@@ -995,6 +999,10 @@ def model_quantize(model,
         layer_config["activation"] = quantizer
       else:
         quantize_activation(layer_config, activation_bits)
+
+    registered_name = layer.pop("registered_name", None)
+    if registered_name:
+      layer["registered_name"] = q_name or registered_name
 
   # We need to keep a dictionary of custom objects as our quantized library
   # is not recognized by keras.

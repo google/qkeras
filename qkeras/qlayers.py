@@ -253,8 +253,8 @@ class QAdaptiveActivation(Layer, PrunableLayer):
     self.total_bits = total_bits
     self.symmetric = symmetric
     self.is_estimating_step_count = False  # If the layer should estimate its
-                                           # own step count by incrementing it
-                                           # every call.
+    # own step count by incrementing it
+    # every call.
     if isinstance(current_step, tf.Variable):
       self.step = current_step
     elif current_step is None:
@@ -364,7 +364,7 @@ class QAdaptiveActivation(Layer, PrunableLayer):
                                      is_clipping=self.po2_rounding)
     self.quantizer.integer.assign(integer_bits)
     self.quantizer.alpha = 1.0  # Setting alpha to 1.0 allows the integer bits
-                                # to serve as the scale
+    # to serve as the scale
     self.quantizer.symmetric = self.symmetric
     self.quantization_delay = tf.constant(self.quantization_delay,
                                           dtype=tf.int64)
@@ -424,8 +424,8 @@ class QAdaptiveActivation(Layer, PrunableLayer):
 
       # Update the EMA
       act_x = self.quantizer(x)  # act_x is the input after the activation
-                                 # function, but before the quantizer. This is
-                                 # done by using a qnoise_factor of 0
+      # function, but before the quantizer. This is
+      # done by using a qnoise_factor of 0
       new_min = tf.squeeze(K.min(act_x, axis=axis, keepdims=True))
       K.moving_average_update(self.ema_min, new_min, self.ema_decay)
       new_max = tf.squeeze(K.max(act_x, axis=axis, keepdims=True))
@@ -651,28 +651,39 @@ class QDense(Dense, PrunableLayer):
   def get_config(self):
     config = {
         "units": self.units,
-        "activation": activations.serialize(self.activation),
+        "activation": activations.serialize(
+            self.activation, use_legacy_format=True
+        ),
         "use_bias": self.use_bias,
-        "kernel_quantizer":
-            constraints.serialize(self.kernel_quantizer_internal),
-        "bias_quantizer":
-            constraints.serialize(self.bias_quantizer_internal),
-        "kernel_initializer":
-            initializers.serialize(self.kernel_initializer),
-        "bias_initializer":
-            initializers.serialize(self.bias_initializer),
-        "kernel_regularizer":
-            regularizers.serialize(self.kernel_regularizer),
-        "bias_regularizer":
-            regularizers.serialize(self.bias_regularizer),
-        "activity_regularizer":
-            regularizers.serialize(self.activity_regularizer),
-        "kernel_constraint":
-            constraints.serialize(self.kernel_constraint),
-        "bias_constraint":
-            constraints.serialize(self.bias_constraint),
+        "kernel_quantizer": constraints.serialize(
+            self.kernel_quantizer_internal, use_legacy_format=True
+        ),
+        "bias_quantizer": constraints.serialize(
+            self.bias_quantizer_internal, use_legacy_format=True
+        ),
+        "kernel_initializer": initializers.serialize(
+            self.kernel_initializer, use_legacy_format=True
+        ),
+        "bias_initializer": initializers.serialize(
+            self.bias_initializer, use_legacy_format=True
+        ),
+        "kernel_regularizer": regularizers.serialize(
+            self.kernel_regularizer, use_legacy_format=True
+        ),
+        "bias_regularizer": regularizers.serialize(
+            self.bias_regularizer, use_legacy_format=True
+        ),
+        "activity_regularizer": regularizers.serialize(
+            self.activity_regularizer, use_legacy_format=True
+        ),
+        "kernel_constraint": constraints.serialize(
+            self.kernel_constraint, use_legacy_format=True
+        ),
+        "bias_constraint": constraints.serialize(
+            self.bias_constraint, use_legacy_format=True
+        ),
         "kernel_range": self.kernel_range,
-        "bias_range": self.bias_range
+        "bias_range": self.bias_range,
     }
     base_config = super(QDense, self).get_config()
     return dict(list(base_config.items()) + list(config.items()))
