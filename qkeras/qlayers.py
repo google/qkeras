@@ -652,35 +652,35 @@ class QDense(Dense, PrunableLayer):
     config = {
         "units": self.units,
         "activation": activations.serialize(
-            self.activation, use_legacy_format=True
+            self.activation
         ),
         "use_bias": self.use_bias,
         "kernel_quantizer": constraints.serialize(
-            self.kernel_quantizer_internal, use_legacy_format=True
+            self.kernel_quantizer_internal
         ),
         "bias_quantizer": constraints.serialize(
-            self.bias_quantizer_internal, use_legacy_format=True
+            self.bias_quantizer_internal
         ),
         "kernel_initializer": initializers.serialize(
-            self.kernel_initializer, use_legacy_format=True
+            self.kernel_initializer
         ),
         "bias_initializer": initializers.serialize(
-            self.bias_initializer, use_legacy_format=True
+            self.bias_initializer
         ),
         "kernel_regularizer": regularizers.serialize(
-            self.kernel_regularizer, use_legacy_format=True
+            self.kernel_regularizer
         ),
         "bias_regularizer": regularizers.serialize(
-            self.bias_regularizer, use_legacy_format=True
+            self.bias_regularizer
         ),
         "activity_regularizer": regularizers.serialize(
-            self.activity_regularizer, use_legacy_format=True
+            self.activity_regularizer
         ),
         "kernel_constraint": constraints.serialize(
-            self.kernel_constraint, use_legacy_format=True
+            self.kernel_constraint
         ),
         "bias_constraint": constraints.serialize(
-            self.bias_constraint, use_legacy_format=True
+            self.bias_constraint
         ),
         "kernel_range": self.kernel_range,
         "bias_range": self.bias_range,
