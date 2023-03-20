@@ -20,10 +20,12 @@ from __future__ import division
 from __future__ import print_function
 
 import json
+import numpy as np
 
 from qkeras.qtools import generate_layer_data_type_map
 from qkeras.qtools import interface
 from qkeras.qtools import qgraph
+from qkeras.qtools import qtools_util
 from qkeras.qtools.config_public import config_settings
 from qkeras.qtools.qenergy import qenergy
 from qkeras.qtools.settings import cfg
@@ -61,6 +63,7 @@ class QTools:
         hw_weight_dict=hw_weight_dict)
 
     self._output_dict = interface.map_to_json(self._layer_map)
+    self.source_quantizer_list = source_quantizer_list
 
   def qtools_stats_to_json(self, json_name):
     """dump the layer stats to a json file."""
@@ -124,3 +127,115 @@ class QTools:
           [energy_dict[layer]["energy"][key] for key in keys])
 
     return energy
+
+  def calculate_ace(self, default_float_bits):
+    """Computes ACE numbers from conv/dense layers."""
+
+    def _get_ace(layer):
+      ace = 0
+      ace_float = 0
+      if layer.name in self._output_dict:
+        layer_item = self._output_dict[layer.name]
+        # Here we only consider the number of multiplication as the
+        # operation count. To include the number of
+        # accumulators, we should multiply the value by 2, assuming
+        # accumulation count ~= multiplication count.
+        operation_count = layer_item["operation_count"]
+
+        # Input bitwidth.
+        input_quantizer_list = layer_item["input_quantizer_list"]
+        input_bits = input_quantizer_list[0]["bits"]
+
+        # Weight bitwidth
+        weight_quantizer = qtools_util.get_val(layer_item, "weight_quantizer")
+        if weight_quantizer:
+          # Only layers such as Conv/Dense have weight_quantizers.
+          w_bits = weight_quantizer["bits"]
+          ace = operation_count * input_bits * w_bits
+          ace_float = operation_count * default_float_bits * default_float_bits
+      return (ace, ace_float)
+
+    print("WARNING: ACE are computed from conv/dense layers only!")
+    return (sum([_get_ace(l)[0] for l in self._model.layers]),
+            sum([_get_ace(l)[1] for l in self._model.layers]))
+
+  def calculate_output_bytes(self, include_model_input_size,
+                             default_float_bits):
+    """Computes activation layers' output size in bytes."""
+
+    def _get_activation_size(layer):
+      # Since in hardare previous conv/dense layers will be fused with
+      # the following activation layers, we only consider the output of
+      # Activation layers when calculating output sizes.
+      if layer.__class__.__name__ in ["QActivation"]:
+        layer_item = self._output_dict[layer.name]
+
+        output_quantizer = layer_item["output_quantizer"]
+        output_shape = output_quantizer["shape"]
+        o_bits = output_quantizer["bits"]
+        return (int(np.prod(output_shape[1:]) * o_bits / 8.0),
+                int(np.prod(output_shape[1:]) * default_float_bits / 8.0))
+      else:
+        return (0, 0)
+
+    output_bytes = sum([_get_activation_size(l)[0] for l in self._model.layers])
+    output_bytes_float = sum([_get_activation_size(l)[1] for l in
+                              self._model.layers])
+    if include_model_input_size:
+      # Include model input size.
+      output_bytes += (np.prod(self._model.input_shape[1:])
+                       * self.source_quantizer_list[0].bits / 8.0)
+      output_bytes_float += (np.prod(self._model.input_shape[1:]) *
+                             default_float_bits/ 8.0)
+
+    return (output_bytes, output_bytes_float)
+
+  def calculate_weight_bytes(self, default_float_bits):
+    """Computes weight size in bytes from conv/dense layers."""
+
+    def _get_weight_size(layer):
+      weight_bytes = 0
+      weight_bytes_float = 0
+
+      if layer.name in self._output_dict:
+        layer_item = self._output_dict[layer.name]
+        weight_quantizer = qtools_util.get_val(layer_item, "weight_quantizer")
+
+        if weight_quantizer:
+          # Calculates kernel bytes.
+          w_bits = weight_quantizer["bits"]
+          weight_bytes += int(np.prod(layer.weights[0].shape) * w_bits / 8.0)
+          weight_bytes_float += int(np.prod(layer.weights[0].shape) *
+                                    default_float_bits / 8.0)
+          # Calculates bias bytes.
+          if hasattr(layer, "use_bias") and layer.use_bias:
+            bias_quantizer = qtools_util.get_val(layer_item, "bias_quantizer")
+
+            assert bias_quantizer is not None, (
+                f"{layer.name} has no bias_quantizer!")
+            b_bits = bias_quantizer["bits"]
+            weight_bytes += int(np.prod(layer.weights[1].shape) * b_bits / 8.0)
+            weight_bytes_float += int(np.prod(layer.weights[1].shape) *
+                                      default_float_bits / 8.0)
+      return (weight_bytes, weight_bytes_float)
+
+    return (sum([_get_weight_size(l)[0] for l in self._model.layers]),
+            sum([_get_weight_size(l)[1] for l in self._model.layers]))
+
+  def get_roofline_numbers(self, include_model_input_size=True,
+                           default_float_bits=32):
+    """Extracts model numbers for roofline model analysis."""
+
+    return {"ACE": self.calculate_ace(default_float_bits)[0],
+            "weight_in_bytes": self.calculate_weight_bytes(
+                default_float_bits)[0],
+            "activation_in_bytes": self.calculate_output_bytes(
+                include_model_input_size, default_float_bits)[0],
+            "ACE_float": self.calculate_ace(
+                default_float_bits)[1],
+            "weight_in_bytes_float": self.calculate_weight_bytes(
+                default_float_bits)[1],
+            "activation_in_bytes_float": self.calculate_output_bytes(
+                include_model_input_size, default_float_bits)[1]}
+
+
