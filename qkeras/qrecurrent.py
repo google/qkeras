@@ -32,6 +32,7 @@ from tensorflow.keras.layers import RNN
 from tensorflow.keras.layers import Bidirectional
 from tensorflow.python.util import nest
 from tensorflow.python.ops import array_ops
+
 from tensorflow.python.framework import ops
 from tensorflow_model_optimization.python.core.sparsity.keras.prunable_layer import PrunableLayer
 
