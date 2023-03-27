@@ -140,7 +140,7 @@ class QSimpleRNNCell(SimpleRNNCell):
     )
 
   def call(self, inputs, states, training=None):
-    prev_output = states[0] if nest.is_sequence(states) else states
+    prev_output = states[0] if nest.is_nested(states) else states
 
     dp_mask = self.get_dropout_mask_for_cell(inputs, training)
     rec_dp_mask = self.get_recurrent_dropout_mask_for_cell(
@@ -1096,7 +1096,7 @@ class QGRUCell(GRUCell):
 
   def call(self, inputs, states, training=None):
     # previous memory
-    h_tm1_tmp = states[0] if nest.is_sequence(states) else states
+    h_tm1_tmp = states[0] if nest.is_nested(states) else states
 
     dp_mask = self.get_dropout_mask_for_cell(inputs, training, count=3)
     rec_dp_mask = self.get_recurrent_dropout_mask_for_cell(
