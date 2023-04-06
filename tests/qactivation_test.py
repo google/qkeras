@@ -460,7 +460,21 @@ def test_quantized_relu(bits, integer, use_sigmoid, test_values, expected_values
 
 
 @pytest.mark.parametrize(
-    'bits, integer, symmetric, keep_negative, test_values, expected_values', [
+    (
+        "bits, integer, symmetric, keep_negative, test_values, expected_values,"
+        " rtol"
+    ),
+    [
+        (
+            8,
+            100,
+            1,
+            True,
+            np.array([[1.25e+29, 3, -1.1e+30, 4.0e+32]], dtype=K.floatx()),
+            np.array([[1.23794004e+29, 0.0, -1.09929075e+30, 1.26269884e+30]],
+                     dtype=K.floatx()),
+            5.0e+27,  # Effective quantization step size
+        ),
         (
             6,
             2,
@@ -470,6 +484,7 @@ def test_quantized_relu(bits, integer, use_sigmoid, test_values, expected_values
                      dtype=K.floatx()),
             np.array([[-3.0, -2.0, -1.0, -0.5, 0.0, 0.5, 1, 3.875, 3.875]],
                      dtype=K.floatx()),
+            1e-05,
         ),
         (
             6,
@@ -480,6 +495,7 @@ def test_quantized_relu(bits, integer, use_sigmoid, test_values, expected_values
                      dtype=K.floatx()),
             np.array([[0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 1, 3.9375, 3.9375]],
                      dtype=K.floatx()),
+            1e-05,
         ),
         (
             6,
@@ -490,15 +506,16 @@ def test_quantized_relu(bits, integer, use_sigmoid, test_values, expected_values
                      dtype=K.floatx()),
             np.array([[-3.875, -3.875, -1.0, -0.5, 0.0, 0.5, 1, 3.875, 3.875]],
                      dtype=K.floatx()),
+            1e-05,
         )
     ])
 def test_quantized_bits(bits, integer, symmetric, keep_negative, test_values,
-                        expected_values):
+                        expected_values, rtol):
   x = K.placeholder(ndim=2)
   f = K.function([x],
                  [quantized_bits(bits, integer, symmetric, keep_negative)(x)])
   result = f([test_values])[0]
-  assert_allclose(result, expected_values, rtol=1e-05)
+  assert_allclose(result, expected_values, rtol=rtol)
 
 
 @pytest.mark.parametrize('alpha, threshold, test_values, expected_values', [

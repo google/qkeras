@@ -560,8 +560,13 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
 
     # quantized_bits with "1" bit becomes a binary implementation.
     unsigned_bits = self.bits - self.keep_negative
-    m = K.cast_to_floatx(pow(2, unsigned_bits))
-    m_i = K.cast_to_floatx(K.pow(2, self.integer))
+    # In pow function, use float datatype instead of integer, so that
+    # K.pow() results will use float32 instead of int32 as the default datatype.
+    # float32 has a much larger value range (2^128) than int32 (2^32), this is
+    # particularly important when quantizing very large values, and when integer
+    # bits are set much larger than total bits.
+    m = K.pow(2.0, K.cast_to_floatx(unsigned_bits))
+    m_i = K.pow(2.0, K.cast_to_floatx(self.integer))
 
     if self.alpha is None:
       scale = 1.0
