@@ -20,9 +20,9 @@ from __future__ import division
 from __future__ import print_function
 
 import copy
+import sys
 import numpy as np
 import tensorflow.keras.backend as K
-import sys
 
 from qkeras.qtools import quantized_operators
 
@@ -75,7 +75,8 @@ def get_input_quantizers(graph, node_id, quantizer_factory, debug=False):
   return output
 
 
-def get_input_quantizers_advanced(graph, node_id, is_input_layer, quantizer_factory,
+def get_input_quantizers_advanced(graph, node_id,
+                                  is_input_layer, quantizer_factory,
                                   cfg, debug=False):
   """get input quantizer, deal with keras layer or lack of input quantizer in qkeras layer."""
 
@@ -96,11 +97,13 @@ def get_input_quantizers_advanced(graph, node_id, is_input_layer, quantizer_fact
     input_quantizer = quantizer_factory.make_quantizer(quantizer_on_edge)
 
     if is_input_layer and not input_quantizer:
-      # input layer without input_quantizer specified->use default_source_quantizer
+      # input layer without input_quantizer specified
+      #   ->use default_source_quantizer
       input_quantizer = quantizer_factory.make_default_quantizer(
           mode=default_source_quantizer)
     elif not input_quantizer:
-      # if no input quantizer is available-> use default quantizer from config.json
+      # if no input quantizer is available
+      #   -> use default quantizer from config.json
       input_quantizer = quantizer_factory.make_default_quantizer(
           mode=default_interm_quantizer)
 
@@ -123,7 +126,7 @@ def get_operation_count(layer, input_shape):
 
   elif layer.__class__.__name__ in [
       "AveragePooling2D", "AvgPool2D", "GlobalAvgPool2D",
-      "GlobalAveragePooling2D"
+      "GlobalAveragePooling2D", "QGlobalAveragePooling2D"
   ]:
 
     if hasattr(layer, "pool_size"):
@@ -196,12 +199,18 @@ def get_operation_count(layer, input_shape):
     # will be the batch size, the second and third shape dimension will be the
     # spatial sizes (should both be 1), and the fourth shape dimensions will
     # be the number of channels
+    #
+    # Note: asserts have been changed to sum(*shape > 1) <= 1 to avoid the case
+    # when the dense layer has an output with shape (None, 1), which results in
+    # sum(oshape > 1) = 0.
     ishape = np.array([i for i in input_shape if i is not None])
-    assert sum(ishape > 1) == 1, "Tensor shape has multiple >1 size dims"
+    assert sum(ishape > 1) <= 1, ("Input Tensor shape in %s has "
+                                  "multiple >1 size dims") % layer.name
     size_i = np.max(ishape)
 
     oshape = np.array([i for i in output_shape if i is not None])
-    assert sum(oshape > 1) == 1, "Tensor shape has multiple >1 size dims"
+    assert sum(oshape > 1) <= 1, ("Output Tensor shape in %s has " +
+                                  "multiple >1 size dims") % layer.name
     size_o = np.max(oshape)
 
     operation_count = (size_i * size_o)
@@ -223,7 +232,7 @@ def get_weights(layer, model_weights_already_quantized=True):
       eg., quantized_bits(alpha="auto_po2"), we cannot quantize the same
       weights more than once, as it will lead to different results.
 
-  Return:
+  Returns:
     Quantized layer weights.
   """
 
