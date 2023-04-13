@@ -104,6 +104,7 @@ def test_get_po2_model_sparsity():
   if the exponent is set to 0, the value of the weight will equal 2^0 == 1 != 0
   """
   qmodel = create_quantized_po2_network()
+  qmodel.use_legacy_config = True
 
   # Generate sparsity levels to test
   sparsity_levels = np.concatenate((np.random.rand(10), [1.0, 0.0])).round(2)

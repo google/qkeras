@@ -113,6 +113,8 @@ def test_new_forgiving_factor():
 
   model = get_model()
 
+  model.use_legacy_config = True
+
   ffb = ForgivingFactorBits(
       delta_p, delta_n, rate, stress,
       input_bits, output_bits, ref_bits,

@@ -373,9 +373,11 @@ def test_loading():
                do_print=False)
 
   # test load model from json to ensure saving/loading model architecture works
+  model_fold.use_legacy_config = True  # Ensures old Keras serialization
   json_string = model_fold.to_json()
   clear_session()
   model_from_json = qkeras_utils.quantized_model_from_json(json_string)
+  model_from_json.use_legacy_config = True
   assert json_string == model_from_json.to_json()
 
   # test reload model from hdf5 files to ensure saving/loading works
