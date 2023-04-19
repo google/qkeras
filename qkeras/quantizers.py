@@ -534,7 +534,7 @@ class quantized_bits(BaseQuantizer):
         var_name=None,
         use_variables=False,
     ):
-        super(quantized_bits).__init__()
+        super(quantized_bits, self).__init__()
 
         # Set _initialized parameter to False to prevent the setters from
         # performing preliminary calculations
@@ -642,9 +642,9 @@ class quantized_bits(BaseQuantizer):
         Also, set scale if not auto_alpha.
         """
 
-        if alpha is None:
+        if alpha is None or alpha == '':
             # TODO: make sure this is the right idea
-            self._alpha = None
+            self._alpha = tf.cast('', tf.string)
 
             # scale is always 1 for non-auto alpha
             self.scale.assign(K.cast_to_floatx(1.0))
@@ -838,8 +838,7 @@ class quantized_bits(BaseQuantizer):
             return alpha_scale, new_alpha_scale, int_xq
 
         def loop_cond(last_alpha_scale, alpha_scale, __):
-            """Loop condition for least squares autoscaling- stop when the scale
-            converges or after 5 iterations"""
+            """Loop condition for least squares autoscaling- stop when the scale converges"""
 
             tensors_not_equal = tf.math.reduce_any(
                 tf.not_equal(last_alpha_scale, alpha_scale)
@@ -886,7 +885,7 @@ class quantized_bits(BaseQuantizer):
             flags.append("keep_negative=False")
         if self.alpha:
             alpha = str(self.alpha)
-        if isinstance(self.alpha, six.string_types):
+        if isinstance(self.alpha, six.string_types) and len(self.alpha) > 0:
             alpha = "'" + alpha + "'"
             flags.append("alpha=" + alpha)
         if self.use_stochastic_rounding:
@@ -896,7 +895,7 @@ class quantized_bits(BaseQuantizer):
         return "quantized_bits(" + ",".join(flags) + ")"
 
     def _set_trainable_parameter(self):
-        if self.alpha is None:
+        if self.alpha == '':
             self.alpha = "auto_po2"
             self.symmetric = True
 
@@ -932,7 +931,7 @@ class quantized_bits(BaseQuantizer):
         ordered by their binary representation ascending."""
         assert self.symmetric == 0
         assert self.keep_negative
-        assert self.alpha is None or self.alpha == 1.0
+        assert self.alpha == ''
 
         x = np.asarray(range(2**self.bits), dtype=np.float32)
         p_and_n = np.where(
