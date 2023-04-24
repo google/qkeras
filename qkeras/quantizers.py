@@ -440,7 +440,7 @@ class BaseQuantizer(tf.Module):
     return ()
 
 
-class quantized_bits(BaseQuantizer):
+class quantized_linear(BaseQuantizer):
     """Linear quantization with fixed number of bits.
 
     This quantizer maps values to the nearest value of a fixed number of
@@ -474,7 +474,7 @@ class quantized_bits(BaseQuantizer):
     Example:
         ```python
         # 8-bit quantization with 3 integer bits
-        q = quantized_bits(8, 3)
+        q = quantized_linear(8, 3)
         x = tf.constant([0.0, 0.5, 1.0, 1.5, 2.0])
         q(x)
         # tf.Tensor([0. 0. 1. 2. 2.], shape=(5,), dtype=float32)
@@ -534,7 +534,7 @@ class quantized_bits(BaseQuantizer):
         var_name=None,
         use_variables=False,
     ):
-        super(quantized_bits, self).__init__()
+        super(quantized_linear, self).__init__()
 
         # Set _initialized parameter to False to prevent the setters from
         # performing preliminary calculations
@@ -968,6 +968,295 @@ class quantized_bits(BaseQuantizer):
             "qnoise_factor": _convert_to_numpy(self.qnoise_factor)
         }
         return config
+
+
+class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
+  """Quantizes the number to a number of bits.
+
+  In general, we want to use a quantization function like:
+
+  a = (pow(2,bits) - 1 - 0) / (max(x) - min(x))
+  b = -min(x) * a
+
+  in the equation:
+
+  xq = a x + b
+
+  This requires multiplication, which is undesirable. So, we
+  enforce weights to be between -1 and 1 (max(x) = 1 and min(x) = -1),
+  and separating the sign from the rest of the number as we make this function
+  symmetric, thus resulting in the following approximation.
+
+  1) max(x) = +1, min(x) = -1
+  2) max(x) = -min(x)
+
+  a = pow(2,bits-1)
+  b = 0
+
+  Finally, just remember that to represent the number with sign, the
+  largest representation is -pow(2,bits) to pow(2, bits-1)
+
+  Symmetric and keep_negative allow us to generate numbers that are symmetric
+  (same number of negative and positive representations), and numbers that
+  are positive.
+
+  Note:
+    the behavior of quantized_bits is different than Catapult HLS ac_fixed
+    or Vivado HLS ap_fixed. For ac_fixed<word_length, integer_lenth, signed>,
+    when signed = true, it is equavlent to
+    quantized_bits(word_length, integer_length-1, keep_negative=True)
+
+  Attributes:
+    bits: number of bits to perform quantization.
+    integer: number of bits to the left of the decimal point.
+    symmetric: if true, we will have the same number of values for positive
+      and negative numbers.
+    alpha: a tensor or None, the scaling factor per channel.
+      If None, the scaling factor is 1 for all channels.
+    keep_negative: if true, we do not clip negative numbers.
+    use_stochastic_rounding: if true, we perform stochastic rounding.
+    scale_axis: which axis to calculate scale from
+    qnoise_factor: float. a scalar from 0 to 1 that represents the level of
+      quantization noise to add. This controls the amount of the quantization
+      noise to add to the outputs by changing the weighted sum of
+      (1 - qnoise_factor)*unquantized_x + qnoise_factor*quantized_x.
+    var_name: String or None. A variable name shared between the tf.Variables
+      created in the build function. If None, it is generated automatically.
+    use_ste: Bool. Whether to use "straight-through estimator" (STE) method or
+        not.
+    use_variables: Bool. Whether to make the quantizer variables to be dynamic
+      tf.Variables or not.
+
+  Returns:
+    Function that computes fixed-point quantization with bits.
+  """
+
+  def __init__(self,
+               bits=8,
+               integer=0,
+               symmetric=0,
+               keep_negative=True,
+               alpha=None,
+               use_stochastic_rounding=False,
+               scale_axis=None,
+               qnoise_factor=1.0,
+               var_name=None,
+               use_ste=True,
+               use_variables=False):
+    super(quantized_bits, self).__init__()
+
+    warnings.warn(
+        "quantized_bits is deprecated. Please use quantized_linear instead."
+    )
+
+    self.bits = bits
+    self.integer = integer
+    self.symmetric = symmetric
+    self.keep_negative = keep_negative
+    self.alpha = alpha
+    self.use_stochastic_rounding = use_stochastic_rounding
+    # "auto*" |-> symmetric
+    if isinstance(self.alpha, six.string_types):
+      self.symmetric = True
+    self.scale = None
+    self.scale_axis = scale_axis
+    self.qnoise_factor = qnoise_factor
+    self.use_ste = use_ste
+    self.var_name = var_name
+    self.use_variables = use_variables
+
+  def __str__(self):
+    # Convert Tensors to printable strings by converting to a numpy array and
+    # then using regex to remove brackets when there is only one integer bit
+    integer_bits = re.sub(
+        r"\[(\d)\]", r"\g<1>",
+        str(self.integer.numpy() if isinstance(self.integer, tf.Variable
+                                              ) else self.integer))
+
+    flags = [str(self.bits), integer_bits, str(int(self.symmetric))]
+    if not self.keep_negative:
+      flags.append("keep_negative=False")
+    if self.alpha:
+      alpha = str(self.alpha)
+      if isinstance(self.alpha, six.string_types):
+        alpha = "'" + alpha + "'"
+      flags.append("alpha=" + alpha)
+    if self.use_stochastic_rounding:
+      flags.append("use_stochastic_rounding=" +
+                   str(int(self.use_stochastic_rounding)))
+    return "quantized_bits(" + ",".join(flags) + ")"
+
+  def __call__(self, x):
+    """Computes fixedpoint quantization of x."""
+    if not self.built:
+      self.build(var_name=self.var_name, use_variables=self.use_variables)
+
+    x = K.cast_to_floatx(x)
+
+    # quantized_bits with "1" bit becomes a binary implementation.
+    unsigned_bits = self.bits - self.keep_negative
+    # In pow function, use float datatype instead of integer, so that
+    # K.pow() results will use float32 instead of int32 as the default datatype.
+    # float32 has a much larger value range (2^128) than int32 (2^32), this is
+    # particularly important when quantizing very large values, and when integer
+    # bits are set much larger than total bits.
+    m = K.pow(2.0, K.cast_to_floatx(unsigned_bits))
+    m_i = K.pow(2.0, K.cast_to_floatx(self.integer))
+
+    if self.alpha is None:
+      scale = 1.0
+    elif isinstance(self.alpha, six.string_types):
+      # We only deal with the symmetric case right now.
+      assert self.symmetric, "Only symmetric quantizers are implemented"
+      len_axis = len(x.shape)
+      if len_axis != 1:
+        axis = _get_scaling_axis(self.scale_axis, len_axis)
+      else:
+        axis = [0]
+
+      x = x / m_i
+
+      # Using 2's complement, we can represent 2**(bits-1)-1 positive values
+      # If we wish to maintain symmetry, we can double 2**(bits-1)-1 to get
+      # the total number of possible values we can represent.
+      # If symmetry is not enforced, then we can represent (2**bits)-1 values
+      # using 2's complement.
+      levels = (2**(self.bits-1)-1) * 2 if self.symmetric else (2**self.bits)-1
+
+      scale = (K.max(abs(x), axis=axis, keepdims=True) * 2) / levels
+
+      # If alpha is "auto_po2", then get the "best" po2 scale
+      if "po2" in self.alpha:
+        scale = K.pow(2.0,
+                      tf.math.round(K.log(scale + K.epsilon()) / np.log(2.0)))
+        for _ in range(5):
+          v = tf.floor(tf.abs(x) / scale + 0.5)
+          mask = v < levels / 2
+          z = tf.sign(x) * tf.where(mask, v, tf.ones_like(v) * levels / 2)
+          scale = _get_scale(alpha="auto_po2", x=x, q=z,
+                             scale_axis=self.scale_axis)
+
+      # If alpha is "auto", then get the "best" floating point scale
+      elif self.alpha == "auto":
+        v = tf.floor(tf.abs(x) / scale + 0.5)
+        mask = v < levels / 2
+        z = tf.sign(x) * tf.where(mask, v, tf.ones_like(v) * levels / 2)
+      else:
+        raise ValueError(f"Invalid alpha '{self.alpha}'")
+
+      # z is an integer number, so we must make the scale * m and z / m
+      scale = scale * m
+
+      # we will not use "z" right now because of stochastic_rounding
+      # this is still under test.
+
+      # if "new" in self.alpha:
+      #  z = z / m
+      #  self.scale = scale
+      #  return x + tf.stop_gradient(-x + scale * z)
+      x = m_i * x
+      xq = m_i * z / m
+      self.scale = scale
+      xq = scale * xq
+
+      if self.use_ste:
+        return x + tf.stop_gradient(self.qnoise_factor * (-x + xq))
+      else:
+        return (1 - self.qnoise_factor) * x + tf.stop_gradient(
+            self.qnoise_factor * xq)
+
+    else:
+      scale = self.alpha
+
+    # quantized_bits with "1" bit becomes a binary implementation.
+    if unsigned_bits > 0:
+      p = x * m / m_i
+      xq = m_i * tf.keras.backend.clip(
+          _round_through(p, self.use_stochastic_rounding, precision=1.0),
+          self.keep_negative  * (-m + self.symmetric), m - 1) / m
+    else:
+      xq = tf.sign(x)
+      xq += (1.0 - tf.abs(xq))
+      if not self.keep_negative:
+        xq = (xq + 1.0) / 2.0
+
+    self.scale = scale
+    xq = scale * xq
+
+    if self.use_ste:
+      return x + tf.stop_gradient(self.qnoise_factor * (-x + xq))
+    else:
+      return (1 - self.qnoise_factor) * x + tf.stop_gradient(
+          self.qnoise_factor * xq)
+
+  def _set_trainable_parameter(self):
+    if self.alpha is None:
+      self.alpha = "auto_po2"
+      self.symmetric = True
+
+  def max(self):
+    """Get maximum value that quantized_bits class can represent."""
+    unsigned_bits = self.bits - self.keep_negative
+    if unsigned_bits > 0:
+      return max(
+          1.0,
+          np.array(
+              K.pow(2., K.cast(self.integer, dtype="float32")),
+              dtype="float32"))
+    else:
+      return 1.0
+
+  def min(self):
+    """Get minimum value that quantized_bits class can represent."""
+    if not self.keep_negative:
+      return 0.0
+    unsigned_bits = self.bits - self.keep_negative
+    if unsigned_bits > 0:
+      return -max(
+          1.0,
+          np.array(
+              K.pow(2, K.cast(self.integer, dtype="float32")), dtype="float32"))
+    else:
+      return -1.0
+
+  def range(self):
+    """Returns a list of all values that quantized_bits can represent
+    ordered by their binary representation ascending."""
+    assert self.symmetric == 0
+    assert self.keep_negative
+    assert self.alpha is None or self.alpha == 1.0
+
+    x = np.asarray(range(2**self.bits), dtype=np.float32)
+    p_and_n = np.where(x >= 2**(self.bits - 1),
+                       (x - 2**(self.bits - 1)) - 2**(self.bits - 1), x)
+    return p_and_n * np.array(
+        K.pow(2.0, -self.bits + K.cast(self.integer, dtype="float32") + 1),
+        dtype="float32")
+
+  @classmethod
+  def from_config(cls, config):
+    return cls(**config)
+
+  def get_config(self):
+    config = {
+        "bits":
+            self.bits,
+        "integer":
+            self.integer.numpy()
+            if isinstance(self.integer, tf.Variable) else self.integer,
+        "symmetric":
+            self.symmetric,
+        "alpha":
+            self.alpha,
+        "keep_negative":
+            self.keep_negative,
+        "use_stochastic_rounding":
+            self.use_stochastic_rounding,
+        "qnoise_factor":
+            self.qnoise_factor.numpy() if isinstance(
+                self.qnoise_factor, tf.Variable) else self.qnoise_factor
+    }
+    return config
 
 
 class bernoulli(BaseQuantizer):  # pylint: disable=invalid-name
