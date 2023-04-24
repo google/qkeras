@@ -638,13 +638,15 @@ class quantized_linear(BaseQuantizer):
     @alpha.setter
     def alpha(self, alpha):
         """
-        Set alpha and auto_alpha attributes, and check if alpha is valid
+        Set alpha, _alpha_str, and auto_alpha attributes, and check if alpha is valid
         Also, set scale if not auto_alpha.
+
+        Note: _alpha_str variable needed for uniform typing of alpha in tf.function
         """
 
-        if alpha is None or alpha == '':
-            # TODO: make sure this is the right idea
-            self._alpha = tf.cast('', tf.string)
+        if alpha is None:
+            self._alpha = None
+            self._alpha_str = tf.cast('', tf.string)
 
             # scale is always 1 for non-auto alpha
             self.scale.assign(K.cast_to_floatx(1.0))
@@ -657,6 +659,7 @@ class quantized_linear(BaseQuantizer):
                     f"Must be one of {self.ALPHA_OPTIONS}"
                 )
             self._alpha = tf.cast(alpha, tf.string)
+            self._alpha_str = tf.cast(alpha, tf.string)
             self.auto_alpha = tf.cast(True, tf.bool)
 
     def _calc_input_independent_attributes(self):
@@ -694,7 +697,7 @@ class quantized_linear(BaseQuantizer):
 
         self.int_repr_min = int_repr_min
         self.int_repr_max = int_repr_max
-        self.levels = self.int_repr_max - self.int_repr_min
+        self.int_repr_scale = self.int_repr_max - self.int_repr_min
 
     @tf.function
     def __call__(self, x):
@@ -743,8 +746,8 @@ class quantized_linear(BaseQuantizer):
 
         alpha_scale, xq = tf.case(
             [
-                (tf.equal(self.alpha, tf.cast("auto", tf.string)), autoscale),
-                (tf.equal(self.alpha, tf.cast("auto_po2", tf.string)), po2_autoscale),
+                (tf.equal(self._alpha_str, tf.cast("auto", tf.string)), autoscale),
+                (tf.equal(self._alpha_str, tf.cast("auto_po2", tf.string)), po2_autoscale),
             ],
         )
 
@@ -792,12 +795,12 @@ class quantized_linear(BaseQuantizer):
         def alpha_scale_keep_negative():
             """Get alpha scale when keeping negative values"""
 
-            return (K.max(tf.math.abs(x), axis=axis, keepdims=True) * 2) / self.levels
+            return (K.max(tf.math.abs(x), axis=axis, keepdims=True) * 2) / self.int_repr_scale
 
         def alpha_scale_no_negative():
             """Get alpha scale when dropping negative values"""
 
-            return K.max(x, axis=axis, keepdims=True) / self.levels
+            return K.max(x, axis=axis, keepdims=True) / self.int_repr_scale
 
         alpha_scale = tf.cond(
             tf.equal(self.keep_negative, 1.0),
@@ -885,7 +888,7 @@ class quantized_linear(BaseQuantizer):
             flags.append("keep_negative=False")
         if self.alpha:
             alpha = str(self.alpha)
-        if isinstance(self.alpha, six.string_types) and len(self.alpha) > 0:
+        if isinstance(self.alpha, six.string_types):
             alpha = "'" + alpha + "'"
             flags.append("alpha=" + alpha)
         if self.use_stochastic_rounding:
@@ -895,7 +898,7 @@ class quantized_linear(BaseQuantizer):
         return "quantized_bits(" + ",".join(flags) + ")"
 
     def _set_trainable_parameter(self):
-        if self.alpha == '':
+        if self.alpha is None:
             self.alpha = "auto_po2"
             self.symmetric = True
 
@@ -931,7 +934,7 @@ class quantized_linear(BaseQuantizer):
         ordered by their binary representation ascending."""
         assert self.symmetric == 0
         assert self.keep_negative
-        assert self.alpha == ''
+        assert self.alpha is None
 
         x = np.asarray(range(2**self.bits), dtype=np.float32)
         p_and_n = np.where(
