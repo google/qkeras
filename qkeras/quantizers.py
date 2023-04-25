@@ -481,11 +481,8 @@ class quantized_linear(BaseQuantizer):
         # tf.Tensor([0. 0. 1. 2. 2.], shape=(5,), dtype=float32)
         ```
     Note:
-        The computation differs very slightly from the above description for
-        1-bit symmetric quantization where we keep negative numbers,
-        since the above formula would map -1 to -1, 0 to 0, and 1 to 1
-        (thus representing three numbers with one bit). In this case, the
-        quantizer is just a sign function, where the sign of zero is positive.
+        The computation differs very slightly from the above for binary neural networks.
+        Here we follow the protocol in PokeBNN (https://arxiv.org/pdf/2112.00133.pdf).
 
     Args:
         bits (int): Number of bits to represent the number.
@@ -559,10 +556,6 @@ class quantized_linear(BaseQuantizer):
         # Perform preliminary calculations based on attributes above
         self._initialized = True
         self._calc_input_independent_attributes()
-
-        # Auto-scaling not needed for sign quantization
-        if self.auto_alpha and self.use_sign_function:
-            self.alpha = None
 
     @property
     def bits(self):
@@ -669,53 +662,55 @@ class quantized_linear(BaseQuantizer):
             self._initialized
         ), "Must initialize before calling _calc_input_independent_attributes"
 
-        # Compute unsigned bits scale (for integer representation), and store as attribute
-        self.unsigned_bits = self.bits - self.keep_negative
-        if self.unsigned_bits < self.integer:
+        if self.bits < self.integer + self.keep_negative:
             err_msg = (
                 f"Bit count {self.bits} must exceed {self.integer + self.keep_negative}"
             )
             raise ValueError(err_msg)
 
-        # Set boolean based on whether to use sign function
-        self.use_sign_function = tf.cast(self.unsigned_bits == 0, tf.bool)
-
         # Get scale for integer representation, as given by parameters other than alpha
-        integer_repr_scale = tf.math.reciprocal(
-            K.cast_to_floatx(
-                tf.bitwise.left_shift(1, self.unsigned_bits - self.integer)
-            )
-        )
-        self.integer_repr_scale = integer_repr_scale
+        self.integer_repr_scale = K.pow(2.0, self.integer - self.bits + self.keep_negative)
 
         # Get bounds of rounded integer representation and set as attributes
 
-        unsigned_bits_po2 = K.cast_to_floatx(
-            tf.bitwise.left_shift(1, self.unsigned_bits)
-        )
+        unsigned_bits_po2 = K.pow(2.0, self.bits - self.keep_negative)
+        
         int_repr_min = self.keep_negative * (-unsigned_bits_po2 + self.symmetric)
         int_repr_max = unsigned_bits_po2 - 1
 
         self.int_repr_min = int_repr_min
         self.int_repr_max = int_repr_max
-        self.int_repr_scale = self.int_repr_max - self.int_repr_min
+
+        # int_repr_range is 2 when using sign function, and is the range of 
+        # integer representations otherwise.
+        self.int_repr_range = tf.cond(
+           tf.equal(self.bits, K.cast_to_floatx(1)), 
+           lambda: K.cast_to_floatx(2), 
+           lambda: self.int_repr_max - self.int_repr_min
+        )
 
     @tf.function
     def __call__(self, x):
         """Core quantization function"""
         # build if not done so already
         self._build()
+        shape = x.shape
 
         # Data type conversion
         x = K.cast_to_floatx(x)
 
+        # determine if using sign function
         xq = tf.cond(
-            self.use_sign_function,
+            tf.equal(self.bits, K.cast_to_floatx(1)),
             lambda: self._sign_function(x),
             lambda: self._multi_bit_computation(x),
         )
 
-        return x + self.qnoise_factor * (xq - x)
+        res = x + self.qnoise_factor * (xq - x)
+        # Annoying hack to deal with tf not knowing shape of output
+        res.set_shape(shape)
+
+        return res
 
     def _multi_bit_computation(self, x):
         """Quantization multi-bit representation- differs for auto and static alpha"""
@@ -767,6 +762,18 @@ class quantized_linear(BaseQuantizer):
 
         return xq
 
+    def _get_alpha_for_sign_function(self, x):
+        """Set alpha scale for sign function"""
+
+        # Note: does not affect the actual quantization
+        alpha_scale = tf.case(
+          (tf.equal(self._alpha_str, ''), lambda: K.cast_to_floatx(1)),
+          (tf.equal(self._alpha_str, 'auto'), lambda: self._get_alpha_scale(x)),
+          (tf.equal(self._alpha_str, 'auto_po2'), lambda: self._po2_round(self._get_alpha_scale(x))),
+        )
+
+        return alpha_scale
+
     def _static_alpha_computation(self, x):
         """Compute quantized value for multi-bit quantization with static alpha"""
 
@@ -796,12 +803,12 @@ class quantized_linear(BaseQuantizer):
         def alpha_scale_keep_negative():
             """Get alpha scale when keeping negative values"""
 
-            return (K.max(tf.math.abs(x), axis=axis, keepdims=True) * 2) / self.int_repr_scale
+            return (K.max(tf.math.abs(x), axis=axis, keepdims=True) * 2) / self.int_repr_range
 
         def alpha_scale_no_negative():
             """Get alpha scale when dropping negative values"""
 
-            return K.max(x, axis=axis, keepdims=True) / self.int_repr_scale
+            return K.max(x, axis=axis, keepdims=True) / self.int_repr_range
 
         alpha_scale = tf.cond(
             tf.equal(self.keep_negative, 1.0),
@@ -825,9 +832,8 @@ class quantized_linear(BaseQuantizer):
     def _po2_autoscale(self, x, alpha_scale):
         """Get an approximation of the "best" po2 scale using least squares"""
 
-        alpha_scale = K.pow(
-            2.0, tf.math.round(K.log(alpha_scale + K.epsilon()) / np.log(2.0))
-        )
+        # set alpha scale to a near power of two
+        alpha_scale = self._po2_round(alpha_scale)
 
         def loop_body(_, alpha_scale, __):
             """Loop body for least squares autoscaling"""
@@ -865,6 +871,16 @@ class quantized_linear(BaseQuantizer):
         )  # x and dummy_alpha_scale not used as inputs, just needed to determine shapes
 
         return alpha_scale, int_xq
+
+    @staticmethod
+    def _po2_round(x):
+      """
+      Round to a near power of two
+      
+      Note: This is not necessarily the nearest power of two
+      """
+
+      return K.pow(2.0, tf.math.round(K.log(x + K.epsilon()) / K.log(2.0)))
 
     def _build(self):
         """Build the quantizer if not built yet."""
@@ -905,7 +921,7 @@ class quantized_linear(BaseQuantizer):
 
     def max(self):
         """Get maximum value that quantized_bits class can represent."""
-        if self.use_sign_function:
+        if tf.equal(self.bits, K.cast_to_floatx(1)):
             return 1.0
         else:
             return max(
@@ -920,7 +936,7 @@ class quantized_linear(BaseQuantizer):
         if not self.keep_negative:
             return 0.0
 
-        if self.use_sign_function:
+        if tf.equal(self.bits, K.cast_to_floatx(1)):
             return -1.0
         else:
             return -max(
