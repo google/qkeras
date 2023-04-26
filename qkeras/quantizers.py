@@ -123,7 +123,7 @@ def _get_integer_bits(min_value,
 def _get_scaling_axis(scale_axis, len_axis):
     """Get the axis to perform auto scaling with"""
 
-    if not scale_axis is None:
+    if scale_axis is not None:
         axis = tf.range(scale_axis)
         axis = tf.concat([axis, tf.range(scale_axis + 1, len_axis)], axis=0)
     else:
@@ -446,7 +446,7 @@ class quantized_linear(BaseQuantizer):
 
     This quantizer maps values to the nearest value of a fixed number of
     outputs that are evenly spaced, with possible scaling and stochastic
-    rounding.
+    rounding. This is an updated version of the now-deprecated quantized_bits.
 
     The core computation is:
         1. Scale the tensor by a factor
@@ -466,11 +466,11 @@ class quantized_linear(BaseQuantizer):
     automatically determining the scale per-channel.
 
     For backprop purposes, the quantizer uses the straight-through estimator
-    for the rounding step.
+    for the rounding step. (https://arxiv.org/pdf/1903.05662.pdf)
 
         The quantizer also supports a number of other optional features:
-        - Stochastic rounding (https://arxiv.org/pdf/1502.02551.pdf)
-        - Quantization noise
+        - Stochastic rounding (see the `stochastic_rounding` parameter)
+        - Quantization noise (see the `qnoise_factor` parameter)
 
     Example:
         ```python
@@ -481,30 +481,37 @@ class quantized_linear(BaseQuantizer):
         # tf.Tensor([0. 0. 1. 2. 2.], shape=(5,), dtype=float32)
         ```
     Note:
-        The computation differs very slightly from the above for binary neural networks.
-        Here we follow the protocol in PokeBNN (https://arxiv.org/pdf/2112.00133.pdf).
+        The computation differs very slightly from the above for binary neural
+        networks. Here we follow the protocol in PokeBNN
+        (https://arxiv.org/pdf/2112.00133.pdf).
 
     Args:
         bits (int): Number of bits to represent the number.
         integer (int): Number of bits to the left of the decimal point.
-        symmetric (bool): If true, we will have the same number of values for positive
-            and negative numbers.
+        symmetric (bool): If true, we will have the same number of values for
+            positive and negative numbers.
         alpha (str, None): The auto-scaling method. If None, the scaling factor
-            is determined by `integer`. If "auto", the scaling factor is calculated
-            as the minimum floating point scale that does not clip the max of x.
-            if "auto_po2", the scaling factor is chosen as the power of two per-channel
-            that minimizes squared error between the quantized x and the original x.
+            is determined by `integer`. If "auto", the scaling factor is
+            calculated as the minimum floating point scale that does not clip
+            the max of x. if "auto_po2", the scaling factor is chosen as the
+            power of two per-channel that minimizes squared error between the
+            quantized x and the original x.
         keep_negative (bool): If false, we clip negative numbers.
         use_stochastic_rounding (bool): If true, we perform stochastic rounding.
-        scale_axis (int): Which axis to calculate scale from.
+            (https://arxiv.org/pdf/1502.02551.pdf)
+        scale_axis (int, None): Which axis to calculate scale from. If None, we
+            perform per-channel scaling based off of the image data format. See
+            `_get_scaling_axis` for more details.
         qnoise_factor (float): A scalar from 0 to 1 that represents the level of
-            quantization noise to add. This controls the amount of the quantization
-            noise to add to the outputs by changing the weighted sum of
-            (1 - qnoise_factor) * unquantized_x + qnoise_factor * quantized_x.
+            quantization noise to add. This controls the amount of the
+            quantization noise to add to the outputs by changing the weighted
+            sum of (1 - qnoise_factor) * unquantized_x + qnoise_factor *
+            quantized_x.
         var_name (str or None): A variable name shared between the tf.Variables
-            created in the build function. If None, it is generated automatically.
-        use_variables (bool): Whether to make the quantizer variables to be dynamic
-            tf.Variables or not.
+            created in the build function. If None, it is generated
+            automatically based on the parameter names.
+        use_variables (bool): Whether to make the quantizer variables to be
+            dynamic tf.Variables or not.
 
     Returns:
         function: Function that computes fixed-point quantization with bits.
@@ -615,7 +622,9 @@ class quantized_linear(BaseQuantizer):
 
     @use_stochastic_rounding.setter
     def use_stochastic_rounding(self, use_stochastic_rounding):
-        self._use_stochastic_rounding = tf.cast(use_stochastic_rounding, tf.bool)
+        self._use_stochastic_rounding = tf.cast(
+            use_stochastic_rounding, tf.bool
+        )
 
     @property
     def scale_axis(self):
@@ -632,15 +641,16 @@ class quantized_linear(BaseQuantizer):
     @alpha.setter
     def alpha(self, alpha):
         """
-        Set alpha, _alpha_str, and auto_alpha attributes, and check if alpha is valid
-        Also, set scale if not auto_alpha.
+        Set alpha, _alpha_str, and auto_alpha attributes, and check if alpha is
+        valid. Also, set scale if not auto_alpha.
 
-        Note: _alpha_str variable needed for uniform typing of alpha in tf.function
+        Note: _alpha_str variable needed for uniform typing of alpha in
+        tf.function
         """
 
         if alpha is None:
             self._alpha = None
-            self._alpha_str = tf.cast('', tf.string)
+            self._alpha_str = tf.cast("", tf.string)
 
             # scale is always 1 for non-auto alpha
             self.scale.assign(K.cast_to_floatx(1.0))
@@ -657,36 +667,41 @@ class quantized_linear(BaseQuantizer):
             self.auto_alpha = tf.cast(True, tf.bool)
 
     def _calc_input_independent_attributes(self):
-        """Calculate and set attributes that are independent of __call__ input"""
+        """Calculate attributes that are independent of __call__ input"""
         assert (
             self._initialized
         ), "Must initialize before calling _calc_input_independent_attributes"
 
         if self.bits < self.integer + self.keep_negative:
             err_msg = (
-                f"Bit count {self.bits} must exceed {self.integer + self.keep_negative}"
+                f"Bit count {self.bits} must exceed "
+                f" {self.integer + self.keep_negative}"
             )
             raise ValueError(err_msg)
 
-        # Get scale for integer representation, as given by parameters other than alpha
-        self.integer_repr_scale = K.pow(2.0, self.integer - self.bits + self.keep_negative)
+        # Get scale for integer representation (not determined by alpha)
+        self.integer_repr_scale = K.pow(
+            2.0, self.integer - self.bits + self.keep_negative
+        )
 
         # Get bounds of rounded integer representation and set as attributes
 
         unsigned_bits_po2 = K.pow(2.0, self.bits - self.keep_negative)
-        
-        int_repr_min = self.keep_negative * (-unsigned_bits_po2 + self.symmetric)
+
+        int_repr_min = self.keep_negative * (
+            -unsigned_bits_po2 + self.symmetric
+        )
         int_repr_max = unsigned_bits_po2 - 1
 
         self.int_repr_min = int_repr_min
         self.int_repr_max = int_repr_max
 
-        # int_repr_range is 2 when using sign function, and is the range of 
+        # int_repr_range is 2 when using sign function, and is the range of
         # integer representations otherwise.
         self.int_repr_range = tf.cond(
-           tf.equal(self.bits, K.cast_to_floatx(1)), 
-           lambda: K.cast_to_floatx(2), 
-           lambda: self.int_repr_max - self.int_repr_min
+            tf.equal(self.bits, K.cast_to_floatx(1)),
+            lambda: K.cast_to_floatx(2),
+            lambda: self.int_repr_max - self.int_repr_min,
         )
 
     @tf.function
@@ -713,7 +728,7 @@ class quantized_linear(BaseQuantizer):
         return res
 
     def _multi_bit_computation(self, x):
-        """Quantization multi-bit representation- differs for auto and static alpha"""
+        """Quantization multi-bit representation"""
 
         xq = tf.cond(
             self.auto_alpha,
@@ -742,8 +757,14 @@ class quantized_linear(BaseQuantizer):
 
         alpha_scale, xq = tf.case(
             [
-                (tf.equal(self._alpha_str, tf.cast("auto", tf.string)), autoscale),
-                (tf.equal(self._alpha_str, tf.cast("auto_po2", tf.string)), po2_autoscale),
+                (
+                    tf.equal(self._alpha_str, tf.cast("auto", tf.string)),
+                    autoscale,
+                ),
+                (
+                    tf.equal(self._alpha_str, tf.cast("auto_po2", tf.string)),
+                    po2_autoscale,
+                ),
             ],
         )
 
@@ -767,15 +788,21 @@ class quantized_linear(BaseQuantizer):
 
         # Note: does not affect the actual quantization
         alpha_scale = tf.case(
-          (tf.equal(self._alpha_str, ''), lambda: K.cast_to_floatx(1)),
-          (tf.equal(self._alpha_str, 'auto'), lambda: self._get_alpha_scale(x)),
-          (tf.equal(self._alpha_str, 'auto_po2'), lambda: self._po2_round(self._get_alpha_scale(x))),
+            (tf.equal(self._alpha_str, ""), lambda: K.cast_to_floatx(1)),
+            (
+                tf.equal(self._alpha_str, "auto"),
+                lambda: self._get_alpha_scale(x),
+            ),
+            (
+                tf.equal(self._alpha_str, "auto_po2"),
+                lambda: self._po2_round(self._get_alpha_scale(x)),
+            ),
         )
 
         return alpha_scale
 
     def _static_alpha_computation(self, x):
-        """Compute quantized value for multi-bit quantization with static alpha"""
+        """Compute multi-bit quantized value with static alpha"""
 
         int_xq = self._get_quantized_integer(x, self.integer_repr_scale)
         xq = int_xq * self.integer_repr_scale
@@ -786,7 +813,9 @@ class quantized_linear(BaseQuantizer):
         """Get x quantized in integer representation"""
 
         scaled_x = x / integer_repr_scale
-        clipped_scaled_x = K.clip(scaled_x, self.int_repr_min, self.int_repr_max)
+        clipped_scaled_x = K.clip(
+            scaled_x, self.int_repr_min, self.int_repr_max
+        )
         int_xq = _round_through(
             clipped_scaled_x,
             use_stochastic_rounding=self.use_stochastic_rounding,
@@ -796,14 +825,17 @@ class quantized_linear(BaseQuantizer):
         return int_xq
 
     def _get_alpha_scale(self, x):
-        """Get the minimum floating point scale that does not clip the max of x"""
+        """Get the minimum floating point scale that does not clip the max 
+        of x"""
 
         axis = self._get_axis(x)
 
         def alpha_scale_keep_negative():
             """Get alpha scale when keeping negative values"""
 
-            return (K.max(tf.math.abs(x), axis=axis, keepdims=True) * 2) / self.int_repr_range
+            return (
+                K.max(tf.math.abs(x), axis=axis, keepdims=True) * 2
+            ) / self.int_repr_range
 
         def alpha_scale_no_negative():
             """Get alpha scale when dropping negative values"""
@@ -848,14 +880,15 @@ class quantized_linear(BaseQuantizer):
             return alpha_scale, new_alpha_scale, int_xq
 
         def loop_cond(last_alpha_scale, alpha_scale, __):
-            """Loop condition for least squares autoscaling- stop when the scale converges"""
+            """Loop condition for least squares autoscaling- stop when the 
+            scale converges"""
 
             tensors_not_equal = tf.math.reduce_any(
                 tf.not_equal(last_alpha_scale, alpha_scale)
             )
             return tensors_not_equal
 
-        # Need a tensor of the same shape as alpha_scale that is not equal to alpha_scale
+        # Need a tensor of the same shape as alpha_scale that != alpha_scale
         dummy_alpha_scale = -tf.ones_like(alpha_scale)
 
         _, alpha_scale, int_xq = tf.while_loop(
@@ -868,19 +901,19 @@ class quantized_linear(BaseQuantizer):
                 tf.TensorShape(None),
             ),
             maximum_iterations=5,
-        )  # x and dummy_alpha_scale not used as inputs, just needed to determine shapes
+        )  # x and dummy_alpha_scale, just needed to determine shapes
 
         return alpha_scale, int_xq
 
     @staticmethod
     def _po2_round(x):
-      """
-      Round to a near power of two
-      
-      Note: This is not necessarily the nearest power of two
-      """
+        """
+        Round to a near power of two
 
-      return K.pow(2.0, tf.math.round(K.log(x + K.epsilon()) / K.log(2.0)))
+        Note: This is not necessarily the nearest power of two
+        """
+
+        return K.pow(2.0, tf.math.round(K.log(x + K.epsilon()) / K.log(2.0)))
 
     def _build(self):
         """Build the quantizer if not built yet."""
@@ -888,7 +921,7 @@ class quantized_linear(BaseQuantizer):
             self.build(var_name=self.var_name, use_variables=self.use_variables)
 
     def __str__(self):
-        # Convert Tensors to printable strings by converting to a numpy array and
+        # Convert Tensors to printable strings by converting to a numpy array,
         # then using regex to remove brackets when there is only one integer bit
         integer_bits = re.sub(
             r"\[(\d)\]",
@@ -910,7 +943,8 @@ class quantized_linear(BaseQuantizer):
             flags.append("alpha=" + alpha)
         if self.use_stochastic_rounding:
             flags.append(
-                "use_stochastic_rounding=" + str(int(self.use_stochastic_rounding))
+                "use_stochastic_rounding="
+                + str(int(self.use_stochastic_rounding))
             )
         return "quantized_bits(" + ",".join(flags) + ")"
 
@@ -927,7 +961,8 @@ class quantized_linear(BaseQuantizer):
             return max(
                 1.0,
                 np.array(
-                    K.pow(2.0, K.cast(self.integer, dtype="float32")), dtype="float32"
+                    K.pow(2.0, K.cast(self.integer, dtype="float32")),
+                    dtype="float32",
                 ),
             )
 
@@ -942,7 +977,8 @@ class quantized_linear(BaseQuantizer):
             return -max(
                 1.0,
                 np.array(
-                    K.pow(2, K.cast(self.integer, dtype="float32")), dtype="float32"
+                    K.pow(2, K.cast(self.integer, dtype="float32")),
+                    dtype="float32",
                 ),
             )
 
@@ -965,11 +1001,7 @@ class quantized_linear(BaseQuantizer):
         )
 
     @classmethod
-    def from_config(cls, config):
-        return cls(**config)
-
     def get_config(self):
-
         def _convert_to_numpy(obj):
             """Convert potential Variable to numpy for config"""
 
@@ -985,13 +1017,15 @@ class quantized_linear(BaseQuantizer):
             "alpha": self.alpha,
             "keep_negative": self.keep_negative,
             "use_stochastic_rounding": self.use_stochastic_rounding,
-            "qnoise_factor": _convert_to_numpy(self.qnoise_factor)
+            "qnoise_factor": _convert_to_numpy(self.qnoise_factor),
         }
         return config
 
 
 class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
-  """Quantizes the number to a number of bits.
+  """Deprecated: Please use quantized_linear
+  
+  Quantizes the number to a number of bits.
 
   In general, we want to use a quantization function like:
 
@@ -1035,7 +1069,7 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
       If None, the scaling factor is 1 for all channels.
     keep_negative: if true, we do not clip negative numbers.
     use_stochastic_rounding: if true, we perform stochastic rounding.
-    scale_axis: which axis to calculate scale from
+    scale_axis: which axis to calculate scale from.
     qnoise_factor: float. a scalar from 0 to 1 that represents the level of
       quantization noise to add. This controls the amount of the quantization
       noise to add to the outputs by changing the weighted sum of
