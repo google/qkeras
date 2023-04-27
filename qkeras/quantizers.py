@@ -442,28 +442,37 @@ class BaseQuantizer(tf.Module):
 
 
 class quantized_linear(BaseQuantizer):
-    """Linear quantization with fixed number of bits.
+  """Linear quantization with fixed number of bits.
 
     This quantizer maps values to the nearest value of a fixed number of
     outputs that are evenly spaced, with possible scaling and stochastic
     rounding. This is an updated version of the now-deprecated quantized_bits.
 
     The core computation is:
-        1. Scale the tensor by a factor
+        1. Scale the tensor by a quantization scale
         2. Clip the tensor to a specified range
-        3. Round to the nearest integer (the "integer representation")
-        4. Scale back by 1/factor
+        3. Round to the nearest integer
+        4. Scale back by 1/quantization scale
 
-    This "integer representation" range is determined by
+    This clip range is determined by
         - The number of bits we have to represent the number
         - Whether we want to have a symmetric range or not
         - Whether we want to keep negative numbers or not
 
-    The scale is defined by either the user or the quantizer itself,
-    using the parameters `integer` or `alpha`. If `alpha` is None, `integer`
-    defines the number of integer bits, which determines the scale.
-    Otherwise `alpha` must be a string, which specifies the method of
-    automatically determining the scale per-channel.
+    The quantization scale is defined by either the quantizer parameters or the 
+    data passed to the __call__ method. See documentation for the `alpha`
+    parameter to find out more.
+
+    Note on the various "scales" in quantized_linear:
+      - The quantization scale is the scale used in the core computation. You
+        can access it via the `quantization_scale` property. See the
+        documentation for the `alpha` parameter to find out more.
+      - The data type scale is the scale is determined by the type of data
+        stored on hardware on a small device running a true quantized model.
+        This is determined by the `integer`, `bits`, and `keep_negative`
+        parameters. You can access it via the `data_type_scale` property.
+      - The `scale` attribute stores the quotient of the quantization scale and
+        the data type scale.
 
     For backprop purposes, the quantizer uses the straight-through estimator
     for the rounding step. (https://arxiv.org/pdf/1903.05662.pdf)
@@ -490,12 +499,16 @@ class quantized_linear(BaseQuantizer):
         integer (int): Number of bits to the left of the decimal point.
         symmetric (bool): If true, we will have the same number of values for
             positive and negative numbers.
-        alpha (str, None): The auto-scaling method. If None, the scaling factor
-            is determined by `integer`. If "auto", the scaling factor is
-            calculated as the minimum floating point scale that does not clip
-            the max of x. if "auto_po2", the scaling factor is chosen as the
-            power of two per-channel that minimizes squared error between the
-            quantized x and the original x.
+        alpha (str, Tensor, None): Instructions for determining the quantization
+            scale. 
+            - If None: the quantization scale is the data type scale, determined 
+              by `integer`, `bits`, and `keep_negative`. 
+            - If "auto", the quantization scale is calculated as the minimum 
+            floating point scale that does not clip the max of x. 
+            - If "auto_po2", the quantization scale is chosen as the
+              power of two per-channel that minimizes squared error between the
+              quantized x and the original x.
+            - If Tensor: The quantization scale is the Tensor passed in.
         keep_negative (bool): If false, we clip negative numbers.
         use_stochastic_rounding (bool): If true, we perform stochastic rounding.
             (https://arxiv.org/pdf/1502.02551.pdf)
@@ -524,502 +537,459 @@ class quantized_linear(BaseQuantizer):
 
     """
 
-    ALPHA_OPTIONS = ("auto", "auto_po2")
-
-    def __init__(
-        self,
-        bits=8,
-        integer=0,
-        symmetric=0,
-        keep_negative=True,
-        alpha=None,
-        use_stochastic_rounding=False,
-        scale_axis=None,
-        qnoise_factor=1.0,
-        var_name=None,
-        use_variables=False,
-    ):
-        super(quantized_linear, self).__init__()
-
-        # Set _initialized parameter to False to prevent the setters from
-        # performing preliminary calculations
-        self._initialized = False
-        self.bits = bits
-        self.integer = integer
-        self.symmetric = symmetric
-        self.keep_negative = keep_negative
-        self.qnoise_factor = qnoise_factor
-        self.use_stochastic_rounding = use_stochastic_rounding
-        # set scale as a tf.Variable so that it can be updated
-        # within tf.functions
-        self.scale = tf.Variable(
-            1.0, name="scale", shape=tf.TensorShape(None), trainable=False
-        )
-        self.alpha = alpha
-        self.scale_axis = scale_axis
-        self.var_name = var_name
-        self.use_variables = use_variables
-
-        # Perform preliminary calculations based on attributes above
-        self._initialized = True
-        self._calc_input_independent_attributes()
-
-    @property
-    def bits(self):
-        return self._bits
-
-    @bits.setter
-    def bits(self, bits):
-        if bits <= 0:
-            raise ValueError(f"Bit count {bits} must be positive")
-        self._bits = K.cast_to_floatx(bits)
-        if self._initialized:
-            self._calc_input_independent_attributes()
-
-    @property
-    def integer(self):
-        return self._integer
-
-    @integer.setter
-    def integer(self, integer):
-        if integer < 0:
-            raise ValueError(f"Integer bit count {integer} must be nonnegative")
-        self._integer = K.cast_to_floatx(integer)
-        if self._initialized:
-            self._calc_input_independent_attributes()
-
-    @property
-    def symmetric(self):
-        return self._symmetric
-
-    @symmetric.setter
-    def symmetric(self, symmetric):
-        self._symmetric = K.cast_to_floatx(symmetric)
-        if self._initialized:
-            self._calc_input_independent_attributes()
-
-    @property
-    def keep_negative(self):
-        return self._keep_negative
-
-    @keep_negative.setter
-    def keep_negative(self, keep_negative):
-        self._keep_negative = K.cast_to_floatx(keep_negative)
-        if self._initialized:
-            self._calc_input_independent_attributes()
-
-    @property
-    def qnoise_factor(self):
-        return self._qnoise_factor
-
-    @qnoise_factor.setter
-    def qnoise_factor(self, qnoise_factor):
-        self._qnoise_factor = K.cast_to_floatx(qnoise_factor)
-
-    @property
-    def use_stochastic_rounding(self):
-        return self._use_stochastic_rounding
-
-    @use_stochastic_rounding.setter
-    def use_stochastic_rounding(self, use_stochastic_rounding):
-        self._use_stochastic_rounding = tf.cast(
-            use_stochastic_rounding, tf.bool
-        )
-
-    @property
-    def scale_axis(self):
-        return self._scale_axis
-
-    @scale_axis.setter
-    def scale_axis(self, scale_axis):
-        self._scale_axis = scale_axis
-
-    @property
-    def alpha(self):
-        return self._alpha
-
-    @alpha.setter
-    def alpha(self, alpha):
-        """
-        Set alpha, _alpha_str, and auto_alpha attributes, and check if alpha is
-        valid. Also, set scale if not auto_alpha.
-
-        Note: _alpha_str variable needed for uniform typing of alpha in
-        tf.function
-        """
-
-        if alpha is None:
-            self._alpha = None
-            self._alpha_str = tf.cast("", tf.string)
-
-            # scale is always 1 for non-auto alpha
-            self.scale.assign(K.cast_to_floatx(1.0))
-            self.auto_alpha = tf.cast(False, tf.bool)
-        else:
-            # Check the quantizer has been given a valid alpha string
-            if not alpha in self.ALPHA_OPTIONS:
-                raise ValueError(
-                    f"Invalid alpha '{alpha}' for auto alpha computation. "
-                    f"Must be one of {self.ALPHA_OPTIONS}"
-                )
-            self._alpha = tf.cast(alpha, tf.string)
-            self._alpha_str = tf.cast(alpha, tf.string)
-            self.auto_alpha = tf.cast(True, tf.bool)
-
-    def _calc_input_independent_attributes(self):
-        """Calculate attributes that are independent of __call__ input"""
-        assert (
-            self._initialized
-        ), "Must initialize before calling _calc_input_independent_attributes"
-
-        if self.bits < self.integer + self.keep_negative:
-            err_msg = (
-                f"Bit count {self.bits} must exceed "
-                f" {self.integer + self.keep_negative}"
-            )
-            raise ValueError(err_msg)
-
-        # Get scale for integer representation (not determined by alpha)
-        self.integer_repr_scale = K.pow(
-            2.0, self.integer - self.bits + self.keep_negative
-        )
-
-        # Get bounds of rounded integer representation and set as attributes
-
-        unsigned_bits_po2 = K.pow(2.0, self.bits - self.keep_negative)
-
-        int_repr_min = self.keep_negative * (
-            -unsigned_bits_po2 + self.symmetric
-        )
-        int_repr_max = unsigned_bits_po2 - 1
-
-        self.int_repr_min = int_repr_min
-        self.int_repr_max = int_repr_max
-
-        # int_repr_range is 2 when using sign function, and is the range of
-        # integer representations otherwise.
-        self.int_repr_range = tf.cond(
-            tf.equal(self.bits, K.cast_to_floatx(1)),
-            lambda: K.cast_to_floatx(2),
-            lambda: self.int_repr_max - self.int_repr_min,
-        )
-
-    @tf.function
-    def __call__(self, x):
-        """Core quantization function"""
-        # build if not done so already
-        self._build()
-        shape = x.shape
-
-        # Data type conversion
-        x = K.cast_to_floatx(x)
-
-        # determine if using sign function
-        xq = tf.cond(
-            tf.equal(self.bits, K.cast_to_floatx(1)),
-            lambda: self._sign_function(x),
-            lambda: self._multi_bit_computation(x),
-        )
-
-        res = x + self.qnoise_factor * (xq - x)
-        # Annoying hack to deal with tf not knowing shape of output
-        res.set_shape(shape)
-
-        return res
-
-    def _multi_bit_computation(self, x):
-        """Quantization multi-bit representation"""
-
-        xq = tf.cond(
-            self.auto_alpha,
-            lambda: self._auto_alpha_computation(x),
-            lambda: self._static_alpha_computation(x),
-        )
-
-        return xq
-
-    def _auto_alpha_computation(self, x):
-        """Compute quantized value for automatically determined alpha"""
-
-        # Get the minimum floating point scale that does not clip the max of x
-        alpha_scale = self._get_alpha_scale(x)
-
-        # Autoscale functions for tf.cond below
-        def autoscale():
-            """Quantize with `alpha_scale` above"""
-            int_xq = self._get_quantized_integer(x, alpha_scale)
-            return alpha_scale, int_xq * alpha_scale
-
-        def po2_autoscale():
-            """Get the "best" po2 scale for the data"""
-            _alpha_scale, int_xq = self._po2_autoscale(x, alpha_scale)
-            return _alpha_scale, int_xq * _alpha_scale
-
-        alpha_scale, xq = tf.case(
-            [
-                (
-                    tf.equal(self._alpha_str, tf.cast("auto", tf.string)),
-                    autoscale,
-                ),
-                (
-                    tf.equal(self._alpha_str, tf.cast("auto_po2", tf.string)),
-                    po2_autoscale,
-                ),
-            ],
-        )
-
-        # save scale for later computations
-        self.scale.assign(alpha_scale / self.integer_repr_scale)
-
-        return xq
-
-    def _sign_function(self, x):
-        """Sign indicator function for 1-bit quantization"""
-
-        neg_res = K.cast_to_floatx(-self.keep_negative)
-        nonneg_res = K.cast_to_floatx(1)
-
-        xq = tf.where(tf.math.greater_equal(x, 0), nonneg_res, neg_res)
-
-        return xq
-
-    def _get_alpha_for_sign_function(self, x):
-        """Set alpha scale for sign function"""
-
-        # Note: does not affect the actual quantization
-        alpha_scale = tf.case(
-            (tf.equal(self._alpha_str, ""), lambda: K.cast_to_floatx(1)),
-            (
-                tf.equal(self._alpha_str, "auto"),
-                lambda: self._get_alpha_scale(x),
-            ),
-            (
-                tf.equal(self._alpha_str, "auto_po2"),
-                lambda: self._po2_round(self._get_alpha_scale(x)),
-            ),
-        )
-
-        return alpha_scale
-
-    def _static_alpha_computation(self, x):
-        """Compute multi-bit quantized value with static alpha"""
-
-        int_xq = self._get_quantized_integer(x, self.integer_repr_scale)
-        xq = int_xq * self.integer_repr_scale
-
-        return xq
-
-    def _get_quantized_integer(self, x, integer_repr_scale):
-        """Get x quantized in integer representation"""
-
-        scaled_x = x / integer_repr_scale
-        clipped_scaled_x = K.clip(
-            scaled_x, self.int_repr_min, self.int_repr_max
-        )
-        int_xq = _round_through(
-            clipped_scaled_x,
-            use_stochastic_rounding=self.use_stochastic_rounding,
-            precision=1.0,
-        )
-
-        return int_xq
-
-    def _get_alpha_scale(self, x):
-        """Get the minimum floating point scale that does not clip the max 
-        of x"""
-
-        axis = self._get_axis(x)
-
-        def alpha_scale_keep_negative():
-            """Get alpha scale when keeping negative values"""
-
-            return (
-                K.max(tf.math.abs(x), axis=axis, keepdims=True) * 2
-            ) / self.int_repr_range
-
-        def alpha_scale_no_negative():
-            """Get alpha scale when dropping negative values"""
-
-            return K.max(x, axis=axis, keepdims=True) / self.int_repr_range
-
-        alpha_scale = tf.cond(
-            tf.equal(self.keep_negative, 1.0),
-            alpha_scale_keep_negative,
-            alpha_scale_no_negative,
-        )
-
-        return tf.math.maximum(alpha_scale, K.epsilon())
-
-    def _get_axis(self, x):
-        """Get axis for alpha scale computation"""
-
-        len_axis = tf.rank(x)
-        axis = tf.cond(
-            tf.not_equal(len_axis, 1),
-            lambda: _get_scaling_axis(self.scale_axis, len_axis),
-            lambda: tf.convert_to_tensor([0]),
-        )
-        return axis
-
-    def _po2_autoscale(self, x, alpha_scale):
-        """Get an approximation of the "best" po2 scale using least squares"""
-
-        # set alpha scale to a near power of two
-        alpha_scale = self._po2_round(alpha_scale)
-
-        def loop_body(_, alpha_scale, __):
-            """Loop body for least squares autoscaling"""
-
-            int_xq = self._get_quantized_integer(x, alpha_scale)
-            new_alpha_scale = _get_scale(
-                alpha="auto_po2",
-                x=x,
-                q=int_xq,
-                scale_axis=self.scale_axis,
-            )
-            return alpha_scale, new_alpha_scale, int_xq
-
-        def loop_cond(last_alpha_scale, alpha_scale, __):
-            """Loop condition for least squares autoscaling- stop when the 
-            scale converges"""
-
-            tensors_not_equal = tf.math.reduce_any(
-                tf.not_equal(last_alpha_scale, alpha_scale)
-            )
-            return tensors_not_equal
-
-        # Need a tensor of the same shape as alpha_scale that != alpha_scale
-        dummy_alpha_scale = -tf.ones_like(alpha_scale)
-
-        _, alpha_scale, int_xq = tf.while_loop(
-            loop_cond,
-            loop_body,
-            (dummy_alpha_scale, alpha_scale, x),
-            shape_invariants=(
-                alpha_scale.shape,
-                alpha_scale.shape,
-                tf.TensorShape(None),
-            ),
-            maximum_iterations=5,
-        )  # x and dummy_alpha_scale, just needed to determine shapes
-
-        return alpha_scale, int_xq
-
-    @staticmethod
-    def _po2_round(x):
-        """
-        Round to a near power of two
-
-        Note: This is not necessarily the nearest power of two
-        """
-
-        return K.pow(2.0, tf.math.round(K.log(x + K.epsilon()) / K.log(2.0)))
-
-    def _build(self):
-        """Build the quantizer if not built yet."""
-        if not self.built:
-            self.build(var_name=self.var_name, use_variables=self.use_variables)
-
-    def __str__(self):
-        # Convert Tensors to printable strings by converting to a numpy array,
-        # then using regex to remove brackets when there is only one integer bit
-        integer_bits = re.sub(
-            r"\[(\d)\]",
-            r"\g<1>",
-            str(
-                self.integer.numpy()
-                if isinstance(self.integer, tf.Variable)
-                else self.integer
-            ),
-        )
-
-        flags = [str(self.bits), integer_bits, str(int(self.symmetric))]
-        if not self.keep_negative:
-            flags.append("keep_negative=False")
-        if self.alpha:
-            alpha = str(self.alpha)
-        if isinstance(self.alpha, six.string_types):
-            alpha = "'" + alpha + "'"
-            flags.append("alpha=" + alpha)
-        if self.use_stochastic_rounding:
-            flags.append(
-                "use_stochastic_rounding="
-                + str(int(self.use_stochastic_rounding))
-            )
-        return "quantized_bits(" + ",".join(flags) + ")"
-
-    def _set_trainable_parameter(self):
-        if self.alpha is None:
-            self.alpha = "auto_po2"
-            self.symmetric = True
-
-    def max(self):
-        """Get maximum value that quantized_bits class can represent."""
-        if tf.equal(self.bits, K.cast_to_floatx(1)):
-            return 1.0
-        else:
-            return max(
-                1.0,
-                np.array(
-                    K.pow(2.0, K.cast(self.integer, dtype="float32")),
-                    dtype="float32",
-                ),
-            )
-
-    def min(self):
-        """Get minimum value that quantized_bits class can represent."""
-        if not self.keep_negative:
-            return 0.0
-
-        if tf.equal(self.bits, K.cast_to_floatx(1)):
-            return -1.0
-        else:
-            return -max(
-                1.0,
-                np.array(
-                    K.pow(2, K.cast(self.integer, dtype="float32")),
-                    dtype="float32",
-                ),
-            )
-
-    def range(self):
-        """Returns a list of all values that quantized_bits can represent
-        ordered by their binary representation ascending."""
-        assert self.symmetric == 0
-        assert self.keep_negative
-        assert self.alpha is None
-
-        x = np.asarray(range(2**self.bits), dtype=np.float32)
-        p_and_n = np.where(
-            x >= 2 ** (self.bits - 1),
-            (x - 2 ** (self.bits - 1)) - 2 ** (self.bits - 1),
-            x,
-        )
-        return p_and_n * np.array(
-            K.pow(2.0, -self.bits + K.cast(self.integer, dtype="float32") + 1),
-            dtype="float32",
-        )
-
-    @classmethod
-    def get_config(self):
-        def _convert_to_numpy(obj):
-            """Convert potential Variable to numpy for config"""
-
-            if isinstance(obj, tf.Variable):
-                return obj.numpy()
-            else:
-                return obj
-
-        config = {
-            "bits": self.bits,
-            "integer": _convert_to_numpy(self.integer),
-            "symmetric": self.symmetric,
-            "alpha": self.alpha,
-            "keep_negative": self.keep_negative,
-            "use_stochastic_rounding": self.use_stochastic_rounding,
-            "qnoise_factor": _convert_to_numpy(self.qnoise_factor),
-        }
-        return config
+  ALPHA_OPTIONS = ("auto", "auto_po2")
+
+  def __init__(
+      self,
+      bits=8,
+      integer=0,
+      symmetric=0,
+      keep_negative=True,
+      alpha=None,
+      use_stochastic_rounding=False,
+      scale_axis=None,
+      qnoise_factor=1.0,
+      var_name=None,
+      use_variables=False,
+  ):
+    super(quantized_linear, self).__init__()
+
+    # Set _initialized parameter to False to prevent the setters from
+    # performing preliminary calculations
+    self._initialized = False
+    self.bits = bits
+    self.integer = integer
+    self.symmetric = symmetric
+    self.keep_negative = keep_negative
+    self.qnoise_factor = qnoise_factor
+    self.use_stochastic_rounding = use_stochastic_rounding
+    # set scale as a tf.Variable so that it can be updated
+    # within tf.functions
+    self.scale = tf.Variable(1.0,
+                             name="scale",
+                             shape=tf.TensorShape(None),
+                             trainable=False)
+    # set quantization_scale variable, will be updated in either __call__
+    # or _calc_input_independent_attributes
+    self.quantization_scale = tf.Variable(name="quantization_scale",
+                                    shape=tf.TensorShape(None),
+                                    trainable=False)
+    self.alpha = alpha
+    self.scale_axis = scale_axis
+    self.var_name = var_name
+    self.use_variables = use_variables
+
+    # Perform preliminary calculations based on attributes above
+    self._initialized = True
+    self._calc_input_independent_attributes()
+
+  @property
+  def bits(self):
+    return self._bits
+
+  @bits.setter
+  def bits(self, bits):
+    if bits <= 0:
+      raise ValueError(f"Bit count {bits} must be positive")
+    self._bits = K.cast_to_floatx(bits)
+    if self._initialized:
+      self._calc_input_independent_attributes()
+
+  @property
+  def integer(self):
+    return self._integer
+
+  @integer.setter
+  def integer(self, integer):
+    if integer < 0:
+      raise ValueError(f"Integer bit count {integer} must be nonnegative")
+    self._integer = K.cast_to_floatx(integer)
+    if self._initialized:
+      self._calc_input_independent_attributes()
+
+  @property
+  def symmetric(self):
+    return self._symmetric
+
+  @symmetric.setter
+  def symmetric(self, symmetric):
+    self._symmetric = K.cast_to_floatx(symmetric)
+    if self._initialized:
+      self._calc_input_independent_attributes()
+
+  @property
+  def keep_negative(self):
+    return self._keep_negative
+
+  @keep_negative.setter
+  def keep_negative(self, keep_negative):
+    self._keep_negative = K.cast_to_floatx(keep_negative)
+    if self._initialized:
+      self._calc_input_independent_attributes()
+
+  @property
+  def qnoise_factor(self):
+    return self._qnoise_factor
+
+  @qnoise_factor.setter
+  def qnoise_factor(self, qnoise_factor):
+    self._qnoise_factor = K.cast_to_floatx(qnoise_factor)
+
+  @property
+  def use_stochastic_rounding(self):
+    return self._use_stochastic_rounding
+
+  @use_stochastic_rounding.setter
+  def use_stochastic_rounding(self, use_stochastic_rounding):
+    self._use_stochastic_rounding = tf.constant(use_stochastic_rounding,
+                                                dtype=tf.bool)
+
+  @property
+  def scale_axis(self):
+    return self._scale_axis
+
+  @scale_axis.setter
+  def scale_axis(self, scale_axis):
+    self._scale_axis = scale_axis
+
+  @property
+  def alpha(self):
+    return self._alpha
+
+  @alpha.setter
+  def alpha(self, alpha):
+    """
+    Set alpha, _alpha_str, and auto_alpha attributes, and check if alpha is
+    valid.
+
+    Note: _alpha_str variable needed for uniform typing of alpha in
+    tf.function
+    """
+
+    if alpha is None:
+      self._alpha = None
+      self.alpha_str = tf.constant("", dtype=tf.string)
+      self.auto_alpha = tf.constant(False, dtype=tf.bool)
+    elif isinstance(alpha, six.string_types):
+      # Check the quantizer has been given a valid alpha string
+      if not alpha in self.ALPHA_OPTIONS:
+        raise ValueError(
+            f"Invalid alpha '{alpha}' for auto alpha computation. "
+            f"Must be one of {self.ALPHA_OPTIONS}")
+      self._alpha = tf.constant(alpha, dtype=tf.string)
+      self.alpha_str = tf.constant(alpha, dtype=tf.string)
+      self.auto_alpha = tf.constant(True, dtype=tf.bool)
+    else: # alpha is a tensor
+      try:
+        self._alpha = K.cast_to_floatx(alpha)
+      except TypeError:
+        raise TypeError(
+            f"alpha must be, a string, an array, or None, not {type(alpha)}")
+      self.alpha_str = tf.constant("", dtype=tf.string)
+      self.auto_alpha = tf.constant(False, dtype=tf.bool)
+
+    if self._initialized:
+      self._calc_input_independent_attributes()
+
+  def _calc_input_independent_attributes(self):
+    """Calculate attributes that are independent of __call__ input"""
+    assert (
+        self._initialized
+    ), "Must initialize before calling _calc_input_independent_attributes"
+
+    if self.bits < self.integer + self.keep_negative:
+      err_msg = (f"Bit count {self.bits} must exceed "
+                 f" {self.integer + self.keep_negative}")
+      raise ValueError(err_msg)
+
+    # Get scale for integer representation (not determined by alpha)
+    self.data_type_scale = K.pow(
+        2.0, self.integer - self.bits + self.keep_negative)
+
+    # Get clip bounds and shift values
+    # pre-round and post-round shift is used only for 1-bit quantizer 
+    # to ensure that the __call__ method gives a sign function
+    if self.bits == 1:
+      pre_round_shift = K.cast_to_floatx(0.5)
+      # special integer representation logic for 1-bit quantizer
+      if self.keep_negative:
+        clip_min = -K.epsilon()
+        post_round_shift = K.cast_to_floatx(0.0)
+      else:
+        clip_min = K.cast_to_floatx(-1.0) + K.epsilon()
+        post_round_shift = K.cast_to_floatx(0.5)
+      clip_max = K.cast_to_floatx(1.0) + K.epsilon()
+    else:
+      pre_round_shift = K.cast_to_floatx(0.0)
+      post_round_shift = K.cast_to_floatx(0.0)
+      unsigned_bits_po2 = K.pow(2.0, self.bits - self.keep_negative)
+      clip_min = self.keep_negative * (-unsigned_bits_po2 + self.symmetric)
+      clip_max = unsigned_bits_po2 - K.cast_to_floatx(1.0)
+
+    self.pre_round_shift = pre_round_shift
+    self.post_round_shift = post_round_shift
+    self.clip_min = clip_min
+    self.clip_max = clip_max
+    self.clip_range = self.clip_max - self.clip_min
+
+    # Set quantization_scale for deterministic alpha
+    if not self.auto_alpha:
+      if self.alpha is None:
+        # scale is always 1 for non-auto alpha
+        self.scale.assign(K.cast_to_floatx(1.0))
+        self.quantization_scale.assign(1 / self.data_type_scale)
+      else: # alpha is a tensor
+        self.scale.assign(self.alpha / self.data_type_scale)
+        self.quantization_scale.assign(self.alpha)
+
+  @tf.function
+  def __call__(self, x):
+    """Core quantization function"""
+    # build if not done so already
+    self._build()
+    shape = x.shape
+
+    # Data type conversion
+    x = K.cast_to_floatx(x)
+
+    quantization_scale = tf.cond(
+      self.auto_alpha, 
+      # get data-dependent alpha tensor
+      lambda: self._get_quantization_scale(x),
+      # alpha tensor determined by quantizer params
+      # see _calc_input_independent_attributes
+      lambda: self.quantization_scale
+    )
+
+    int_xq = self._get_quantized_integer(x, quantization_scale)
+    xq = int_xq * quantization_scale
+
+    res = x + self.qnoise_factor * (xq - x)
+
+    # Needed to deal with tf not knowing shape of output
+    res.set_shape(shape)
+
+    return res
+
+  def _get_quantization_scale(self, x):
+    """Get quantization_scale, either from self or from input x"""
+
+    # Get the minimum floating point scale that does not clip the max of x
+    quantization_scale = self._get_quantization_scale_from_max_data(x)
+
+    quantization_scale = tf.case([
+        (
+            tf.equal(self._alpha_str, tf.constant("auto", dtype=tf.string)),
+            lambda: quantization_scale,
+        ),
+        (
+            tf.equal(self._alpha_str, tf.constant("auto_po2",
+                                                  dtype=tf.string)),
+            lambda: self._po2_autoscale(x, quantization_scale),
+        ),
+    ], )
+
+    # save scale and quantization_scale for later computations
+    self.scale.assign(quantization_scale / self.data_type_scale)
+    self.quantization_scale.assign(quantization_scale)
+
+    return quantization_scale
+
+  def _get_quantized_integer(self, x, quantization_scale):
+    """Get x quantized in integer representation"""
+
+    scaled_x = x / quantization_scale
+    clipped_scaled_x = K.clip(scaled_x, self.clip_min, self.clip_max)
+    # Round through to nearest integer, using straight-through estimator 
+    # for gradient computations. Note that the internal shift is needed for 
+    # 1-bit quantization to ensure that a sign function is used.
+    int_xq = _round_through(
+        clipped_scaled_x + self.pre_round_shift,
+        use_stochastic_rounding=self.use_stochastic_rounding,
+        precision=1.0,
+    )
+
+    return int_xq - self.post_round_shift
+
+  def _get_quantization_scale_from_max_data(self, x):
+    """Get the minimum floating point scale that does not clip the max 
+    of x"""
+
+    axis = self._get_axis(x)
+
+    def quantization_scale_keep_negative():
+      """Get alpha scale when keeping negative values"""
+
+      return (K.max(tf.math.abs(x), axis=axis, keepdims=True) *
+              2) / self.clip_range
+
+    def quantization_scale_no_negative():
+      """Get alpha scale when dropping negative values"""
+
+      return K.max(x, axis=axis, keepdims=True) / self.clip_range
+
+    quantization_scale = tf.cond(
+        tf.equal(self.keep_negative, 1.0),
+        quantization_scale_keep_negative,
+        quantization_scale_no_negative,
+    )
+
+    return tf.math.maximum(quantization_scale, K.epsilon())
+
+  def _get_axis(self, x):
+    """Get axis for alpha scale computation"""
+
+    len_axis = tf.rank(x)
+    axis = tf.cond(
+        tf.not_equal(len_axis, 1),
+        lambda: _get_scaling_axis(self.scale_axis, len_axis),
+        lambda: tf.convert_to_tensor([0]),
+    )
+    return axis
+
+  def _po2_autoscale(self, x, quantization_scale):
+    """Get an approximation of the "best" po2 scale using least squares"""
+
+    # set alpha scale to a near power of two
+    quantization_scale = K.pow(2.0, 
+                         tf.math.round(K.log(quantization_scale + K.epsilon()) / 
+                                       K.log(2.0)))
+
+    def loop_body(_, quantization_scale):
+      """Loop body for least squares autoscaling"""
+
+      int_xq = self._get_quantized_integer(x, quantization_scale)
+      new_quantization_scale = _get_scale(
+          alpha="auto_po2",
+          x=x,
+          q=int_xq,
+          scale_axis=self.scale_axis,
+      )
+      return quantization_scale, new_quantization_scale
+
+    def loop_cond(last_quantization_scale, quantization_scale):
+      """Loop condition for least squares autoscaling- stop when the 
+      scale converges"""
+
+      tensors_not_equal = tf.math.reduce_any(
+          tf.not_equal(last_quantization_scale, quantization_scale))
+      return tensors_not_equal
+
+    # Need a tensor of the same shape as quantization_scale that 
+    # does not equal quantization_scale
+    dummy_quantization_scale = -tf.ones_like(quantization_scale)
+
+    _, quantization_scale = tf.while_loop(
+        loop_cond,
+        loop_body,
+        (dummy_quantization_scale, quantization_scale),
+        maximum_iterations=5,
+    )
+
+    return quantization_scale
+
+  def _build(self):
+    """Build the quantizer if not built yet."""
+    if not self.built:
+      self.build(var_name=self.var_name, use_variables=self.use_variables)
+
+  def __str__(self):
+    # Convert Tensors to printable strings by converting to a numpy array,
+    # then using regex to remove brackets when there is only one integer bit
+    integer_bits = re.sub(
+        r"\[(\d)\]",
+        r"\g<1>",
+        str(self.integer.numpy() if isinstance(self.integer, tf.Variable
+                                               ) else self.integer),
+    )
+
+    flags = [str(self.bits), integer_bits, str(int(self.symmetric))]
+    if not self.keep_negative:
+      flags.append("keep_negative=False")
+    if self.alpha:
+      alpha = str(self.alpha)
+    if isinstance(self.alpha, six.string_types):
+      alpha = "'" + alpha + "'"
+      flags.append("alpha=" + alpha)
+    if self.use_stochastic_rounding:
+      flags.append("use_stochastic_rounding=" +
+                   str(int(self.use_stochastic_rounding)))
+    return "quantized_bits(" + ",".join(flags) + ")"
+
+  def _set_trainable_parameter(self):
+    if self.alpha is None:
+      self.alpha = "auto_po2"
+      self.symmetric = True
+
+  def max(self):
+    """Get maximum value that quantized_bits class can represent."""
+    if tf.equal(self.bits, K.cast_to_floatx(1)):
+      return 1.0
+    else:
+      return max(
+          1.0,
+          np.array(
+              K.pow(2.0, K.cast(self.integer, dtype="float32")),
+              dtype="float32",
+          ),
+      )
+
+  def min(self):
+    """Get minimum value that quantized_bits class can represent."""
+    if not self.keep_negative:
+      return 0.0
+
+    if tf.equal(self.bits, K.cast_to_floatx(1)):
+      return -1.0
+    else:
+      return -max(
+          1.0,
+          np.array(
+              K.pow(2, K.cast(self.integer, dtype="float32")),
+              dtype="float32",
+          ),
+      )
+
+  def range(self):
+    """Returns a list of all values that quantized_bits can represent
+    ordered by their binary representation ascending."""
+    assert self.symmetric == 0
+    assert self.keep_negative
+    assert self.alpha is None
+
+    x = np.asarray(range(2**self.bits), dtype=np.float32)
+    p_and_n = np.where(
+        x >= 2**(self.bits - 1),
+        (x - 2**(self.bits - 1)) - 2**(self.bits - 1),
+        x,
+    )
+    return p_and_n * np.array(
+        K.pow(2.0, -self.bits + K.cast(self.integer, dtype="float32") + 1),
+        dtype="float32",
+    )
+
+  @classmethod
+  def get_config(self):
+
+    def _convert_to_numpy(obj):
+      """Convert potential Variable to numpy for config"""
+
+      if isinstance(obj, tf.Variable):
+        return obj.numpy()
+      else:
+        return obj
+
+    config = {
+        "bits": self.bits,
+        "integer": _convert_to_numpy(self.integer),
+        "symmetric": self.symmetric,
+        "alpha": self.alpha,
+        "keep_negative": self.keep_negative,
+        "use_stochastic_rounding": self.use_stochastic_rounding,
+        "qnoise_factor": _convert_to_numpy(self.qnoise_factor),
+    }
+    return config
+
 
 
 class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
