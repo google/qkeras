@@ -669,10 +669,10 @@ class quantized_linear(BaseQuantizer):
   @alpha.setter
   def alpha(self, alpha):
     """
-    Set alpha, _alpha_str, and auto_alpha attributes, and check if alpha is
+    Set alpha, alpha_str, and auto_alpha attributes, and check if alpha is
     valid.
 
-    Note: _alpha_str variable needed for uniform typing of alpha in
+    Note: alpha_str variable needed for uniform typing of alpha in
     tf.function
     """
 
