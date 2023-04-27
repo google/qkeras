@@ -449,10 +449,10 @@ class quantized_linear(BaseQuantizer):
     rounding. This is an updated version of the now-deprecated quantized_bits.
 
     The core computation is:
-        1. Scale the tensor by a quantization scale
+        1. Divide the tensor by a quantization scale
         2. Clip the tensor to a specified range
         3. Round to the nearest integer
-        4. Scale back by 1/quantization scale
+        4. Multiply the rounded result by the quantization scale
 
     This clip range is determined by
         - The number of bits we have to represent the number
@@ -463,19 +463,11 @@ class quantized_linear(BaseQuantizer):
     data passed to the __call__ method. See documentation for the `alpha`
     parameter to find out more.
 
-    Note on the various "scales" in quantized_linear:
-      - The quantization scale is the scale used in the core computation. You
-        can access it via the `quantization_scale` property. See the
-        documentation for the `alpha` parameter to find out more.
-      - The data type scale is the scale is determined by the type of data
-        stored on hardware on a small device running a true quantized model.
-        This is determined by the `integer`, `bits`, and `keep_negative`
-        parameters. You can access it via the `data_type_scale` property.
-      - The `scale` attribute stores the quotient of the quantization scale and
-        the data type scale.
-
     For backprop purposes, the quantizer uses the straight-through estimator
-    for the rounding step. (https://arxiv.org/pdf/1903.05662.pdf)
+    for the rounding step (https://arxiv.org/pdf/1903.05662.pdf). Thus the 
+    gradient of the __call__ method is 1 on the interval 
+    (quantization_scale * clip_min, quantization_scale * clip_max) and 0
+    elsewhere.
 
     The quantizer also supports a number of other optional features:
     - Stochastic rounding (see the `stochastic_rounding` parameter)
@@ -489,14 +481,32 @@ class quantized_linear(BaseQuantizer):
         q(x)
         # tf.Tensor([0. 0. 1. 2. 2.], shape=(5,), dtype=float32)
         ```
-    Note:
-        The computation differs very slightly from the above for binary neural
-        networks. Here we follow the protocol in PokeBNN
-        (https://arxiv.org/pdf/2112.00133.pdf).
+    Note on the various "scales" in quantized_linear:
+      - The quantization scale is the scale used in the core computation. You
+        can access it via the `quantization_scale` attribute.
+      - The data type scale is the scale is determined by the type of data
+        stored on hardware on a small device running a true quantized model.
+        This is determined by the `integer`, `bits`, and `keep_negative`
+        parameters. You can access it via the `data_type_scale` attribute.
+      - The `scale` attribute stores the quotient of the quantization scale and
+        the data type scale.
 
+    Note on binary quantization (bits=1):
+      The core computation is modified here to perform a scaled sign function.
+      - When keep_negative=True, then the __call__ method has outputs 
+        quantization_scale/2 and -quantization_scale/2 for positive and negative
+        outputs respectively, and the gradient is 1 on the interval 
+        (-quantization_scale/2, quantization_scale/2) and 0 elsewhere.
+      - When keep_negative=False, then the __call__ method has outputs 0 and
+        quantization_scale, and the gradient is 1 on the interval 
+        (0, quantization_scale) and 0 elsewhere.
+      Special shifting operations in the core computation are used to achieve
+      this.
+        
     Args:
         bits (int): Number of bits to represent the number.
-        integer (int): Number of bits to the left of the decimal point.
+        integer (int): Number of bits to the left of the decimal point, used for
+            data_type_scale.
         symmetric (bool): If true, we will have the same number of values for
             positive and negative numbers.
         alpha (str, Tensor, None): Instructions for determining the quantization
@@ -504,14 +514,14 @@ class quantized_linear(BaseQuantizer):
             - If None: the quantization scale is the data type scale, determined 
               by `integer`, `bits`, and `keep_negative`. 
             - If "auto", the quantization scale is calculated as the minimum 
-              floating point scale that does not clip the max of x. 
+              floating point scale per-channel that does not clip the max of x. 
             - If "auto_po2", the quantization scale is chosen as the
               power of two per-channel that minimizes squared error between the
               quantized x and the original x.
             - If Tensor: The quantization scale is the Tensor passed in.
         keep_negative (bool): If false, we clip negative numbers.
-        use_stochastic_rounding (bool): If true, we perform stochastic rounding.
-            (https://arxiv.org/pdf/1502.02551.pdf)
+        use_stochastic_rounding (bool): If true, we perform stochastic rounding
+            (https://arxiv.org/pdf/1502.02551.pdf).
         scale_axis (int, None): Which axis to calculate scale from. If None, we
             perform per-channel scaling based off of the image data format. See
             `_get_scaling_axis` for more details.
@@ -706,31 +716,23 @@ class quantized_linear(BaseQuantizer):
     self.data_type_scale = K.pow(
         2.0, self.integer - self.bits + self.keep_negative)
 
-    # Get clip bounds and shift values
-    # pre-round and post-round shift is used only for 1-bit quantizer 
-    # to ensure that the __call__ method gives a sign function
+    # Special computations for 1-bit quantizer
     if self.bits == 1:
-      pre_round_shift = K.cast_to_floatx(0.5)
-      # special integer representation logic for 1-bit quantizer
-      if self.keep_negative:
-        clip_min = -K.epsilon()
-        post_round_shift = K.cast_to_floatx(0.0)
-      else:
-        clip_min = K.cast_to_floatx(-1.0) + K.epsilon()
-        post_round_shift = K.cast_to_floatx(0.5)
-      clip_max = K.cast_to_floatx(1.0) - K.epsilon()
+      clip_min = K.cast_to_floatx(-0.5)
+      clip_max = K.cast_to_floatx(0.5)
+      # For 1-bit quantization, po2 autoscale loop is guaranteed to converge
+      # after 1 iteration
+      max_po2_autoscale_iterations = 1
     else:
-      pre_round_shift = K.cast_to_floatx(0.0)
-      post_round_shift = K.cast_to_floatx(0.0)
       unsigned_bits_po2 = K.pow(2.0, self.bits - self.keep_negative)
       clip_min = self.keep_negative * (-unsigned_bits_po2 + self.symmetric)
       clip_max = unsigned_bits_po2 - K.cast_to_floatx(1.0)
+      max_po2_autoscale_iterations = 5
 
-    self.pre_round_shift = pre_round_shift
-    self.post_round_shift = post_round_shift
     self.clip_min = clip_min
     self.clip_max = clip_max
-    self.clip_range = self.clip_max - self.clip_min
+    self.clip_range = clip_max - clip_min
+    self.max_po2_autoscale_iterations = max_po2_autoscale_iterations
 
     # Set quantization_scale for deterministic alpha
     if not self.auto_alpha:
@@ -754,15 +756,15 @@ class quantized_linear(BaseQuantizer):
 
     quantization_scale = tf.cond(
       self.auto_alpha, 
-      # get data-dependent alpha tensor
+      # get data-dependent quantization scale
       lambda: self._get_quantization_scale(x),
-      # alpha tensor determined by quantizer params
-      # see _calc_input_independent_attributes
+      # quantization scale determined by quantizer params, not data
+      # see _calc_input_independent_attributes for more info
       lambda: self.quantization_scale
     )
 
-    int_xq = self._get_quantized_integer(x, quantization_scale)
-    xq = int_xq * quantization_scale
+    scaled_xq = self._scale_and_round(x, quantization_scale)
+    xq = scaled_xq * quantization_scale
 
     res = x + self.qnoise_factor * (xq - x)
 
@@ -770,6 +772,31 @@ class quantized_linear(BaseQuantizer):
     res.set_shape(shape)
 
     return res
+  
+  def _scale_and_round(self, x, quantization_scale):
+    """Scale, clip, and round x to an integer value in a limited range
+    Note that the internal shift is needed for 1-bit quantization to ensure 
+    that a sign function is used."""
+
+    # special shifting variables for binary quantization to ensure that 
+    # the __call__ method gives a sign function. See docstring for details.
+    # Note that all shift variables are zero for multi-bit quantization
+    binary = K.cast_to_floatx(tf.equal(self.bits, 1))
+    pre_clip_shift = binary * (1 - self.keep_negative) * K.cast_to_floatx(0.5)
+    pre_round_shift = binary * self.keep_negative * K.cast_to_floatx(0.5)
+    post_round_shift = binary * K.cast_to_floatx(0.5)
+
+    scaled_x = x / quantization_scale - pre_clip_shift
+    clipped_scaled_x = K.clip(scaled_x, self.clip_min, self.clip_max)
+    # Round through to nearest integer, using straight-through estimator 
+    # for gradient computations. 
+    scaled_xq = _round_through(
+      clipped_scaled_x - pre_round_shift,
+      use_stochastic_rounding=self.use_stochastic_rounding,
+      precision=1.0,
+    )
+
+    return scaled_xq + post_round_shift
 
   def _get_quantization_scale(self, x):
     """Get quantization_scale, either from self or from input x"""
@@ -794,22 +821,6 @@ class quantized_linear(BaseQuantizer):
     self.quantization_scale.assign(quantization_scale)
 
     return quantization_scale
-
-  def _get_quantized_integer(self, x, quantization_scale):
-    """Scale, clip, and round x to an integer value in a limited range"""
-
-    scaled_x = x / quantization_scale
-    clipped_scaled_x = K.clip(scaled_x, self.clip_min, self.clip_max)
-    # Round through to nearest integer, using straight-through estimator 
-    # for gradient computations. Note that the internal shift is needed for 
-    # 1-bit quantization to ensure that a sign function is used.
-    int_xq = _round_through(
-        clipped_scaled_x + self.pre_round_shift,
-        use_stochastic_rounding=self.use_stochastic_rounding,
-        precision=1.0,
-    )
-
-    return int_xq - self.post_round_shift
 
   def _get_quantization_scale_from_max_data(self, x):
     """Get the minimum floating point scale that does not clip the max 
@@ -858,11 +869,11 @@ class quantized_linear(BaseQuantizer):
     def loop_body(_, quantization_scale):
       """Loop body for least squares autoscaling"""
 
-      int_xq = self._get_quantized_integer(x, quantization_scale)
+      scaled_xq = self._scale_and_round(x, quantization_scale)
       new_quantization_scale = _get_scale(
           alpha="auto_po2",
           x=x,
-          q=int_xq,
+          q=scaled_xq,
           scale_axis=self.scale_axis,
       )
       return quantization_scale, new_quantization_scale
@@ -883,7 +894,7 @@ class quantized_linear(BaseQuantizer):
         loop_cond,
         loop_body,
         (dummy_quantization_scale, quantization_scale),
-        maximum_iterations=5,
+        maximum_iterations=self.max_po2_autoscale_iterations,
     )
 
     return quantization_scale
