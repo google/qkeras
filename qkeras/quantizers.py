@@ -477,9 +477,9 @@ class quantized_linear(BaseQuantizer):
     For backprop purposes, the quantizer uses the straight-through estimator
     for the rounding step. (https://arxiv.org/pdf/1903.05662.pdf)
 
-        The quantizer also supports a number of other optional features:
-        - Stochastic rounding (see the `stochastic_rounding` parameter)
-        - Quantization noise (see the `qnoise_factor` parameter)
+    The quantizer also supports a number of other optional features:
+    - Stochastic rounding (see the `stochastic_rounding` parameter)
+    - Quantization noise (see the `qnoise_factor` parameter)
 
     Example:
         ```python
@@ -504,7 +504,7 @@ class quantized_linear(BaseQuantizer):
             - If None: the quantization scale is the data type scale, determined 
               by `integer`, `bits`, and `keep_negative`. 
             - If "auto", the quantization scale is calculated as the minimum 
-            floating point scale that does not clip the max of x. 
+              floating point scale that does not clip the max of x. 
             - If "auto_po2", the quantization scale is chosen as the
               power of two per-channel that minimizes squared error between the
               quantized x and the original x.
@@ -718,7 +718,7 @@ class quantized_linear(BaseQuantizer):
       else:
         clip_min = K.cast_to_floatx(-1.0) + K.epsilon()
         post_round_shift = K.cast_to_floatx(0.5)
-      clip_max = K.cast_to_floatx(1.0) + K.epsilon()
+      clip_max = K.cast_to_floatx(1.0) - K.epsilon()
     else:
       pre_round_shift = K.cast_to_floatx(0.0)
       post_round_shift = K.cast_to_floatx(0.0)
@@ -796,7 +796,7 @@ class quantized_linear(BaseQuantizer):
     return quantization_scale
 
   def _get_quantized_integer(self, x, quantization_scale):
-    """Get x quantized in integer representation"""
+    """Scale, clip, and round x to an integer value in a limited range"""
 
     scaled_x = x / quantization_scale
     clipped_scaled_x = K.clip(scaled_x, self.clip_min, self.clip_max)
