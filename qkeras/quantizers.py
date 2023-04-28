@@ -489,7 +489,8 @@ class quantized_linear(BaseQuantizer):
         This is determined by the `integer`, `bits`, and `keep_negative`
         parameters. You can access it via the `data_type_scale` attribute.
       - The `scale` attribute stores the quotient of the quantization scale and
-        the data type scale.
+        the data type scale. This is also the scale that can be directly 
+        specified by the user, via the `alpha` parameter. 
 
     Note on binary quantization (bits=1):
       The core computation is modified here to perform a scaled sign function.
@@ -518,7 +519,8 @@ class quantized_linear(BaseQuantizer):
             - If "auto_po2", the quantization scale is chosen as the
               power of two per-channel that minimizes squared error between the
               quantized x and the original x.
-            - If Tensor: The quantization scale is the Tensor passed in.
+            - If Tensor: The quantization scale is the Tensor passed in
+              multiplied by the data type scale.
         keep_negative (bool): If false, we clip negative numbers.
         use_stochastic_rounding (bool): If true, we perform stochastic rounding
             (https://arxiv.org/pdf/1502.02551.pdf).
@@ -741,8 +743,8 @@ class quantized_linear(BaseQuantizer):
         self.scale.assign(K.cast_to_floatx(1.0))
         self.quantization_scale.assign(1 / self.data_type_scale)
       else: # alpha is a tensor
-        self.scale.assign(self.alpha / self.data_type_scale)
-        self.quantization_scale.assign(self.alpha)
+        self.scale.assign(self.alpha)
+        self.quantization_scale.assign(self.alpha * self.data_type_scale)
 
   @tf.function
   def __call__(self, x):
