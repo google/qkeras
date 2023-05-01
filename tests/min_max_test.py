@@ -77,6 +77,26 @@ def test_quantized_bits():
       assert expected[0] == q.min()
       assert expected[1] == q.max()
 
+@pytest.mark.parametrize("args,kwargs,expected_min,expected_max", [
+  ((1, 0, 0), {}, -0.5, 0.5),
+  ((2, 0, 0), {}, -1.0, 0.5),
+  ((8, 0, 0), {}, -1.0, 0.9921875),
+  ((2, 1, 0), {}, -2.0, 1.0),
+  ((8, 1, 0), {}, -2.0, 1.984375),
+  ((8, 2, 0), {}, -4.0, 3.96875),
+  ((1, 0, 1), {}, -0.5, 0.5),
+  ((2, 0, 1), {}, -0.5, 0.5),
+  ((8, 0, 1), {}, -0.9921875, 0.9921875),
+  ((2, 1, 1), {}, -1.0, 1.0),
+  ((8, 1, 1), {}, -1.984375, 1.984375),
+  ((8, 2, 1), {}, -3.96875, 3.96875),
+  ((8, 0, 1), {'alpha': 2.0}, -1.984375, 1.984375),
+  ])  
+def test_quantized_linear(args, kwargs, expected_min, expected_max):
+
+    q = quantized_linear(*args, **kwargs)
+    assert expected_min == q.min()
+    assert expected_max == q.max()
 
 def test_po2():
   po2 = {
