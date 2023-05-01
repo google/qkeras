@@ -939,7 +939,7 @@ class quantized_linear(BaseQuantizer):
     if self.use_stochastic_rounding:
       flags.append("use_stochastic_rounding=" +
                    str(int(self.use_stochastic_rounding)))
-    return "quantized_bits(" + ",".join(flags) + ")"
+    return "quantized_linear(" + ",".join(flags) + ")"
 
   def _set_trainable_parameter(self):
     if self.alpha is None:
@@ -947,51 +947,24 @@ class quantized_linear(BaseQuantizer):
       self.symmetric = True
 
   def max(self):
-    """Get maximum value that quantized_bits class can represent."""
-    if tf.equal(self.bits, K.cast_to_floatx(1)):
-      return 1.0
-    else:
-      return max(
-          1.0,
-          np.array(
-              K.pow(2.0, K.cast(self.integer, dtype="float32")),
-              dtype="float32",
-          ),
-      )
+    """Get maximum value that quantized_linear class can represent."""
+    return self.clip_max * self.quantization_scale
 
   def min(self):
-    """Get minimum value that quantized_bits class can represent."""
-    if not self.keep_negative:
-      return 0.0
-
-    if tf.equal(self.bits, K.cast_to_floatx(1)):
-      return -1.0
-    else:
-      return -max(
-          1.0,
-          np.array(
-              K.pow(2, K.cast(self.integer, dtype="float32")),
-              dtype="float32",
-          ),
-      )
+    """Get minimum value that quantized_linear class can represent."""
+    return self.clip_min * self.quantization_scale
 
   def range(self):
-    """Returns a list of all values that quantized_bits can represent
+    """Returns a list of all values that quantized_linear can represent
     ordered by their binary representation ascending."""
-    assert self.symmetric == 0
-    assert self.keep_negative
-    assert self.alpha is None
 
-    x = np.asarray(range(2**self.bits), dtype=np.float32)
-    p_and_n = np.where(
-        x >= 2**(self.bits - 1),
-        (x - 2**(self.bits - 1)) - 2**(self.bits - 1),
-        x,
-    )
-    return p_and_n * np.array(
-        K.pow(2.0, -self.bits + K.cast(self.integer, dtype="float32") + 1),
-        dtype="float32",
-    )
+    if self.use_sign_function:
+      return K.cast_to_floatx([self.max(), self.min()])
+    else:
+      pos_array = K.cast_to_floatx(range(self.clip_max))
+      neg_array = K.cast_to_floatx(range(self.clip_min, -1))
+
+      return self.quantization_scale * tf.concat([pos_array, neg_array])
 
   @classmethod
   def get_config(self):
@@ -1158,7 +1131,7 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
       # We only deal with the symmetric case right now.
       assert self.symmetric, "Only symmetric quantizers are implemented"
       len_axis = len(x.shape)
-      if len_axis != 1:
+      if len_axis > 1:
         axis = _get_scaling_axis(self.scale_axis, len_axis)
       else:
         axis = [0]
