@@ -959,15 +959,15 @@ class quantized_linear(BaseQuantizer):
 
   def range(self):
     """Returns a list of all values that quantized_linear can represent
-    ordered by their binary representation ascending."""
+    }."""
 
     if self.use_sign_function:
       return K.cast_to_floatx([self.max(), self.min()])
     else:
-      pos_array = K.cast_to_floatx(range(int(self.clip_max.numpy())))
-      neg_array = K.cast_to_floatx(range(int(self.clip_min.numpy()), -1))
+      pos_array = K.cast_to_floatx(range(int(self.clip_max.numpy()) + 1))
+      neg_array = K.cast_to_floatx(range(int(self.clip_min.numpy()), 0))
 
-      return self.quantization_scale * tf.concat([pos_array, neg_array])
+      return self.quantization_scale * tf.concat([pos_array, neg_array], axis=0)
 
   @classmethod
   def get_config(self):
