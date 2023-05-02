@@ -25,6 +25,7 @@ from tensorflow.keras import backend as K
 
 from qkeras import quantized_relu
 from qkeras import quantized_bits
+from qkeras import quantized_linear
 
 
 @pytest.mark.parametrize(
@@ -72,6 +73,21 @@ def test_quantized_bits_range(bits, integer, expected_values):
   q = quantized_bits(bits, integer)
   result = q.range()
   assert_allclose(result, expected_values, rtol=1e-05)
+
+@pytest.mark.parametrize('alpha', [None, 2.0])
+@pytest.mark.parametrize('symmetric,keep_negative', 
+                         [(True, True), (False, True), (False, False)])
+@pytest.mark.parametrize('bits', [1, 8])
+def test_quantized_linear_range(bits, symmetric, keep_negative, alpha):
+  """Test quantized_linear range function."""
+  q = quantized_linear(bits, 0, symmetric=symmetric, keep_negative=keep_negative,
+                       alpha=alpha)
+  # compute output on array of inputs, and compare to q.range()
+  x = np.linspace(-10.0, 10.0, 100)
+  y = q(x)
+  q_range = q.range()
+  # assert that y and q_range have the same set of values
+  assert set(q_range) == set(y)
 
 
 if __name__ == "__main__":

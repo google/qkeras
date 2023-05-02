@@ -964,8 +964,8 @@ class quantized_linear(BaseQuantizer):
     if self.use_sign_function:
       return K.cast_to_floatx([self.max(), self.min()])
     else:
-      pos_array = K.cast_to_floatx(range(self.clip_max))
-      neg_array = K.cast_to_floatx(range(self.clip_min, -1))
+      pos_array = K.cast_to_floatx(range(int(self.clip_max.numpy())))
+      neg_array = K.cast_to_floatx(range(int(self.clip_min.numpy()), -1))
 
       return self.quantization_scale * tf.concat([pos_array, neg_array])
 
