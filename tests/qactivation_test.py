@@ -22,10 +22,12 @@ from numpy.testing import assert_allclose
 
 import pytest
 from tensorflow.keras import backend as K
+import tensorflow as tf
 
 from qkeras import set_internal_sigmoid
 from qkeras import binary
 from qkeras import hard_sigmoid
+from qkeras import quantized_linear
 from qkeras import quantized_bits
 from qkeras import quantized_hswish
 from qkeras import quantized_po2
@@ -516,6 +518,112 @@ def test_quantized_bits(bits, integer, symmetric, keep_negative, test_values,
                  [quantized_bits(bits, integer, symmetric, keep_negative)(x)])
   result = f([test_values])[0]
   assert_allclose(result, expected_values, rtol=rtol)
+
+class TestQuantizedLinearBackwardsCompatibility:
+  """Regression tests for quantized_linear, comparing to quantized_bits"""
+
+  QUANTIZED_BITS_PARAMS = {
+    "alpha": (None, "auto", "auto_po2"),
+    "bits": (1, 4, 8),
+    "integer": (0, 1),
+    "symmetric": (True, False),
+    "keep_negative": (True, False),
+    "qnoise_factor": (1.0, 0.5, 0.0),
+    "use_stochastic_rounding": (True, False),
+  }
+
+  TEST_X_VALUES = (
+    0,
+    *np.linspace(-2, 2, 10).tolist(),
+    tf.random.uniform((2, )),
+    tf.random.normal((2, 2)),
+  )
+
+  # get list of kwargs for test iteration
+  kwargs_list = []
+
+  for param_name, param_values in QUANTIZED_BITS_PARAMS.items():
+    for param_value in param_values:
+      kwargs = {param_name: param_value}
+      kwargs_list.append(kwargs)
+
+  # extra kwargs for special cases
+  extra_kwargs_list = [
+      {
+          "alpha": "auto",
+          "symmetric": True,
+          "keep_negative": True
+      },
+      {
+          "alpha": "auto_po2",
+          "symmetric": True,
+          "keep_negative": True
+      },
+      {
+          "alpha": "auto",
+          "symmetric": True,
+          "keep_negative": True,
+          "integer": 2
+      },
+      {
+          "alpha": "auto_po2",
+          "symmetric": True,
+          "keep_negative": True,
+          "integer": 2
+      },
+  ]
+
+  kwargs_list = extra_kwargs_list + kwargs_list
+
+  @pytest.mark.parametrize('kwargs', kwargs_list)
+  def test_regression(self, kwargs):
+    """Check that the alt_quantized_bits and qkeras.quantized_bits
+        return the same result for all test values"""
+
+    bits = kwargs.get("bits", 8)
+    integer = kwargs.get("integer", 0)
+    keep_negative = kwargs.get("keep_negative", True)
+    alpha = kwargs.get("alpha", None)
+    symmetric = kwargs.get("symmetric", True)
+    # defaults for quantized_bits and quantized_linear are different, need to 
+    # specify in kwargs
+    kwargs["symmetric"] = symmetric
+    # decidedly raises an error
+    if bits < integer + keep_negative:
+      return
+    # Not implemented in quantized_bits
+    if alpha in ("auto", "auto_po2") and (not symmetric or not keep_negative):
+      return
+    # bug in quantized_bits
+    if bits - keep_negative == 0 and alpha in ("auto", "auto_po2"):
+      return
+    # new implementation in quantized_linear
+    if bits == 1 and keep_negative:
+      return
+
+    baseline = quantized_bits(**kwargs)
+    alt = quantized_linear(**kwargs)
+
+    for x in self.TEST_X_VALUES:
+      # bug in quantized_bits
+      if tf.rank(x) == 0 and alpha in ("auto", "auto_po2"):
+        continue
+      self._check_correctness(alt, baseline, x, kwargs)
+
+  def _check_correctness(self, alt_func, baseline_func, x, kwargs):
+    """Check that the alt_func and baseline_func return the same result for x"""
+
+    baseline_res = baseline_func(x).numpy()
+    alt_res = alt_func(x).numpy()
+    baseline_scale = np.array(baseline_func.scale)
+    alt_scale = np.array(alt_func.scale)
+    err_msg = (f"Failed for {kwargs} with x = {x}. \n"
+              f"baseline_res = {baseline_res}, alt_res = {alt_res}. \n"
+              f"baseline_scale = {baseline_scale}, alt_scale = {alt_scale}")
+    if not np.allclose(baseline_res, alt_res):
+      assert False, err_msg
+    if not np.allclose(baseline_scale, alt_scale) and K.max(x) > 0:
+      assert False, err_msg
 
 
 @pytest.mark.parametrize('alpha, threshold, test_values, expected_values', [
