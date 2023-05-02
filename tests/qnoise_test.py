@@ -23,11 +23,11 @@ from numpy.testing import assert_allclose
 from numpy.testing import assert_equal
 import pytest
 from tensorflow.keras import backend as K
-from qkeras.quantizers import quantized_bits
+from qkeras.quantizers import quantized_linear
 from qkeras.quantizers import quantized_relu
 
 
-def test_qnoise_quantized_bits():
+def test_qnoise_quantized_linear():
   # 1 sign bit, 1 integer bit, and 2 fractional bits.
   bits = 4
   integer = 1
@@ -36,7 +36,7 @@ def test_qnoise_quantized_bits():
   alpha = 1
   use_stochastic_rounding = False
 
-  qb = quantized_bits(
+  ql = quantized_linear(
       bits=bits,
       integer=integer,
       symmetric=symmetric,
@@ -51,18 +51,18 @@ def test_qnoise_quantized_bits():
   x_xq = 0.5 * (x + xq)
 
   # no quantization
-  qb.update_qnoise_factor(qnoise_factor=0.0)
-  x_q_0 = qb(inputs)
+  ql.update_qnoise_factor(0.0)
+  x_q_0 = ql(inputs)
   assert_equal(x_q_0, x)
 
   # full quantization
-  qb.update_qnoise_factor(qnoise_factor=1.0)
-  x_q_1 = qb(inputs)
+  ql.update_qnoise_factor(1.0)
+  x_q_1 = ql(inputs)
   assert_equal(x_q_1, xq)
 
   # mixing half and half of x and xq
-  qb.update_qnoise_factor(qnoise_factor=0.5)
-  x_q_05 = qb(inputs)
+  ql.update_qnoise_factor(0.5)
+  x_q_05 = ql(inputs)
   assert_equal(x_q_05, x_xq)
 
 

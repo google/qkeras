@@ -626,8 +626,8 @@ class quantized_linear(BaseQuantizer):
 
   @integer.setter
   def integer(self, integer):
-    if integer < 0:
-      raise ValueError(f"Integer bit count {integer} must be nonnegative")
+    err_msg = (f"Integer bit count {integer} must be nonnegative")
+    tf.debugging.assert_greater_equal(integer, 0, message=err_msg)
     self._integer = K.cast_to_floatx(integer)
     if self._initialized:
       self._calc_input_independent_attributes()
@@ -722,10 +722,12 @@ class quantized_linear(BaseQuantizer):
         self._initialized
     ), "Must initialize before calling _calc_input_independent_attributes"
 
-    if self.bits < self.integer + self.keep_negative:
-      err_msg = (f"Bit count {self.bits} must exceed "
-                 f" {self.integer + self.keep_negative}")
-      raise ValueError(err_msg)
+
+    err_msg = (f"Bit count {self.bits} must exceed "
+              f" {self.integer + self.keep_negative}")
+    tf.debugging.assert_greater_equal(self.bits, 
+                                      self.integer + self.keep_negative,
+                                      message=err_msg)
 
     # Get scale for integer representation (not determined by alpha)
     self.data_type_scale = K.pow(
@@ -750,13 +752,13 @@ class quantized_linear(BaseQuantizer):
       # For 1-bit quantization, po2 autoscale loop is guaranteed to converge
       # after 1 iteration
       max_po2_autoscale_iterations = 1
-      self.use_sign_function = tf.constant(True, dtype=tf.bool)
+      self.use_sign_function = K.cast_to_floatx(True)
     else:
       unsigned_bits_po2 = K.pow(2.0, self.bits - self.keep_negative)
       clip_min = self.keep_negative * (-unsigned_bits_po2 + self.symmetric)
       clip_max = unsigned_bits_po2 - K.cast_to_floatx(1.0)
       max_po2_autoscale_iterations = 5
-      self.use_sign_function = tf.constant(False, dtype=tf.bool)
+      self.use_sign_function = K.cast_to_floatx(False)
 
     self.clip_min = clip_min
     self.clip_max = clip_max
@@ -768,10 +770,11 @@ class quantized_linear(BaseQuantizer):
     """Core quantization function"""
     # build if not done so already
     self._build()
-    shape = x.shape
 
     # Data type conversion
     x = K.cast_to_floatx(x)
+    
+    shape = x.shape
 
     quantization_scale = tf.cond(
       self.auto_alpha, 
