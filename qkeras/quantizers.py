@@ -518,12 +518,13 @@ class quantized_linear(BaseQuantizer):
     array([0., 0., 0., 2., 2.], dtype=float32)
 
     Args:
-      bits (int): Number of bits to represent the number.
+      bits (int): Number of bits to represent the number. Defaults to 8.
       integer (int): Number of bits to the left of the decimal point, used for
-        data_type_scale.
+        data_type_scale. Defaults to 0.
       symmetric (bool): If true, we will have the same number of values 
         for positive and negative numbers. Defaults to True.
-      alpha (str, Tensor, None): Instructions for determining the scale.
+      alpha (str, Tensor, None): Instructions for determining the quantization
+        scale. Defaults to None.
         - If None: the quantization scale is the data type scale, determined 
           by `integer`, `bits`, and `keep_negative`. 
         - If "auto", the quantization scale is calculated as the minimum 
@@ -533,22 +534,23 @@ class quantized_linear(BaseQuantizer):
           quantized x and the original x.
         - If Tensor: The quantization scale is the Tensor passed in
           multiplied by the data type scale.
-      keep_negative (bool): If false, we clip negative numbers.
+      keep_negative (bool): If false, we clip negative numbers. Defaults to 
+        True.
       use_stochastic_rounding (bool): If true, we perform stochastic rounding
         (https://arxiv.org/pdf/1502.02551.pdf).
       scale_axis (int, None): Which axis to calculate scale from. If None, we
         perform per-channel scaling based off of the image data format. See
-        `_get_scaling_axis` for more details.
+        `_get_scaling_axis` for more details. Defaults to None
       qnoise_factor (float): A scalar from 0 to 1 that represents the level of
         quantization noise to add. This controls the amount of the
         quantization noise to add to the outputs by changing the weighted
         sum of (1 - qnoise_factor) * unquantized_x + qnoise_factor *
-        quantized_x.
+        quantized_x. Defaults to 1.0, which means that the result is fully
+        quantized.
       var_name (str or None): A variable name shared between the tf.Variables
-        created in the build function. If None, it is generated
-        automatically based on the parameter names.
-      use_variables (bool): Whether to make the quantizer variables to be
-        dynamic tf.Variables or not.
+        created in on initialization. If None, it is generated
+        automatically based on the parameter names along with a uid. Defaults
+        to None.
 
     Returns:
       function: Function that computes fixed-point quantization with bits.
@@ -607,7 +609,7 @@ class quantized_linear(BaseQuantizer):
     """Set tf.Variable attribute with given var_name. 
     
     Setting attributes as tf.Variables is necessary in order to deal with 
-    attribute updates in the __call__ tf.function."""
+    attribute updates in the __call__ function."""
 
     if not hasattr(self, attr_name):
       var_name = _create_variable_name(attr_name, var_name=self.var_name)
@@ -676,7 +678,6 @@ class quantized_linear(BaseQuantizer):
   def use_stochastic_rounding(self, use_stochastic_rounding):
     self._set_variable("_use_stochastic_rounding", use_stochastic_rounding, 
                       dtype=tf.bool)
-
 
   @property
   def scale_axis(self):
@@ -774,6 +775,8 @@ class quantized_linear(BaseQuantizer):
     def _standard_bounds():
       """Get bounds for standard quantization"""
       unsigned_bits_po2 = K.pow(2.0, self.bits - self.keep_negative)
+      # if symmetric, clip_min is negative of clip_max. Otherwise clip_min is
+      # lowered by 1, giving us one more repsentable number
       clip_min = self.keep_negative * (-unsigned_bits_po2 + self.symmetric)
       clip_max = unsigned_bits_po2 - K.cast_to_floatx(1.0)
       return clip_min, clip_max
@@ -855,7 +858,7 @@ class quantized_linear(BaseQuantizer):
     scaled_xq = _round_through(
       clipped_scaled_x - shift,
       use_stochastic_rounding=self.use_stochastic_rounding,
-      precision=1.0,
+      precision=1.0, # using 1.0 precision so that we round to a nearby integer
     )
 
     return scaled_xq + shift
