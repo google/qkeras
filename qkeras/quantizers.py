@@ -561,7 +561,16 @@ class quantized_linear(BaseQuantizer):
 
     """
 
-  ALPHA_OPTIONS = ("auto", "auto_po2")
+  # enums needed to ensure that alpha data can be numerically represented
+  DEFAULT_ALPHA_ENUM = 0
+  TENSOR_ALPHA_ENUM = 1
+  AUTO_ALPHA_ENUM = 2
+  AUTO_PO2_ALPHA_ENUM = 3
+
+  AUTO_ALPHA_ENUMS_MAP = {
+    "auto": AUTO_ALPHA_ENUM,
+    "auto_po2": AUTO_PO2_ALPHA_ENUM,
+  }
 
   def __init__(
       self,
@@ -691,33 +700,33 @@ class quantized_linear(BaseQuantizer):
   @alpha.setter
   def alpha(self, alpha):
     """
-    Set alpha, alpha_str, and auto_alpha attributes, and check if alpha is
+    Set alpha, and alpha_enum attributes, and check if alpha is
     valid.
 
     Note: alpha_str variable needed for uniform typing of alpha in
     tf.function
     """
 
-    # extra variables to ensure uniform typing of alpha data
-    self._set_variable("alpha_str", "", dtype=tf.string)
-    self._set_variable("auto_alpha", False, dtype=tf.bool)
+    # extra variable to ensure uniform typing of alpha data
+    self._set_variable("alpha_enum", self.DEFAULT_ALPHA_ENUM, dtype=tf.int32)
     if alpha is None:
       self._alpha = None
     elif isinstance(alpha, six.string_types):
       # Check the quantizer has been given a valid alpha string
-      if not alpha in self.ALPHA_OPTIONS:
+      alpha_options = self.AUTO_ALPHA_ENUMS_MAP.keys()
+      if not alpha in alpha_options:
         raise ValueError(
             f"Invalid alpha '{alpha}' for auto alpha computation. "
             f"Must be one of {self.ALPHA_OPTIONS}")
       self._alpha = tf.constant(alpha, dtype=tf.string)
-      self.alpha_str.assign(alpha)
-      self.auto_alpha.assign(True)
+      self.alpha_enum.assign(self.AUTO_ALPHA_ENUMS_MAP[alpha])
     else: # alpha is a tensor
       try:
         self._alpha = K.cast_to_floatx(alpha)
       except TypeError:
         raise TypeError(
             f"alpha must be, a string, an array, or None, not {type(alpha)}")
+      self.alpha_enum.assign(self.TENSOR_ALPHA_ENUM)
 
     if self._initialized:
       self._set_default_quantization_scale()
@@ -740,6 +749,15 @@ class quantized_linear(BaseQuantizer):
     """Quantization scale for the data type"""
     return K.pow(
         2.0, self.integer - self.bits + self.keep_negative)
+
+  @property
+  def auto_alpha(self):
+    """Returns true if using a data-dependent alpha"""
+
+    auto_enums = list(self.AUTO_ALPHA_ENUMS_MAP.values())
+    any_auto_alpha = tf.equal(self.alpha_enum, tf.constant(auto_enums))
+    auto_alpha = tf.reduce_any(any_auto_alpha)
+    return auto_alpha
 
   @property
   def use_sign_function(self):
@@ -789,7 +807,7 @@ class quantized_linear(BaseQuantizer):
     self.quantization_scale = self.data_type_scale
 
     # Set scales for tensor alpha
-    if not self.auto_alpha and self.alpha is not None:
+    if self.alpha_enum == self.TENSOR_ALPHA_ENUM:
         self.quantization_scale = self.alpha * self.data_type_scale
 
   @tf.function
@@ -850,12 +868,11 @@ class quantized_linear(BaseQuantizer):
 
     quantization_scale = tf.case([
         (
-            tf.equal(self.alpha_str, tf.constant("auto", dtype=tf.string)),
+            tf.equal(self.alpha_enum, self.AUTO_ALPHA_ENUM),
             lambda: quantization_scale,
         ),
         (
-            tf.equal(self.alpha_str, tf.constant("auto_po2",
-                                                  dtype=tf.string)),
+            tf.equal(self.alpha_enum, self.AUTO_PO2_ALPHA_ENUM),
             lambda: self._po2_autoscale(x, quantization_scale),
         ),
     ], )
