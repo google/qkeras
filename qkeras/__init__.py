@@ -36,4 +36,4 @@ from .qdepthwiseconv2d_batchnorm import QDepthwiseConv2DBatchnorm
 
 assert tf.executing_eagerly(), "QKeras requires TF with eager execution mode on"
 
-__version__ = "0.9.0"
+__version__ = "0.10.0"
