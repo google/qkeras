@@ -585,9 +585,10 @@ class TestQuantizedLinear:
       res = quantizer(x)
 
     grad = tape.gradient(res, x)
-    expected_grad = (x > quantizer.min() | x < quantizer.max())
+    expected_grad = ((x >= quantizer.min()) & (x <= quantizer.max()))
+    expected_grad = K.cast_to_floatx(expected_grad)
     assert grad is not None
-    assert tf.reduce_all(tf.equal(grad, expected_grad))
+    tf.debugging.assert_equal(grad, expected_grad)
 
 class TestBackwardsCompatibilityForQuantizedLinear:
   """Regression tests for quantized_linear, comparing to quantized_bits"""

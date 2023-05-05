@@ -466,7 +466,7 @@ class quantized_linear(BaseQuantizer):
     For backprop purposes, the quantizer uses the straight-through estimator
     for the rounding step (https://arxiv.org/pdf/1903.05662.pdf). Thus the 
     gradient of the __call__ method is 1 on the interval 
-    (quantization_scale * clip_min, quantization_scale * clip_max) and 0
+    [quantization_scale * clip_min, quantization_scale * clip_max] and 0
     elsewhere.
 
     The quantizer also supports a number of other optional features:
@@ -882,7 +882,8 @@ class quantized_linear(BaseQuantizer):
     # update quantization_scale variable
     self.quantization_scale = quantization_scale
 
-    return quantization_scale
+    # very important that return value is a tf.Variable with shape None
+    return self.quantization_scale 
 
   def _get_quantization_scale_from_max_data(self, x):
     """Get the minimum floating point scale that does not clip the max 
