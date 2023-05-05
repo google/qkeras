@@ -959,6 +959,31 @@ class quantized_linear(BaseQuantizer):
 
     return quantization_scale
 
+  def max(self):
+    """Get maximum value that quantized_linear class can represent."""
+    _, clip_max = self.clip_bounds
+    return clip_max * self.quantization_scale
+
+  def min(self):
+    """Get minimum value that quantized_linear class can represent."""
+    clip_min, _ = self.clip_bounds
+    return clip_min * self.quantization_scale
+
+  def range(self):
+    """Returns a list of all values that quantized_linear can represent
+    }."""
+
+    if self.use_sign_function:
+      return K.cast_to_floatx([self.max(), self.min()])
+    else:
+      clip_min, clip_max = self.clip_bounds
+      clip_max = tf.cast(clip_max, tf.int32)
+      clip_min = tf.cast(clip_min, tf.int32)
+      pos_array = K.cast_to_floatx(tf.range(clip_max + 1))
+      neg_array = K.cast_to_floatx(tf.range(clip_min, 0))
+
+      return self.quantization_scale * tf.concat([pos_array, neg_array], axis=0)
+    
   def __str__(self):
     # Convert Tensors to printable strings by converting to a numpy array,
     # then using regex to remove brackets when there is only one integer bit
@@ -986,31 +1011,6 @@ class quantized_linear(BaseQuantizer):
     if self.alpha is None:
       self.alpha = "auto_po2"
       self.symmetric = True
-
-  def max(self):
-    """Get maximum value that quantized_linear class can represent."""
-    _, clip_max = self.clip_bounds
-    return clip_max * self.quantization_scale
-
-  def min(self):
-    """Get minimum value that quantized_linear class can represent."""
-    clip_min, _ = self.clip_bounds
-    return clip_min * self.quantization_scale
-
-  def range(self):
-    """Returns a list of all values that quantized_linear can represent
-    }."""
-
-    if self.use_sign_function:
-      return K.cast_to_floatx([self.max(), self.min()])
-    else:
-      clip_min, clip_max = self.clip_bounds
-      clip_max = tf.cast(clip_max, tf.int32)
-      clip_min = tf.cast(clip_min, tf.int32)
-      pos_array = K.cast_to_floatx(tf.range(clip_max + 1))
-      neg_array = K.cast_to_floatx(tf.range(clip_min, 0))
-
-      return self.quantization_scale * tf.concat([pos_array, neg_array], axis=0)
 
   @classmethod
   def from_config(cls, config):
