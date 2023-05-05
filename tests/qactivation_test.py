@@ -557,7 +557,7 @@ class TestQuantizedLinear:
     """Test to make sure that scale is the right shape for auto-alphas"""
 
     auto_quantizer = quantized_linear(alpha='auto')
-    auto_po2_quantizer = quantized_linear(alpha='auto')
+    auto_po2_quantizer = quantized_linear(alpha='auto_po2')
     x = tf.ones(shape)
     auto_quantizer(x)
     auto_po2_quantizer(x)
