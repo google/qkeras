@@ -1026,22 +1026,14 @@ class quantized_linear(BaseQuantizer):
   @classmethod
   def get_config(self):
 
-    def _convert_to_numpy(obj):
-      """Convert potential Variable to numpy for config"""
-
-      if isinstance(obj, tf.Variable):
-        return obj.numpy()
-      else:
-        return obj
-
     config = {
-        "bits": self.bits,
-        "integer": _convert_to_numpy(self.integer),
-        "symmetric": self.symmetric,
+        "bits": self.bits.numpy(),
+        "integer": self.integer.numpy(),
+        "symmetric": self.symmetric.numpy(),
         "alpha": self.alpha,
-        "keep_negative": self.keep_negative,
-        "use_stochastic_rounding": self.use_stochastic_rounding,
-        "qnoise_factor": _convert_to_numpy(self.qnoise_factor),
+        "keep_negative": self.keep_negative.numpy(),
+        "use_stochastic_rounding": self.use_stochastic_rounding.numpy(),
+        "qnoise_factor": self.qnoise_factor.numpy(),
     }
     return config
 
