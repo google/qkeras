@@ -552,6 +552,24 @@ class TestQuantizedLinear:
 
     assert tf.reduce_all(tf.equal(res, expected_res))
 
+  @pytest.mark.parametrize('alpha', [None, 2.0])
+  @pytest.mark.parametrize('symmetric,keep_negative', 
+                          [(True, True), (False, True), (False, False)])
+  @pytest.mark.parametrize('bits', [1, 8])
+  def test_gradients(self, bits, symmetric, keep_negative, alpha):
+
+    quantizer = quantized_linear(bits=bits, symmetric=symmetric,
+                                 keep_negative=keep_negative, alpha=alpha)
+    x = tf.Variable([-1.0, 0.0, 1.0, 2.0, 3.0])
+
+    with tf.GradientTape() as tape:
+      res = quantizer(x)
+
+    grad = tape.gradient(res, x)
+    expected_grad = (x > quantizer.min() | x < quantizer.max())
+    assert grad is not None
+    assert tf.reduce_all(tf.equal(grad, expected_grad))
+
 class TestBackwardsCompatibilityForQuantizedLinear:
   """Regression tests for quantized_linear, comparing to quantized_bits"""
 

@@ -718,7 +718,7 @@ class quantized_linear(BaseQuantizer):
       if not alpha in alpha_options:
         raise ValueError(
             f"Invalid alpha '{alpha}' for auto alpha computation. "
-            f"Must be one of {self.ALPHA_OPTIONS}")
+            f"Must be one of {alpha_options}")
       self._alpha = tf.constant(alpha, dtype=tf.string)
       self.alpha_enum.assign(self.AUTO_ALPHA_ENUMS_MAP[alpha])
     else: # alpha is a tensor
@@ -748,8 +748,7 @@ class quantized_linear(BaseQuantizer):
   @property
   def data_type_scale(self):
     """Quantization scale for the data type"""
-    return K.pow(
-        2.0, self.integer - self.bits + self.keep_negative)
+    return K.pow(2.0, self.integer - self.bits + self.keep_negative)
 
   @property
   def auto_alpha(self):
@@ -776,7 +775,7 @@ class quantized_linear(BaseQuantizer):
       """Get bounds for standard quantization"""
       unsigned_bits_po2 = K.pow(2.0, self.bits - self.keep_negative)
       # if symmetric, clip_min is negative of clip_max. Otherwise clip_min is
-      # lowered by 1, giving us one more repsentable number
+      # lowered by 1, giving us one more representable number
       clip_min = self.keep_negative * (-unsigned_bits_po2 + self.symmetric)
       clip_max = unsigned_bits_po2 - K.cast_to_floatx(1.0)
       return clip_min, clip_max
@@ -794,7 +793,7 @@ class quantized_linear(BaseQuantizer):
     )
   
   def _set_default_quantization_scale(self):
-    """Calculate and set all scale variables"""
+    """Calculate and set quantization_scale default"""
     assert (
         self._initialized
     ), "Must initialize before calling _set_default_quantization_scale"
@@ -1017,8 +1016,10 @@ class quantized_linear(BaseQuantizer):
       return K.cast_to_floatx([self.max(), self.min()])
     else:
       clip_min, clip_max = self.clip_bounds
-      pos_array = K.cast_to_floatx(range(int(clip_max.numpy()) + 1))
-      neg_array = K.cast_to_floatx(range(int(clip_min.numpy()), 0))
+      clip_max = tf.cast(clip_max, tf.int32)
+      clip_min = tf.cast(clip_min, tf.int32)
+      pos_array = K.cast_to_floatx(tf.range(clip_max + 1))
+      neg_array = K.cast_to_floatx(tf.range(clip_min, 0))
 
       return self.quantization_scale * tf.concat([pos_array, neg_array], axis=0)
 
