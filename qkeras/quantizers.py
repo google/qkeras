@@ -888,7 +888,7 @@ class quantized_linear(BaseQuantizer):
     """Get the minimum floating point scale that does not clip the max 
     of x"""
 
-    axis = self._get_axis(x)
+    axis = _get_scaling_axis(self.scale_axis_int, tf.rank(x))
 
     clip_min, clip_max = self.clip_bounds
     clip_range = clip_max - clip_min
@@ -911,17 +911,6 @@ class quantized_linear(BaseQuantizer):
     )
 
     return tf.math.maximum(quantization_scale, K.epsilon())
-
-  def _get_axis(self, x):
-    """Get axis for alpha scale computation"""
-
-    len_axis = tf.rank(x)
-    axis = tf.cond(
-        tf.not_equal(len_axis, 1),
-        lambda: _get_scaling_axis(self.scale_axis_int, len_axis),
-        lambda: tf.convert_to_tensor([0]),
-    )
-    return axis
 
   def _po2_autoscale(self, x, quantization_scale):
     """Get an approximation of the "best" po2 scale using least squares"""

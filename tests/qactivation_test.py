@@ -552,6 +552,25 @@ class TestQuantizedLinear:
 
     assert tf.reduce_all(tf.equal(res, expected_res))
 
+  @pytest.mark.parametrize('shape', [(1,), (2, 3), (2, 2, 4)])
+  def test_scale_shape(self, shape):
+    """Test to make sure that scale is the right shape for auto-alphas"""
+
+    auto_quantizer = quantized_linear(alpha='auto')
+    auto_po2_quantizer = quantized_linear(alpha='auto')
+    x = tf.ones(shape)
+    auto_quantizer(x)
+    auto_po2_quantizer(x)
+
+    if len(shape) == 1:
+      expected_shape = (1,)
+    else:
+      ones = [1 for _ in range(len(shape) - 1)]
+      expected_shape = tuple(ones) + shape[-1:]
+
+    assert auto_quantizer.scale.shape == expected_shape
+    assert auto_po2_quantizer.scale.shape == expected_shape
+
   @pytest.mark.parametrize('alpha', [None, 2.0])
   @pytest.mark.parametrize('symmetric,keep_negative', 
                           [(True, True), (False, True), (False, False)])
@@ -639,41 +658,55 @@ class TestBackwardsCompatibilityForQuantizedLinear:
     # defaults for quantized_bits and quantized_linear are different, need to 
     # specify in kwargs
     kwargs["symmetric"] = symmetric
+    # variable to determine if checking for errors only, not correctness
+    check_errors_only = False
+
     # decidedly raises an error
     if bits < integer + keep_negative:
       return
     # Not implemented in quantized_bits
     if alpha in ("auto", "auto_po2") and (not symmetric or not keep_negative):
-      return
+      check_errors_only = True
     # bug in quantized_bits
     if bits - keep_negative == 0 and alpha in ("auto", "auto_po2"):
-      return
+      check_errors_only = True
     # new implementation in quantized_linear
     if bits == 1 and keep_negative:
-      return
+      check_errors_only = True
 
-    baseline = quantized_bits(**kwargs)
-    alt = quantized_linear(**kwargs)
+    old = quantized_bits(**kwargs)
+    new = quantized_linear(**kwargs)
 
     for x in self.TEST_X_VALUES:
+      # reset variable in loop
+      check_errors_only_ = check_errors_only
       # bug in quantized_bits
       if tf.rank(x) == 0 and alpha in ("auto", "auto_po2"):
         continue
-      self._check_correctness(alt, baseline, x, kwargs)
+      # Changed default scale axis for rank-1 tensors
+      if tf.rank(x) == 1 and alpha in ("auto", "auto_po2"):
+        check_errors_only_ = True
+      self._check_correctness(new, old, x, kwargs, 
+                              check_errors_only=check_errors_only_)
 
-  def _check_correctness(self, alt_func, baseline_func, x, kwargs):
-    """Check that the alt_func and baseline_func return the same result for x"""
+  def _check_correctness(self, new_func, old_func, x, kwargs, 
+                         check_errors_only=False):
+    """Check that the new_func and old_func return the same result for x"""
 
-    baseline_res = baseline_func(x).numpy()
-    alt_res = alt_func(x).numpy()
-    baseline_scale = np.array(baseline_func.scale)
-    alt_scale = np.array(alt_func.scale)
+    old_res = old_func(x).numpy()
+    new_res = new_func(x).numpy()
+    old_scale = np.array(old_func.scale)
+    new_scale = np.array(new_func.scale)
+
+    # not checking if new matches old
+    if check_errors_only:
+      return
     err_msg = (f"Failed for {kwargs} with x = {x}. \n"
-              f"baseline_res = {baseline_res}, alt_res = {alt_res}. \n"
-              f"baseline_scale = {baseline_scale}, alt_scale = {alt_scale}")
-    if not np.allclose(baseline_res, alt_res):
+              f"old_res = {old_res}, alt_res = {new_res}. \n"
+              f"old_scale = {old_scale}, new_scale = {new_scale}")
+    if not np.allclose(old_res, new_res):
       assert False, err_msg
-    if not np.allclose(baseline_scale, alt_scale) and K.max(x) > 0:
+    if not np.allclose(old_scale, new_scale) and K.max(x) > 0:
       assert False, err_msg
 
 
