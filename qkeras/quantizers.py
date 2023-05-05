@@ -1013,6 +1013,9 @@ class quantized_linear(BaseQuantizer):
       return self.quantization_scale * tf.concat([pos_array, neg_array], axis=0)
 
   @classmethod
+  def from_config(cls, config):
+    return cls(**config)
+
   def get_config(self):
 
     config = {
@@ -1025,7 +1028,6 @@ class quantized_linear(BaseQuantizer):
         "qnoise_factor": self.qnoise_factor.numpy(),
     }
     return config
-
 
 
 class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
