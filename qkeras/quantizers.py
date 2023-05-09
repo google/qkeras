@@ -624,9 +624,10 @@ class quantized_linear(BaseQuantizer):
 
   @bits.setter
   def bits(self, bits):
-    if bits <= 0:
-      raise ValueError(f"Bit count {bits} must be positive")
     self._set_variable("_bits", bits, dtype=tf.float32)
+    err_msg = f"Bit count {bits} must be positive"
+    zero = tf.constant(0.0, dtype=tf.float32)
+    tf.debugging.assert_greater(self.bits, zero, message=err_msg)
     if self._initialized:
       self._set_default_quantization_scale()
 
@@ -636,9 +637,10 @@ class quantized_linear(BaseQuantizer):
 
   @integer.setter
   def integer(self, integer):
-    err_msg = (f"Integer bit count {integer} must be nonnegative")
-    tf.debugging.assert_greater_equal(integer, 0, message=err_msg)
     self._set_variable("_integer", integer, dtype=tf.float32)
+    err_msg = (f"Integer bit count {integer} must be nonnegative")
+    zero = tf.constant(0.0, dtype=tf.float32)
+    tf.debugging.assert_greater_equal(self.integer, zero, message=err_msg)
     if self._initialized:
       self._set_default_quantization_scale()
 
@@ -719,7 +721,7 @@ class quantized_linear(BaseQuantizer):
         raise ValueError(
             f"Invalid alpha '{alpha}' for auto alpha computation. "
             f"Must be one of {alpha_options}")
-      self._alpha = tf.constant(alpha, dtype=tf.string)
+      self._alpha = alpha # alpha is a string, not cast as a tensor
       self.alpha_enum.assign(self.AUTO_ALPHA_ENUMS_MAP[alpha])
     else: # alpha is a tensor
       try:
@@ -996,8 +998,7 @@ class quantized_linear(BaseQuantizer):
     if not self.keep_negative:
       flags.append("keep_negative=False")
     if self.auto_alpha:
-      alpha = self.alpha.numpy().decode()
-      alpha = "'" + alpha + "'"
+      alpha = "'" + self.alpha + "'"
       flags.append("alpha=" + alpha)
     elif self.alpha_enum == self.TENSOR_ALPHA_ENUM:
       alpha = self.alpha.numpy()
