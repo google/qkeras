@@ -444,20 +444,20 @@ class BaseQuantizer(tf.Module):
 class quantized_linear(BaseQuantizer):
   """Linear quantization with fixed number of bits.
 
-    This quantizer maps values to the nearest value of a fixed number of
+    This quantizer maps inputs to the nearest value of a fixed number of
     outputs that are evenly spaced, with possible scaling and stochastic
     rounding. This is an updated version of the now-deprecated quantized_bits.
 
     The core computation is:
-        1. Divide the tensor by a quantization scale
-        2. Clip the tensor to a specified range
-        3. Round to the nearest integer
-        4. Multiply the rounded result by the quantization scale
+      1. Divide the tensor by a quantization scale
+      2. Clip the tensor to a specified range
+      3. Round to the nearest integer
+      4. Multiply the rounded result by the quantization scale
 
     This clip range is determined by
-        - The number of bits we have to represent the number
-        - Whether we want to have a symmetric range or not
-        - Whether we want to keep negative numbers or not
+      - The number of bits we have to represent the number
+      - Whether we want to have a symmetric range or not
+      - Whether we want to keep negative numbers or not
 
     The quantization scale is defined by either the quantizer parameters or the 
     data passed to the __call__ method. See documentation for the `alpha`
@@ -539,8 +539,9 @@ class quantized_linear(BaseQuantizer):
       use_stochastic_rounding (bool): If true, we perform stochastic rounding
         (https://arxiv.org/pdf/1502.02551.pdf).
       scale_axis (int, None): Which axis to calculate scale from. If None, we
-        perform per-channel scaling based off of the image data format. See
-        `_get_scaling_axis` for more details. Defaults to None
+        perform per-channel scaling based off of the image data format. Note 
+        that each entry of a rank-1 tensor is considered its own channel by
+        default. See `_get_scaling_axis` for more details. Defaults to None.
       qnoise_factor (float): A scalar from 0 to 1 that represents the level of
         quantization noise to add. This controls the amount of the
         quantization noise to add to the outputs by changing the weighted
@@ -553,7 +554,7 @@ class quantized_linear(BaseQuantizer):
         to None.
 
     Returns:
-      function: Function that computes fixed-point quantization with bits.
+      function: Function that computes linear quantization.
 
     Raises:
       ValueError:
