@@ -679,8 +679,9 @@ class quantized_linear(BaseQuantizer):
 
   @use_stochastic_rounding.setter
   def use_stochastic_rounding(self, use_stochastic_rounding):
-    self._set_variable("_use_stochastic_rounding", use_stochastic_rounding, 
-                      dtype=tf.bool)
+    self._set_variable("_use_stochastic_rounding", 
+                       bool(use_stochastic_rounding), 
+                       dtype=tf.bool)
 
   @property
   def scale_axis(self):
