@@ -703,6 +703,24 @@ class TestBackwardsCompatibilityForQuantizedLinear:
 
     assert old.get_config() == new.get_config()
 
+  @pytest.mark.parametrize('kwargs', kwargs_list)
+  def test_string(self, kwargs):
+
+    symmetric = kwargs.get("symmetric", True)
+    # defaults for quantized_bits and quantized_linear are different, need to 
+    # specify in kwargs
+    kwargs["symmetric"] = symmetric
+
+    old = quantized_bits(**kwargs)
+    new = quantized_linear(**kwargs)
+
+    old_str = str(old)
+    new_str = str(new)
+
+    old_str = old_str.replace("quantized_bits", "quantized_linear")
+
+    assert old_str == new_str
+
   def _check_correctness(self, new_func, old_func, x, kwargs, 
                          check_errors_only=False):
     """Check that the new_func and old_func return the same result for x"""

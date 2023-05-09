@@ -986,23 +986,22 @@ class quantized_linear(BaseQuantizer):
       return self.quantization_scale * tf.concat([pos_array, neg_array], axis=0)
     
   def __str__(self):
-    # Convert Tensors to printable strings by converting to a numpy array,
-    # then using regex to remove brackets when there is only one integer bit
-    integer_bits = re.sub(
-        r"\[(\d)\]",
-        r"\g<1>",
-        str(self.integer.numpy() if isinstance(self.integer, tf.Variable
-                                               ) else self.integer),
-    )
 
-    flags = [str(self.bits), integer_bits, str(int(self.symmetric))]
+    # Main parameters always printed in string
+    flags = [
+      str(int(self.bits.numpy())), 
+      str(int(self.integer.numpy())), 
+      str(int(self.symmetric.numpy()))]
+    # Optional parameters only printed if not default
     if not self.keep_negative:
       flags.append("keep_negative=False")
-    if self.alpha:
-      alpha = str(self.alpha)
-    if isinstance(self.alpha, six.string_types):
+    if self.auto_alpha:
+      alpha = self.alpha.numpy().decode()
       alpha = "'" + alpha + "'"
       flags.append("alpha=" + alpha)
+    elif self.alpha_enum == self.TENSOR_ALPHA_ENUM:
+      alpha = self.alpha.numpy()
+      flags.append("alpha=" + str(alpha))
     if self.use_stochastic_rounding:
       flags.append("use_stochastic_rounding=" +
                    str(int(self.use_stochastic_rounding)))
