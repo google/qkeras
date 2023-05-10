@@ -78,25 +78,25 @@ x = x_in = Input(
     x_train.shape[1:-1] + (1,), name="input")
 x = QConv2D(
     32, (2, 2), strides=(2,2),
-    kernel_quantizer=quantized_bits(4,0,1),
-    bias_quantizer=quantized_bits(4,0,1),
+    kernel_quantizer=quantized_linear(4,0,1),
+    bias_quantizer=quantized_linear(4,0,1),
     name="conv2d_0_m")(x)
 x = QActivation("quantized_relu(4,0)", name="act0_m")(x)
 x = QConv2D(
     64, (3, 3), strides=(2,2),
-    kernel_quantizer=quantized_bits(4,0,1),
-    bias_quantizer=quantized_bits(4,0,1),
+    kernel_quantizer=quantized_linear(4,0,1),
+    bias_quantizer=quantized_linear(4,0,1),
     name="conv2d_1_m")(x)
 x = QActivation("quantized_relu(4,0)", name="act1_m")(x)
 x = QConv2D(
     64, (2, 2), strides=(2,2),
-    kernel_quantizer=quantized_bits(4,0,1),
-    bias_quantizer=quantized_bits(4,0,1),
+    kernel_quantizer=quantized_linear(4,0,1),
+    bias_quantizer=quantized_linear(4,0,1),
     name="conv2d_2_m")(x)
 x = QActivation("quantized_relu(4,0)", name="act2_m")(x)
 x = Flatten()(x)
-x = QDense(NB_CLASSES, kernel_quantizer=quantized_bits(4,0,1),
-           bias_quantizer=quantized_bits(4,0,1),
+x = QDense(NB_CLASSES, kernel_quantizer=quantized_linear(4,0,1),
+           bias_quantizer=quantized_linear(4,0,1),
            name="dense")(x)
 x_out = x
 x = Activation("softmax", name="softmax")(x)
