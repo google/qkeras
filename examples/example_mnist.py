@@ -33,6 +33,7 @@ from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.optimizers import SGD
 from tensorflow.keras.utils import to_categorical
 
+
 from qkeras import *
 from qkeras.utils import model_save_quantized_weights
 
@@ -46,7 +47,7 @@ NB_EPOCH = 100
 BATCH_SIZE = 64
 VERBOSE = 1
 NB_CLASSES = 10
-OPTIMIZER = Adam(lr=0.0001, decay=0.000025)
+OPTIMIZER = Adam(lr=0.0001)
 VALIDATION_SPLIT = 0.1
 
 train = 1
