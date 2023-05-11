@@ -766,8 +766,6 @@ class quantized_linear(BaseQuantizer):
     # Data type conversion
     x = K.cast_to_floatx(x)
     
-    shape = x.shape
-
     if self.auto_alpha:
       # get data-dependent quantization scale
       quantization_scale = self._get_quantization_scale(x)
@@ -780,9 +778,6 @@ class quantized_linear(BaseQuantizer):
     xq = scaled_xq * quantization_scale
 
     res = x + self.qnoise_factor * (xq - x)
-
-    # Needed to deal with tf not knowing shape of output
-    res.set_shape(shape)
 
     return res
   
