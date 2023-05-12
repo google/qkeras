@@ -848,26 +848,8 @@ class quantized_linear(BaseQuantizer):
     # For 1-bit quantization, po2 autoscale loop is guaranteed to converge
     # after 1 iteration 
     max_iterations = 1 if self.use_sign_function else 5
-    iterations = 0
 
-    # Need a tensor of the same shape as quantization_scale that 
-    # does not equal quantization_scale
-    last_quantization_scale = -tf.ones_like(quantization_scale)
-
-    def loop_cond():
-      """Condition for po2_autoscale loop"""
-
-      iteration_check = tf.math.less(iterations, max_iterations)
-
-      # loop can stop once we get the same quantization_scale twice
-      scale_neqs = tf.not_equal(last_quantization_scale, quantization_scale)
-      scale_check = not tf.math.reduce_any(scale_neqs)
-
-      return iteration_check and scale_check
-
-    while loop_cond():
-      iterations += 1
-      last_quantization_scale = quantization_scale
+    for _ in range(max_iterations):
 
       scaled_xq = self._scale_clip_and_round(x, quantization_scale)
       quantization_scale = _get_scale(
@@ -876,7 +858,7 @@ class quantized_linear(BaseQuantizer):
           q=scaled_xq,
           scale_axis=self.scale_axis,
       )
-      
+
     return quantization_scale
 
   def max(self):
