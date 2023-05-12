@@ -1,4 +1,5 @@
 **/__pycache__/
 sandbox*.py
 logs/
+cifar10.h5
 
