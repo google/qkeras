@@ -848,19 +848,40 @@ class quantized_linear(BaseQuantizer):
                          tf.math.round(K.log(quantization_scale + K.epsilon()) / 
                                        K.log(2.0)))
 
-    # For 1-bit quantization, po2 autoscale loop is guaranteed to converge
-    # after 1 iteration 
-    max_iterations = 1 if self.use_sign_function else 5
-
-    for _ in range(max_iterations):
+    def loop_body(_, quantization_scale):
+      """Loop body for least squares autoscaling"""
 
       scaled_xq = self._scale_clip_and_round(x, quantization_scale)
-      quantization_scale = _get_scale(
+      new_quantization_scale = _get_scale(
           alpha="auto_po2",
           x=x,
           q=scaled_xq,
           scale_axis=self.scale_axis,
       )
+      return quantization_scale, new_quantization_scale
+
+    def loop_cond(last_quantization_scale, quantization_scale):
+      """Loop condition for least squares autoscaling- stop when the 
+      scale converges"""
+
+      tensors_not_equal = tf.math.reduce_any(
+          tf.not_equal(last_quantization_scale, quantization_scale))
+      return tensors_not_equal
+
+    # Need a tensor of the same shape as quantization_scale that 
+    # does not equal quantization_scale
+    dummy_quantization_scale = -tf.ones_like(quantization_scale)
+
+    # For 1-bit quantization, po2 autoscale loop is guaranteed to converge
+    # after 1 iteration 
+    max_iterations = 1 if self.use_sign_function else 5
+
+    _, quantization_scale = tf.while_loop(
+        loop_cond,
+        loop_body,
+        (dummy_quantization_scale, quantization_scale),
+        maximum_iterations=max_iterations,
+    )
 
     return quantization_scale
 
