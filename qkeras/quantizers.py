@@ -774,6 +774,9 @@ class quantized_linear(BaseQuantizer):
       # see _set_default_quantization_scale for more info
       quantization_scale = self.quantization_scale
 
+    # stop_gradient on quantization_scale to ignore dependence on x
+    quantization_scale = tf.stop_gradient(quantization_scale)
+
     scaled_xq = self._scale_clip_and_round(x, quantization_scale)
     xq = scaled_xq * quantization_scale
 
