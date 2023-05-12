@@ -774,9 +774,6 @@ class quantized_linear(BaseQuantizer):
       # see _set_default_quantization_scale for more info
       quantization_scale = self.quantization_scale
 
-    # stop_gradient on quantization_scale to ignore dependence on x
-    quantization_scale = tf.stop_gradient(quantization_scale)
-
     scaled_xq = self._scale_clip_and_round(x, quantization_scale)
     xq = scaled_xq * quantization_scale
 
@@ -817,7 +814,8 @@ class quantized_linear(BaseQuantizer):
       quantization_scale = self._po2_autoscale(x, quantization_scale)
 
     # update quantization_scale variable
-    self.quantization_scale = quantization_scale
+    # stop_gradient on quantization_scale to ignore dependence on x
+    self.quantization_scale = tf.stop_gradient(quantization_scale)
 
     # very important that return value is a tf.Variable with shape None
     return self.quantization_scale 
