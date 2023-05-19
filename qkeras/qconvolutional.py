@@ -318,7 +318,7 @@ class QConv2D(Conv2D, PrunableLayer):
 
   def build(self, input_shape):
 
-    super(QConv2D, self)(input_shape)
+    super(QConv2D, self).build(input_shape)
 
     def _build_quantizer(quantizer):
       
