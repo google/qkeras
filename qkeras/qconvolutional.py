@@ -320,13 +320,13 @@ class QConv2D(Conv2D, PrunableLayer):
 
     super(QConv2D, self).build(input_shape)
 
-    def _build_quantizer(quantizer):
+    def _build_quantizer(quantizer, shape):
       
       if quantizer and hasattr(quantizer, 'build'):
-        quantizer.build(input_shape)
+        quantizer.build(shape)
     
-    _build_quantizer(self.kernel_quantizer)
-    _build_quantizer(self.bias_quantizer)
+    _build_quantizer(self.kernel_quantizer_internal, self.kernel.shape)
+    _build_quantizer(self.bias_quantizer_internal, self.bias.shape)
 
   def get_config(self):
     config = {

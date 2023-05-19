@@ -600,7 +600,6 @@ class quantized_linear(BaseQuantizer):
     self.use_stochastic_rounding = use_stochastic_rounding
     self.alpha = alpha
     self.scale_axis = scale_axis
-    self._quantization_scale = self.default_quantization_scale
 
   def _set_variable(self, attr_name, value, trainable=False, create_new=False,
                     **kwargs):
