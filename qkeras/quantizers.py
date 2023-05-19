@@ -475,7 +475,9 @@ class quantized_linear(BaseQuantizer):
 
     Note on the various "scales" in quantized_linear:
       - The quantization scale is the scale used in the core computation. You
-        can access it via the `quantization_scale` attribute.
+        can access it via the `quantization_scale` attribute. The shape of this
+        attribute will depend on the data passed in to the __call__ method and
+        the `scale_axis` parameter.
       - The data type scale is the scale is determined by the type of data
         stored on hardware on a small device running a true quantized model. 
         It is the quantization scale needed to represent `bits` bits, `integer`
@@ -589,9 +591,9 @@ class quantized_linear(BaseQuantizer):
   ):
     super(quantized_linear, self).__init__()
 
-    # Set _initialized parameter to False to prevent the setters from
-    # performing preliminary calculations
-    self._initialized = False
+    # Set scale_is_set parameter to False to track whether data-dependent
+    # scale and quantization_scale has been determined yet
+    self.scale_is_set = False
     self.var_name = var_name
     self.bits = bits
     self.integer = integer
@@ -602,22 +604,27 @@ class quantized_linear(BaseQuantizer):
     self.alpha = alpha
     self.scale_axis = scale_axis
 
-    # Perform preliminary calculations based on attributes above
-    self._initialized = True
-    self._set_default_quantization_scale()
-
-  def _set_variable(self, attr_name, value, trainable=False, **kwargs):
+  def _set_variable(self, attr_name, value, trainable=False, create_new=False,
+                    **kwargs):
     """Set tf.Variable attribute with given var_name. 
     
     Setting attributes as tf.Variables is necessary in order to deal with 
     attribute updates in the __call__ function."""
 
-    if not hasattr(self, attr_name):
+    if not hasattr(self, attr_name) and not create_new:
       var_name = _create_variable_name(attr_name, var_name=self.var_name)
       var = tf.Variable(value, name=var_name, trainable=trainable, **kwargs)
       setattr(self, attr_name, var)
     else:
       getattr(self, attr_name).assign(value)
+
+  @property
+  def scale_is_set(self):
+    return self._scale_is_set
+  
+  @scale_is_set.setter
+  def scale_is_set(self, scale_is_set):
+    self._set_variable("_scale_is_set", scale_is_set, dtype=tf.bool)
 
   @property
   def bits(self):
@@ -629,8 +636,7 @@ class quantized_linear(BaseQuantizer):
     err_msg = f"Bit count {bits} must be positive"
     zero = tf.constant(0.0, dtype=tf.float32)
     tf.debugging.assert_greater(self.bits, zero, message=err_msg)
-    if self._initialized:
-      self._set_default_quantization_scale()
+    self._update_quantization_scale_from_parameters()
 
   @property
   def integer(self):
@@ -642,8 +648,7 @@ class quantized_linear(BaseQuantizer):
     err_msg = (f"Integer bit count {integer} must be nonnegative")
     zero = tf.constant(0.0, dtype=tf.float32)
     tf.debugging.assert_greater_equal(self.integer, zero, message=err_msg)
-    if self._initialized:
-      self._set_default_quantization_scale()
+    self._update_quantization_scale_from_parameters()
 
   @property
   def symmetric(self):
@@ -652,8 +657,7 @@ class quantized_linear(BaseQuantizer):
   @symmetric.setter
   def symmetric(self, symmetric):
     self._set_variable("_symmetric", symmetric, dtype=tf.float32)
-    if self._initialized:
-      self._set_default_quantization_scale()
+    self._update_quantization_scale_from_parameters()
 
   @property
   def keep_negative(self):
@@ -662,8 +666,7 @@ class quantized_linear(BaseQuantizer):
   @keep_negative.setter
   def keep_negative(self, keep_negative):
     self._set_variable("_keep_negative", keep_negative, dtype=tf.float32)
-    if self._initialized:
-      self._set_default_quantization_scale()
+    self._update_quantization_scale_from_parameters()
 
   @property
   def qnoise_factor(self):
@@ -697,6 +700,9 @@ class quantized_linear(BaseQuantizer):
     else:
       scale_axis_int = scale_axis
     self._set_variable("scale_axis_int", scale_axis_int, dtype=tf.int32)
+
+    # scale shape will need to be redetermined once scale_axis is updated
+    self.scale_is_set = False
 
   @property
   def alpha(self):
@@ -733,8 +739,7 @@ class quantized_linear(BaseQuantizer):
             f"alpha must be, a string, an array, or None, not {type(alpha)}")
       self.alpha_enum.assign(self.TENSOR_ALPHA_ENUM)
 
-    if self._initialized:
-      self._set_default_quantization_scale()
+    self._update_quantization_scale_from_parameters()
 
   @property
   def scale(self):
@@ -747,7 +752,7 @@ class quantized_linear(BaseQuantizer):
   @quantization_scale.setter
   def quantization_scale(self, quantization_scale):
     self._set_variable("_quantization_scale", quantization_scale,
-                      dtype=tf.float32, shape=tf.TensorShape(None))
+                      dtype=tf.float32)
     
   @property
   def data_type_scale(self):
@@ -795,26 +800,59 @@ class quantized_linear(BaseQuantizer):
       _sign_function_bounds,
       _standard_bounds
     )
-  
-  def _set_default_quantization_scale(self):
-    """Calculate and set quantization_scale default"""
-    assert (
-        self._initialized
-    ), "Must initialize before calling _set_default_quantization_scale"
 
+  @property
+  def default_quantization_scale(self):
+    """Get default quantization scale based on quantizer parameters.
+    
+    This property does not take into account the shape of the quantization
+    scale, which is only known once the quantizer has been called once."""
 
     err_msg = (f"Bit count {self.bits} must exceed "
-              f" {self.integer + self.keep_negative}")
+              f"{self.integer + self.keep_negative}")
     tf.debugging.assert_greater_equal(self.bits, 
                                       self.integer + self.keep_negative,
                                       message=err_msg)
+    
+    default_quantization_scale = tf.cond(
+      tf.equal(self.alpha_enum, self.TENSOR_ALPHA_ENUM),
+      lambda: self.alpha * self.data_type_scale,
+      lambda: self.data_type_scale
+    )
 
-    # Set default quantization scale
-    self.quantization_scale = self.data_type_scale
+    return default_quantization_scale
+  
+  def _update_quantization_scale_from_parameters(self):
+    """Update the quantization scale based on a change of quantizer parameters,
+    only once the quantization scale shape is known"""
 
-    # Set scales for tensor alpha
-    if self.alpha_enum == self.TENSOR_ALPHA_ENUM:
-        self.quantization_scale = self.alpha * self.data_type_scale
+    if self.scale_is_set:
+      scale_shape = tf.ones_like(self.quantization_scale)
+      self.quantization_scale = scale_shape * self.default_quantization_scale
+
+  def _set_default_quantization_scale_from_data(self, x):
+    """Calculate and set quantization_scale default.
+    
+    The shape of the quantization_scale is determined by the data `x`.
+    Returns the new value of scale_is_set, which is True"""
+
+    def set_new_scale():
+      # get quantization_scale in the appropriate shape
+      shape_example = self._get_quantization_scale_from_max_data(x)
+      shaped_ones = tf.ones_like(shape_example)
+
+      quantization_scale = shaped_ones * self.default_quantization_scale
+
+      # create a new quantization scale variable
+      self._set_variable("_quantization_scale", quantization_scale,
+                        dtype=tf.float32, create_new=True)
+      
+      return tf.constant(True)
+    
+    def do_nothing():
+      return tf.constant(True)
+
+    return tf.cond(self.scale_is_set, do_nothing, set_new_scale)
 
   @tf.function
   def __call__(self, x):
@@ -825,12 +863,14 @@ class quantized_linear(BaseQuantizer):
     
     shape = x.shape
 
+    # Set quantization scale if not already set, update scale_is_set parameter
+    self.scale_is_set = self._set_default_quantization_scale_from_data(x)
+
     quantization_scale = tf.cond(
       self.auto_alpha, 
       # get data-dependent quantization scale
       lambda: self._get_quantization_scale(x),
       # quantization scale determined by quantizer params, not data
-      # see _set_default_quantization_scale for more info
       lambda: self.quantization_scale
     )
 
@@ -968,12 +1008,12 @@ class quantized_linear(BaseQuantizer):
   def max(self):
     """Get maximum value that quantized_linear class can represent."""
     _, clip_max = self.clip_bounds
-    return clip_max * self.quantization_scale
+    return clip_max * tf.math.reduce_max(self.quantization_scale)
 
   def min(self):
     """Get minimum value that quantized_linear class can represent."""
     clip_min, _ = self.clip_bounds
-    return clip_min * self.quantization_scale
+    return clip_min * tf.math.reduce_min(self.quantization_scale)
 
   def range(self):
     """Returns a list of all values that quantized_linear can represent
