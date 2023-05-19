@@ -603,6 +603,7 @@ class quantized_linear(BaseQuantizer):
     self.use_stochastic_rounding = use_stochastic_rounding
     self.alpha = alpha
     self.scale_axis = scale_axis
+    self._quantization_scale = self.default_quantization_scale
 
   def _set_variable(self, attr_name, value, trainable=False, create_new=False,
                     **kwargs):
@@ -828,7 +829,7 @@ class quantized_linear(BaseQuantizer):
     """Update the quantization scale based on a change of quantizer parameters,
     only once the quantization scale shape is known"""
 
-    if self.scale_is_set:
+    if self.scale_is_set.numpy():
       scale_shape = tf.ones_like(self.quantization_scale)
       self.quantization_scale = scale_shape * self.default_quantization_scale
 
@@ -850,7 +851,7 @@ class quantized_linear(BaseQuantizer):
       quantization_scale = shaped_ones * self.default_quantization_scale
 
       # create a new quantization scale variable
-      self._set_variable("_quantization_scale", quantization_scale,
+      self._set_variable("_quantization_scale", lambda: quantization_scale,
                         dtype=tf.float32, create_new=True)
       
       return tf.constant(True)
