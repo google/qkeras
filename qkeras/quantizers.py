@@ -839,7 +839,7 @@ class quantized_linear(BaseQuantizer):
     Returns the new value of scale_is_set, which is True"""
 
     def set_new_scale():
-      
+
       # Data type conversion
       float_x = K.cast_to_floatx(x)
 
@@ -1024,7 +1024,7 @@ class quantized_linear(BaseQuantizer):
   def min(self):
     """Get minimum value that quantized_linear class can represent."""
     clip_min, _ = self.clip_bounds
-    return clip_min * tf.math.reduce_min(self.quantization_scale)
+    return clip_min * tf.math.reduce_max(self.quantization_scale)
 
   def range(self):
     """Returns a list of all values that quantized_linear can represent
@@ -1039,7 +1039,9 @@ class quantized_linear(BaseQuantizer):
       pos_array = K.cast_to_floatx(tf.range(clip_max + 1))
       neg_array = K.cast_to_floatx(tf.range(clip_min, 0))
 
-      return self.quantization_scale * tf.concat([pos_array, neg_array], axis=0)
+      max_quantization_scale = tf.math.reduce_max(self.quantization_scale)
+
+      return max_quantization_scale * tf.concat([pos_array, neg_array], axis=0)
     
   def __str__(self):
 
