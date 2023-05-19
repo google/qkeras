@@ -687,6 +687,8 @@ class TestBackwardsCompatibilityForQuantizedLinear:
       # Changed default scale axis for rank-1 tensors
       if tf.rank(x) == 1 and alpha in ("auto", "auto_po2"):
         check_errors_only_ = True
+      # update scale_is_set variable to deal with changing scale shapes
+      new.scale_is_set = False
       self._check_correctness(new, old, x, kwargs, 
                               check_errors_only=check_errors_only_)
 
