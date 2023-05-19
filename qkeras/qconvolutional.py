@@ -316,6 +316,18 @@ class QConv2D(Conv2D, PrunableLayer):
       return self.activation(outputs)
     return outputs
 
+  def build(self, input_shape):
+
+    super(QConv2D, self)(input_shape)
+
+    def _build_quantizer(quantizer):
+      
+      if quantizer and hasattr(quantizer, 'build'):
+        quantizer.build(input_shape)
+    
+    _build_quantizer(self.kernel_quantizer)
+    _build_quantizer(self.bias_quantizer)
+
   def get_config(self):
     config = {
         "kernel_quantizer": constraints.serialize(

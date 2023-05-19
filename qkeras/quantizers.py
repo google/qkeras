@@ -589,12 +589,9 @@ class quantized_linear(BaseQuantizer):
       qnoise_factor=1.0,
       var_name=None,
   ):
+    self.var_name = var_name
     super(quantized_linear, self).__init__()
 
-    self.var_name = var_name
-    # Set scale_is_set parameter to False to track whether data-dependent
-    # scale and quantization_scale has been determined yet
-    self.scale_is_set = False
     self.bits = bits
     self.integer = integer
     self.symmetric = symmetric
@@ -620,12 +617,12 @@ class quantized_linear(BaseQuantizer):
       getattr(self, attr_name).assign(value)
 
   @property
-  def scale_is_set(self):
-    return self._scale_is_set
+  def built(self):
+    return self._built
   
-  @scale_is_set.setter
-  def scale_is_set(self, scale_is_set):
-    self._set_variable("_scale_is_set", scale_is_set, dtype=tf.bool)
+  @built.setter
+  def built(self, built):
+    self._set_variable("_built", built, dtype=tf.bool)
 
   @property
   def bits(self):
@@ -703,7 +700,7 @@ class quantized_linear(BaseQuantizer):
     self._set_variable("scale_axis_int", scale_axis_int, dtype=tf.int32)
 
     # scale shape will need to be redetermined once scale_axis is updated
-    self.scale_is_set = False
+    self.built = False
 
   @property
   def alpha(self):
@@ -824,54 +821,45 @@ class quantized_linear(BaseQuantizer):
     )
 
     return default_quantization_scale
+
+  def build(self, input_shape):
+    """Set the quantization scale based on the input shape"""
+
+    shape_list = list(input_shape)
+
+    # Resolve ambiguities in the input shape
+    shape_list = [1 if dim is None else dim for dim in shape_list]
+    self._set_scale_from_input_shape(shape_list)
+    self.built = True
   
   def _update_quantization_scale_from_parameters(self):
     """Update the quantization scale based on a change of quantizer parameters,
     only once the quantization scale shape is known"""
 
-    if self.scale_is_set.numpy():
+    if self.built.numpy():
       scale_shape = tf.ones_like(self.quantization_scale)
       self.quantization_scale = scale_shape * self.default_quantization_scale
 
-  def _set_default_quantization_scale_from_data(self, x):
-    """Calculate and set quantization_scale default.
-    
-    The shape of the quantization_scale is determined by the data `x`.
-    Returns the new value of scale_is_set, which is True"""
+  def _set_scale_from_input_shape(self, shape):
+    """Set the quantization scale based on the input shape"""
 
-    def set_new_scale():
+    scale_shape = self._get_quantization_scale_from_max_data(tf.ones(shape))
+    ones_like_scale = tf.ones_like(scale_shape)
+    quantization_scale = self.default_quantization_scale * ones_like_scale
+    # create a new quantization scale variable
+    self._set_variable("_quantization_scale", quantization_scale,
+                       dtype=tf.float32, create_new=True)
 
-      # Data type conversion
-      float_x = K.cast_to_floatx(x)
-
-      # get quantization_scale in the appropriate shape
-      shape_example = self._get_quantization_scale_from_max_data(float_x)
-      shaped_ones = tf.ones_like(shape_example)
-
-      quantization_scale = shaped_ones * self.default_quantization_scale
-
-      # create a new quantization scale variable
-      self._set_variable("_quantization_scale", lambda: quantization_scale,
-                        dtype=tf.float32, create_new=True)
-      
-      return tf.constant(True)
-    
-    def do_nothing():
-      return tf.constant(True)
-
-    return tf.cond(self.scale_is_set, do_nothing, set_new_scale)
-
-  def __call__(self, x):
-    """Wrapper around `call` method that creates quantization_scale variable"""
-
-    # Set quantization scale if not already set, update scale_is_set parameter
-    self.scale_is_set = self._set_default_quantization_scale_from_data(x)
-
-    return self.call(x)
-  
   @tf.function
-  def call(self, x):
+  def __call__(self, x):
     """Core quantization function"""
+
+    err_msg = (
+      f"quantized_linear must be built before use. "
+      "Call `build` first and pass in the data shape."
+    )
+    tf.debugging.assert_equal(
+      self.built, tf.constant(True), message=err_msg, summarize=0)
 
     # Data type conversion
     x = K.cast_to_floatx(x)
@@ -1058,7 +1046,7 @@ class quantized_linear(BaseQuantizer):
       alpha = "'" + self.alpha + "'"
       flags.append("alpha=" + alpha)
     elif self.alpha_enum == self.TENSOR_ALPHA_ENUM:
-      alpha = self.alpha.numpy()
+      alpha = self.alpha_tensor.numpy()
       flags.append("alpha=" + str(alpha))
     if self.use_stochastic_rounding:
       flags.append("use_stochastic_rounding=" +
