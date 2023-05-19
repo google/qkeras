@@ -1004,15 +1004,23 @@ class quantized_linear(BaseQuantizer):
 
     return quantization_scale
 
+  def _max_quantization_scale(self):
+    """Get max of quantization scale or default"""
+
+    if hasattr(self, '_quantization_scale'):
+      return tf.math.reduce_max(self.quantization_scale)
+    else:
+      return tf.math.reduce_max(self.default_quantization_scale)
+
   def max(self):
     """Get maximum value that quantized_linear class can represent."""
     _, clip_max = self.clip_bounds
-    return clip_max * tf.math.reduce_max(self.quantization_scale)
+    return clip_max * self._max_quantization_scale()
 
   def min(self):
     """Get minimum value that quantized_linear class can represent."""
     clip_min, _ = self.clip_bounds
-    return clip_min * tf.math.reduce_max(self.quantization_scale)
+    return clip_min * self._max_quantization_scale()
 
   def range(self):
     """Returns a list of all values that quantized_linear can represent
@@ -1027,10 +1035,10 @@ class quantized_linear(BaseQuantizer):
       pos_array = K.cast_to_floatx(tf.range(clip_max + 1))
       neg_array = K.cast_to_floatx(tf.range(clip_min, 0))
 
-      max_quantization_scale = tf.math.reduce_max(self.quantization_scale)
+      max_quantization_scale = self._max_quantization_scale()
 
       return max_quantization_scale * tf.concat([pos_array, neg_array], axis=0)
-    
+       
   def __str__(self):
 
     # Main parameters always printed in string
