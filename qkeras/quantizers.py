@@ -829,10 +829,11 @@ class quantized_linear(BaseQuantizer):
 
       # Resolve ambiguities in the input shape
       shape = [1 if dim is None else dim for dim in shape_list]
+      self.quantization_scale_shape = shape
 
       # Set the quantization scale based on the input shape
-      scale_shape = self._get_quantization_scale_from_max_data(tf.ones(shape))
-      ones_like_scale = tf.ones_like(scale_shape)
+      scale_example = self._get_quantization_scale_from_max_data(tf.ones(shape))
+      ones_like_scale = tf.ones_like(scale_example)
       quantization_scale = self.default_quantization_scale * ones_like_scale
       # create a new quantization scale variable
       self._set_variable("_quantization_scale", quantization_scale,
@@ -845,8 +846,8 @@ class quantized_linear(BaseQuantizer):
     only once the quantization scale shape is known"""
 
     if self.built.numpy():
-      scale_shape = tf.ones_like(self.quantization_scale)
-      self.quantization_scale = scale_shape * self.default_quantization_scale
+      scale_ones = tf.ones(self.quantization_scale_shape)
+      self.quantization_scale = scale_ones * self.default_quantization_scale
 
   @tf.function
   def __call__(self, x):
