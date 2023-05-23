@@ -947,7 +947,6 @@ class quantized_linear(BaseQuantizer):
 
   def _set_trainable_parameter(self):
     if self.alpha is None:
-
       self.alpha = "auto_po2"
       self.symmetric = True
 
