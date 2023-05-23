@@ -474,9 +474,7 @@ class quantized_linear(BaseQuantizer):
 
     Note on the various "scales" in quantized_linear:
       - The quantization scale is the scale used in the core computation. You
-        can access it via the `quantization_scale` attribute. The shape of this
-        attribute will depend on the data passed in to the __call__ method and
-        the `scale_axis` parameter.
+        can access it via the `quantization_scale` attribute.
       - The data type scale is the scale is determined by the type of data
         stored on hardware on a small device running a true quantized model. 
         It is the quantization scale needed to represent `bits` bits, `integer`
@@ -580,9 +578,12 @@ class quantized_linear(BaseQuantizer):
       qnoise_factor=1.0,
       var_name=None,
   ):
-    self.var_name = var_name
     super(quantized_linear, self).__init__()
 
+    # Set _initialized parameter to False to prevent the setters from
+    # performing preliminary calculations
+    self._initialized = False
+    self.var_name = var_name
     self.bits = bits
     self.integer = integer
     self.symmetric = symmetric
@@ -596,14 +597,6 @@ class quantized_linear(BaseQuantizer):
     self._initialized = True
     self._set_default_quantization_scale()
 
-
-  @property
-  def built(self):
-    return self._built
-  
-  @built.setter
-  def built(self, built):
-    self._set_variable("_built", built, dtype=tf.bool)
 
   @property
   def bits(self):
@@ -700,7 +693,8 @@ class quantized_linear(BaseQuantizer):
         raise TypeError(
             f"alpha must be, a string, an array, or None, not {type(alpha)}")
 
-    self._update_quantization_scale_from_parameters()
+    if self._initialized:
+      self._set_default_quantization_scale()
 
   @property
   def scale(self):
@@ -753,20 +747,14 @@ class quantized_linear(BaseQuantizer):
         self._initialized
     ), "Must initialize before calling _set_default_quantization_scale"
 
-  @property
-  def default_quantization_scale(self):
-    """Get default quantization scale based on quantizer parameters.
-    
-    This property does not take into account the shape of the quantization
-    scale, which is only known once the quantizer has been called once."""
 
     err_msg = (f"Bit count {self.bits} must exceed "
               f" {self.integer + self.keep_negative}")
     if self.bits < self.integer + self.keep_negative:
       raise ValueError(err_msg)
 
-  def build(self, input_shape):
-    """Set the quantization scale based on the input shape"""
+    # Set default quantization scale
+    self.quantization_scale = self.data_type_scale
 
     # Set scales for tensor alpha
     if self.alpha is not None and not self.auto_alpha:
@@ -774,13 +762,6 @@ class quantized_linear(BaseQuantizer):
 
   def __call__(self, x):
     """Core quantization function"""
-
-    err_msg = (
-      f"quantized_linear must be built before use. "
-      "Call `build` first and pass in the data shape."
-    )
-    tf.debugging.assert_equal(
-      self.built, tf.constant(True), message=err_msg, summarize=0)
 
     # Data type conversion
     x = K.cast_to_floatx(x)
@@ -902,23 +883,15 @@ class quantized_linear(BaseQuantizer):
 
     return quantization_scale
 
-  def _max_quantization_scale(self):
-    """Get max of quantization scale or default"""
-
-    if hasattr(self, '_quantization_scale'):
-      return tf.math.reduce_max(self.quantization_scale)
-    else:
-      return tf.math.reduce_max(self.default_quantization_scale)
-
   def max(self):
     """Get maximum value that quantized_linear class can represent."""
     _, clip_max = self.clip_bounds
-    return clip_max * self._max_quantization_scale()
+    return clip_max * self.quantization_scale
 
   def min(self):
     """Get minimum value that quantized_linear class can represent."""
     clip_min, _ = self.clip_bounds
-    return clip_min * self._max_quantization_scale()
+    return clip_min * self.quantization_scale
 
   def range(self):
     """Returns a list of all values that quantized_linear can represent
@@ -933,10 +906,8 @@ class quantized_linear(BaseQuantizer):
       pos_array = K.cast_to_floatx(tf.range(clip_max + 1))
       neg_array = K.cast_to_floatx(tf.range(clip_min, 0))
 
-      max_quantization_scale = self._max_quantization_scale()
-
-      return max_quantization_scale * tf.concat([pos_array, neg_array], axis=0)
-       
+      return self.quantization_scale * tf.concat([pos_array, neg_array], axis=0)
+    
   def __str__(self):
 
     # Main parameters always printed in string
