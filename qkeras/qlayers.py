@@ -705,17 +705,6 @@ class QDense(Dense, PrunableLayer):
   def get_prunable_weights(self):
     return [self.kernel]
 
-  def build(self, input_shape):
-
-    super(QDense, self).build(input_shape)
-
-    def _build_quantizer(quantizer, shape):
-      
-      if quantizer and hasattr(quantizer, 'build'):
-        quantizer.build(shape)
-    
-    _build_quantizer(self.kernel_quantizer_internal, self.kernel.shape)
-    _build_quantizer(self.bias_quantizer_internal, self.bias.shape)
 
 def get_constraint(identifier, quantizer):
   """Gets the initializer.
