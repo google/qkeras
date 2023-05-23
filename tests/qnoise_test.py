@@ -43,6 +43,7 @@ def test_qnoise_quantized_linear():
       keep_negative=keep_negative,
       alpha=alpha,
       use_stochastic_rounding=use_stochastic_rounding,
+      use_variables=True,
   )
 
   inputs = np.array([0.0, 0.5, -0.5, 0.6, -0.6, 2.0, -2.0], dtype=np.float32)
@@ -51,17 +52,17 @@ def test_qnoise_quantized_linear():
   x_xq = 0.5 * (x + xq)
 
   # no quantization
-  ql.qnoise_factor = 0.0
+  ql.update_qnoise_factor(0.0)
   x_q_0 = ql(inputs)
   assert_equal(x_q_0, x)
 
   # full quantization
-  ql.qnoise_factor = 1.0
+  ql.update_qnoise_factor(1.0)
   x_q_1 = ql(inputs)
   assert_equal(x_q_1, xq)
 
-  # mixing half and half of x and xq
-  ql.qnoise_factor = 0.5
+  # mixing half and half of x and gxq
+  ql.update_qnoise_factor(0.5)
   x_q_05 = ql(inputs)
   assert_equal(x_q_05, x_xq)
 

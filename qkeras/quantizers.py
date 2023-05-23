@@ -716,7 +716,9 @@ class quantized_linear(BaseQuantizer):
   @property
   def data_type_scale(self):
     """Quantization scale for the data type"""
-    return K.pow(2.0, self.integer - self.bits + self.keep_negative)
+    # integer is sometimes cast as int32, so cast to float32 to avoid errors
+    integer = tf.cast(self.integer, tf.float32)
+    return K.pow(2.0, integer - self.bits + self.keep_negative)
 
   @property
   def auto_alpha(self):
