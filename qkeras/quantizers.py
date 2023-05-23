@@ -547,10 +547,13 @@ class quantized_linear(BaseQuantizer):
         sum of (1 - qnoise_factor) * unquantized_x + qnoise_factor *
         quantized_x. Defaults to 1.0, which means that the result is fully
         quantized.
+      use_variables (bool): If true, we use tf.Variables to store certain 
+        parameters. See the BaseQuantizer implementation for more details.
+        Defaults to False.
       var_name (str or None): A variable name shared between the tf.Variables
-        created in on initialization. If None, it is generated
-        automatically based on the parameter names along with a uid. Defaults
-        to None.
+        created in on initialization, if use_variables is true. If None, the 
+        variable names are generated automatically based on the parameter names 
+        along with a uid. Defaults to None.
 
     Returns:
       function: Function that computes linear quantization.
@@ -577,6 +580,7 @@ class quantized_linear(BaseQuantizer):
       scale_axis=None,
       qnoise_factor=1.0,
       var_name=None,
+      use_variables=False,
   ):
     super(quantized_linear, self).__init__()
 
@@ -592,6 +596,7 @@ class quantized_linear(BaseQuantizer):
     self.use_stochastic_rounding = use_stochastic_rounding
     self.alpha = alpha
     self.scale_axis = scale_axis
+    self.use_variables = use_variables
 
     # Perform preliminary calculations based on attributes above
     self._initialized = True
@@ -763,6 +768,9 @@ class quantized_linear(BaseQuantizer):
   def __call__(self, x):
     """Core quantization function"""
 
+    # Build if not already built
+    self._build()
+
     # Data type conversion
     x = K.cast_to_floatx(x)
     
@@ -882,6 +890,12 @@ class quantized_linear(BaseQuantizer):
     )
 
     return quantization_scale
+
+  def _build(self):
+    """Build if not done so already"""
+
+    if not self.built:
+      self.build(var_name=self.var_name, use_variables=self.use_variables)
 
   def max(self):
     """Get maximum value that quantized_linear class can represent."""
