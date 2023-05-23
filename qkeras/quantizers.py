@@ -440,7 +440,6 @@ class BaseQuantizer(tf.Module):
   def non_trainable_variables(self):
     return ()
 
-
 class quantized_linear(BaseQuantizer):
   """Linear quantization with fixed number of bits.
 
@@ -566,16 +565,8 @@ class quantized_linear(BaseQuantizer):
 
     """
 
-  # enums needed to ensure that alpha data can be numerically represented
-  DEFAULT_ALPHA_ENUM = 0
-  TENSOR_ALPHA_ENUM = 1
-  AUTO_ALPHA_ENUM = 2
-  AUTO_PO2_ALPHA_ENUM = 3
-
-  AUTO_ALPHA_ENUMS_MAP = {
-    "auto": AUTO_ALPHA_ENUM,
-    "auto_po2": AUTO_PO2_ALPHA_ENUM,
-  }
+  # string options for alpha parameter
+  ALPHA_OPTIONS = ("auto", "auto_po2")
 
   def __init__(
       self,
@@ -601,19 +592,10 @@ class quantized_linear(BaseQuantizer):
     self.alpha = alpha
     self.scale_axis = scale_axis
 
-  def _set_variable(self, attr_name, value, trainable=False, create_new=False,
-                    **kwargs):
-    """Set tf.Variable attribute with given var_name. 
-    
-    Setting attributes as tf.Variables is necessary in order to deal with 
-    attribute updates in the __call__ function."""
+    # Perform preliminary calculations based on attributes above
+    self._initialized = True
+    self._set_default_quantization_scale()
 
-    if not hasattr(self, attr_name) or create_new:
-      var_name = _create_variable_name(attr_name, var_name=self.var_name)
-      var = tf.Variable(value, name=var_name, trainable=trainable, **kwargs)
-      setattr(self, attr_name, var)
-    else:
-      getattr(self, attr_name).assign(value)
 
   @property
   def built(self):
@@ -629,11 +611,12 @@ class quantized_linear(BaseQuantizer):
 
   @bits.setter
   def bits(self, bits):
-    self._set_variable("_bits", bits, dtype=tf.float32)
+    self._bits = bits
     err_msg = f"Bit count {bits} must be positive"
-    zero = tf.constant(0.0, dtype=tf.float32)
-    tf.debugging.assert_greater(self.bits, zero, message=err_msg)
-    self._update_quantization_scale_from_parameters()
+    if bits <= 0:
+      raise ValueError(err_msg)
+    if self._initialized:
+      self._set_default_quantization_scale()
 
   @property
   def integer(self):
@@ -641,11 +624,12 @@ class quantized_linear(BaseQuantizer):
 
   @integer.setter
   def integer(self, integer):
-    self._set_variable("_integer", integer, dtype=tf.float32)
+    self._integer = integer
     err_msg = (f"Integer bit count {integer} must be nonnegative")
-    zero = tf.constant(0.0, dtype=tf.float32)
-    tf.debugging.assert_greater_equal(self.integer, zero, message=err_msg)
-    self._update_quantization_scale_from_parameters()
+    if integer < 0:
+      raise ValueError(err_msg)
+    if self._initialized:
+      self._set_default_quantization_scale()
 
   @property
   def symmetric(self):
@@ -653,8 +637,9 @@ class quantized_linear(BaseQuantizer):
 
   @symmetric.setter
   def symmetric(self, symmetric):
-    self._set_variable("_symmetric", symmetric, dtype=tf.float32)
-    self._update_quantization_scale_from_parameters()
+    self._symmetric = symmetric
+    if self._initialized:
+      self._set_default_quantization_scale()
 
   @property
   def keep_negative(self):
@@ -662,8 +647,9 @@ class quantized_linear(BaseQuantizer):
 
   @keep_negative.setter
   def keep_negative(self, keep_negative):
-    self._set_variable("_keep_negative", keep_negative, dtype=tf.float32)
-    self._update_quantization_scale_from_parameters()
+    self._keep_negative = keep_negative
+    if self._initialized:
+      self._set_default_quantization_scale()
 
   @property
   def qnoise_factor(self):
@@ -671,7 +657,7 @@ class quantized_linear(BaseQuantizer):
 
   @qnoise_factor.setter
   def qnoise_factor(self, qnoise_factor):
-    self._set_variable("_qnoise_factor", qnoise_factor, dtype=tf.float32)
+    self._qnoise_factor = qnoise_factor
 
   @property
   def use_stochastic_rounding(self):
@@ -679,9 +665,7 @@ class quantized_linear(BaseQuantizer):
 
   @use_stochastic_rounding.setter
   def use_stochastic_rounding(self, use_stochastic_rounding):
-    self._set_variable("_use_stochastic_rounding", 
-                       bool(use_stochastic_rounding), 
-                       dtype=tf.bool)
+    self._use_stochastic_rounding = use_stochastic_rounding
 
   @property
   def scale_axis(self):
@@ -691,52 +675,30 @@ class quantized_linear(BaseQuantizer):
   def scale_axis(self, scale_axis):
     self._scale_axis = scale_axis
 
-    # Some extra work to ensure uniform typing of tf.Variable
-    if scale_axis is None:
-      scale_axis_int = -1
-    else:
-      scale_axis_int = scale_axis
-    self._set_variable("scale_axis_int", scale_axis_int, dtype=tf.int32)
-
-    # scale shape will need to be redetermined once scale_axis is updated
-    self.built = False
-
   @property
   def alpha(self):
     return self._alpha
 
   @alpha.setter
   def alpha(self, alpha):
-    """
-    Set alpha, and alpha_enum attributes, and check if alpha is
-    valid.
+    """Set alpha and check if it isvalid."""
 
-    Note: alpha_str variable needed for uniform typing of alpha in
-    tf.function
-    """
+    self._alpha = alpha
 
-    # extra variable to ensure uniform typing of alpha data
-    self._set_variable("alpha_enum", self.DEFAULT_ALPHA_ENUM, dtype=tf.int32)
-    self._set_variable("alpha_tensor", tf.constant(1.0), dtype=tf.float32)
-    if alpha is None:
-      self._alpha = None
-    elif isinstance(alpha, six.string_types):
+    # Error checking
+    if isinstance(alpha, six.string_types):
       # Check the quantizer has been given a valid alpha string
-      alpha_options = self.AUTO_ALPHA_ENUMS_MAP.keys()
-      if not alpha in alpha_options:
+      if not alpha in self.ALPHA_OPTIONS:
         raise ValueError(
             f"Invalid alpha '{alpha}' for auto alpha computation. "
-            f"Must be one of {alpha_options}")
-      self._alpha = alpha # alpha is a string, not cast as a tensor
-      self.alpha_enum.assign(self.AUTO_ALPHA_ENUMS_MAP[alpha])
-    else: # alpha is a tensor
+            f"Must be one of {self.ALPHA_OPTIONS}")
+    elif alpha is not None: # alpha is a tensor
       try:
-        self._alpha = K.cast_to_floatx(alpha)
+        # any allowable array type can be cast as a numpy array
+        np.array(alpha)
       except TypeError:
         raise TypeError(
             f"alpha must be, a string, an array, or None, not {type(alpha)}")
-      self.alpha_enum.assign(self.TENSOR_ALPHA_ENUM)
-      self.alpha_tensor.assign(alpha)
 
     self._update_quantization_scale_from_parameters()
 
@@ -750,8 +712,7 @@ class quantized_linear(BaseQuantizer):
   
   @quantization_scale.setter
   def quantization_scale(self, quantization_scale):
-    self._set_variable("_quantization_scale", quantization_scale,
-                      dtype=tf.float32)
+    self._quantization_scale = quantization_scale
     
   @property
   def data_type_scale(self):
@@ -762,43 +723,35 @@ class quantized_linear(BaseQuantizer):
   def auto_alpha(self):
     """Returns true if using a data-dependent alpha"""
 
-    auto_enums = list(self.AUTO_ALPHA_ENUMS_MAP.values())
-    any_auto_alpha = tf.equal(self.alpha_enum, tf.constant(auto_enums))
-    auto_alpha = tf.reduce_any(any_auto_alpha)
-    return auto_alpha
+    return isinstance(self.alpha, six.string_types)
 
   @property
   def use_sign_function(self):
     """Return true if using sign function for quantization"""
 
-    binary = tf.equal(self.bits, 1.0)
-    keep_negative = tf.equal(self.keep_negative, 1.0)
-    return tf.math.logical_and(binary, keep_negative)
+    return (self.bits == 1.0) and self.keep_negative
 
   @property
   def clip_bounds(self):
     """Get bounds of clip range"""
 
-    def _standard_bounds():
-      """Get bounds for standard quantization"""
+    if self.use_sign_function:
+      clip_min = K.cast_to_floatx(-0.5)
+      clip_max = K.cast_to_floatx(0.5)
+    else:
       unsigned_bits_po2 = K.pow(2.0, self.bits - self.keep_negative)
       # if symmetric, clip_min is negative of clip_max. Otherwise clip_min is
       # lowered by 1, giving us one more representable number
       clip_min = self.keep_negative * (-unsigned_bits_po2 + self.symmetric)
       clip_max = unsigned_bits_po2 - K.cast_to_floatx(1.0)
-      return clip_min, clip_max
 
-    def _sign_function_bounds():
-      """Get bounds for sign function"""
-      clip_min = K.cast_to_floatx(-0.5)
-      clip_max = K.cast_to_floatx(0.5)
-      return clip_min, clip_max
-
-    return tf.cond(
-      self.use_sign_function,
-      _sign_function_bounds,
-      _standard_bounds
-    )
+    return clip_min, clip_max
+  
+  def _set_default_quantization_scale(self):
+    """Calculate and set quantization_scale default"""
+    assert (
+        self._initialized
+    ), "Must initialize before calling _set_default_quantization_scale"
 
   @property
   def default_quantization_scale(self):
@@ -808,48 +761,17 @@ class quantized_linear(BaseQuantizer):
     scale, which is only known once the quantizer has been called once."""
 
     err_msg = (f"Bit count {self.bits} must exceed "
-              f"{self.integer + self.keep_negative}")
-    tf.debugging.assert_greater_equal(self.bits, 
-                                      self.integer + self.keep_negative,
-                                      message=err_msg)
-    
-    default_quantization_scale = tf.cond(
-      tf.equal(self.alpha_enum, self.TENSOR_ALPHA_ENUM),
-      lambda: self.alpha_tensor * self.data_type_scale,
-      lambda: self.data_type_scale
-    )
-
-    return default_quantization_scale
+              f" {self.integer + self.keep_negative}")
+    if self.bits < self.integer + self.keep_negative:
+      raise ValueError(err_msg)
 
   def build(self, input_shape):
     """Set the quantization scale based on the input shape"""
 
-    if not self.built:
-      shape_list = list(input_shape)
+    # Set scales for tensor alpha
+    if self.alpha is not None and not self.auto_alpha:
+        self.quantization_scale = self.alpha * self.data_type_scale
 
-      # Resolve ambiguities in the input shape
-      shape = [1 if dim is None else dim for dim in shape_list]
-      self.quantization_scale_shape = shape
-
-      # Set the quantization scale based on the input shape
-      scale_example = self._get_quantization_scale_from_max_data(tf.ones(shape))
-      ones_like_scale = tf.ones_like(scale_example)
-      quantization_scale = self.default_quantization_scale * ones_like_scale
-      # create a new quantization scale variable
-      self._set_variable("_quantization_scale", quantization_scale,
-                        dtype=tf.float32, create_new=True)
-
-    self.built = True
-  
-  def _update_quantization_scale_from_parameters(self):
-    """Update the quantization scale based on a change of quantizer parameters,
-    only once the quantization scale shape is known"""
-
-    if self.built.numpy():
-      scale_ones = tf.ones(self.quantization_scale_shape)
-      self.quantization_scale = scale_ones * self.default_quantization_scale
-
-  @tf.function
   def __call__(self, x):
     """Core quantization function"""
 
@@ -863,23 +785,18 @@ class quantized_linear(BaseQuantizer):
     # Data type conversion
     x = K.cast_to_floatx(x)
     
-    shape = x.shape
-
-    quantization_scale = tf.cond(
-      self.auto_alpha, 
+    if self.auto_alpha:
       # get data-dependent quantization scale
-      lambda: self._get_quantization_scale(x),
+      quantization_scale = self._get_quantization_scale(x)
+    else:
       # quantization scale determined by quantizer params, not data
-      lambda: self.quantization_scale
-    )
+      # see _set_default_quantization_scale for more info
+      quantization_scale = self.quantization_scale
 
     scaled_xq = self._scale_clip_and_round(x, quantization_scale)
     xq = scaled_xq * quantization_scale
 
     res = x + self.qnoise_factor * (xq - x)
-
-    # Needed to deal with tf not knowing shape of output
-    res.set_shape(shape)
 
     return res
   
@@ -889,7 +806,7 @@ class quantized_linear(BaseQuantizer):
     that a sign function is used."""
 
     # special shifting needed to compute a sign function.
-    shift = K.cast_to_floatx(self.use_sign_function) * K.cast_to_floatx(0.5)
+    shift = self.use_sign_function * 0.5
 
     clip_min, clip_max = self.clip_bounds
 
@@ -909,21 +826,14 @@ class quantized_linear(BaseQuantizer):
     """Get quantization_scale, either from self or from input x"""
 
     # Get the minimum floating point scale that does not clip the max of x
+    # This is the quantization scale for alpha="auto"
     quantization_scale = self._get_quantization_scale_from_max_data(x)
 
-    quantization_scale = tf.case([
-        (
-            tf.equal(self.alpha_enum, self.AUTO_ALPHA_ENUM),
-            lambda: quantization_scale,
-        ),
-        (
-            tf.equal(self.alpha_enum, self.AUTO_PO2_ALPHA_ENUM),
-            lambda: self._po2_autoscale(x, quantization_scale),
-        ),
-    ], )
+    if self.alpha == "auto_po2":
+      quantization_scale = self._po2_autoscale(x, quantization_scale)
 
     # update quantization_scale variable
-    # stop gradient to ignore quantization scale dependence on x
+    # stop_gradient on quantization_scale to ignore dependence on x
     self.quantization_scale = tf.stop_gradient(quantization_scale)
 
     # very important that return value is a tf.Variable with shape None
@@ -933,27 +843,17 @@ class quantized_linear(BaseQuantizer):
     """Get the minimum floating point scale that does not clip the max 
     of x"""
 
-    axis = _get_scaling_axis(self.scale_axis_int, tf.rank(x))
+    axis = _get_scaling_axis(self.scale_axis, tf.rank(x))
 
     clip_min, clip_max = self.clip_bounds
     clip_range = clip_max - clip_min
-
-    def quantization_scale_keep_negative():
-      """Get alpha scale when keeping negative values"""
-
-      return (K.max(tf.math.abs(x), axis=axis, keepdims=True) *
-              2) / clip_range
-
-    def quantization_scale_no_negative():
-      """Get alpha scale when dropping negative values"""
-
-      return K.max(x, axis=axis, keepdims=True) / clip_range
-
-    quantization_scale = tf.cond(
-        tf.equal(self.keep_negative, 1.0),
-        quantization_scale_keep_negative,
-        quantization_scale_no_negative,
-    )
+    
+    if self.keep_negative:
+      data_max = K.max(tf.math.abs(x), axis=axis, keepdims=True)
+      quantization_scale = (data_max * 2) / clip_range
+    else:
+      data_max = K.max(x, axis=axis, keepdims=True)
+      quantization_scale = data_max / clip_range
 
     return tf.math.maximum(quantization_scale, K.epsilon())
 
@@ -973,7 +873,7 @@ class quantized_linear(BaseQuantizer):
           alpha="auto_po2",
           x=x,
           q=scaled_xq,
-          scale_axis=self.scale_axis_int,
+          scale_axis=self.scale_axis,
       )
       return quantization_scale, new_quantization_scale
 
@@ -991,9 +891,7 @@ class quantized_linear(BaseQuantizer):
 
     # For 1-bit quantization, po2 autoscale loop is guaranteed to converge
     # after 1 iteration 
-    max_iterations = tf.cond(self.use_sign_function,
-                             lambda: tf.constant(1),
-                             lambda: tf.constant(5))
+    max_iterations = 1 if self.use_sign_function else 5
 
     _, quantization_scale = tf.while_loop(
         loop_cond,
@@ -1043,17 +941,17 @@ class quantized_linear(BaseQuantizer):
 
     # Main parameters always printed in string
     flags = [
-      str(int(self.bits.numpy())), 
-      str(int(self.integer.numpy())), 
-      str(int(self.symmetric.numpy()))]
+      str(int(self.bits)), 
+      str(int(self.integer)), 
+      str(int(self.symmetric))]
     # Optional parameters only printed if not default
     if not self.keep_negative:
       flags.append("keep_negative=False")
     if self.auto_alpha:
       alpha = "'" + self.alpha + "'"
       flags.append("alpha=" + alpha)
-    elif self.alpha_enum == self.TENSOR_ALPHA_ENUM:
-      alpha = self.alpha_tensor.numpy()
+    elif self.alpha is not None:
+      alpha = np.array(alpha)
       flags.append("alpha=" + str(alpha))
     if self.use_stochastic_rounding:
       flags.append("use_stochastic_rounding=" +
@@ -1062,6 +960,7 @@ class quantized_linear(BaseQuantizer):
 
   def _set_trainable_parameter(self):
     if self.alpha is None:
+
       self.alpha = "auto_po2"
       self.symmetric = True
 
@@ -1072,16 +971,15 @@ class quantized_linear(BaseQuantizer):
   def get_config(self):
 
     config = {
-        "bits": self.bits.numpy(),
-        "integer": self.integer.numpy(),
-        "symmetric": self.symmetric.numpy(),
+        "bits": self.bits,
+        "integer": self.integer,
+        "symmetric": self.symmetric,
         "alpha": self.alpha,
-        "keep_negative": self.keep_negative.numpy(),
-        "use_stochastic_rounding": self.use_stochastic_rounding.numpy(),
-        "qnoise_factor": self.qnoise_factor.numpy(),
+        "keep_negative": self.keep_negative,
+        "use_stochastic_rounding": self.use_stochastic_rounding,
+        "qnoise_factor": self.qnoise_factor,
     }
     return config
-
 
 class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
   """Deprecated: Please use quantized_linear
