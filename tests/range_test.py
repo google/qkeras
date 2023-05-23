@@ -85,8 +85,6 @@ def test_quantized_linear_range(bits, symmetric, keep_negative, alpha):
                        alpha=alpha)
   # compute output on array of inputs, and compare to q.range()
   x = np.linspace(-10.0, 10.0, 10 * 2**(bits + 1) + 1)
-  x = tf.constant(x, dtype=tf.float32)
-  q.build(x.shape)
   y = q(x)
   q_range = q.range()
   # assert that y and q_range have the same set of values

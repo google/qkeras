@@ -84,16 +84,12 @@ def test_quantized_bits():
 @pytest.mark.parametrize('bits', [1, 8])
 def test_quantized_linear(bits, symmetric, keep_negative, alpha):
 
-    quantizer = quantized_linear(bits=bits, 
+    q = quantized_linear(bits=bits, 
                          symmetric=symmetric, 
                          keep_negative=keep_negative, 
                          alpha=alpha)
-    large_positive_input = tf.constant(1000)
-    large_negative_input = tf.constant(-1000)
-
-    quantizer.build(large_positive_input.shape)
-    assert quantizer(large_negative_input) == quantizer.min()
-    assert quantizer(large_positive_input)== quantizer.max()
+    assert q(-1000) == q.min()
+    assert q(1000)== q.max()
 
 def test_po2():
   po2 = {

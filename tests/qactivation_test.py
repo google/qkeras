@@ -527,7 +527,6 @@ class TestQuantizedLinear:
 
     quantizer = quantized_linear()
     x = tf.constant([1.0, 2.0, 3.0, 4.0, 5.0])
-    quantizer.build(x.shape)
 
     res_0 = quantizer(x)
     scale_0 = tf.constant(quantizer.scale)
@@ -547,7 +546,6 @@ class TestQuantizedLinear:
 
     quantizer = quantized_linear(bits=1, keep_negative=True)
     x = tf.constant([-1.0, 0.0, 1.0, 2.0, 3.0])
-    quantizer.build(x.shape)
 
     res = quantizer(x)
     expected_res = quantizer.max() * tf.constant([-1.0, 1.0, 1.0, 1.0, 1.0])
@@ -561,8 +559,6 @@ class TestQuantizedLinear:
     auto_quantizer = quantized_linear(alpha='auto')
     auto_po2_quantizer = quantized_linear(alpha='auto_po2')
     x = tf.ones(shape)
-    auto_quantizer.build(shape)
-    auto_po2_quantizer.build(shape)
     auto_quantizer(x)
     auto_po2_quantizer(x)
 
@@ -584,7 +580,6 @@ class TestQuantizedLinear:
     quantizer = quantized_linear(bits=bits, symmetric=symmetric,
                                  keep_negative=keep_negative, alpha=alpha)
     x = tf.Variable([-1.0, 0.0, 1.0, 2.0, 3.0])
-    quantizer.build(x.shape)
 
     with tf.GradientTape() as tape:
       res = quantizer(x)
@@ -692,9 +687,6 @@ class TestBackwardsCompatibilityForQuantizedLinear:
       # Changed default scale axis for rank-1 tensors
       if tf.rank(x) == 1 and alpha in ("auto", "auto_po2"):
         check_errors_only_ = True
-      # update scale_is_set variable to deal with changing scale shapes
-      x = tf.constant(x, dtype=tf.float32)
-      new.build(x.shape)
       self._check_correctness(new, old, x, kwargs, 
                               check_errors_only=check_errors_only_)
 
