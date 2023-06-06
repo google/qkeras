@@ -754,18 +754,17 @@ class quantized_linear(BaseQuantizer):
         self._initialized
     ), "Must initialize before calling _set_default_quantization_scale"
 
-
-    err_msg = (f"Bit count {self.bits} must exceed "
-              f" {self.integer + self.keep_negative}")
     if self.bits < self.integer + self.keep_negative:
+      err_msg = (f"Bit count {self.bits} must exceed "
+                f" {self.integer + self.keep_negative}")
       raise ValueError(err_msg)
+    else:
+      # Set default quantization scale
+      self.quantization_scale = self.data_type_scale
 
-    # Set default quantization scale
-    self.quantization_scale = self.data_type_scale
-
-    # Set scales for tensor alpha
-    if self.alpha is not None and not self.auto_alpha:
-        self.quantization_scale = self.alpha * self.data_type_scale
+      # Set scales for tensor alpha
+      if self.alpha is not None and not self.auto_alpha:
+          self.quantization_scale = self.alpha * self.data_type_scale
 
   def __call__(self, x):
     """Core quantization function"""
@@ -775,10 +774,11 @@ class quantized_linear(BaseQuantizer):
 
     # Data type conversion
     x = K.cast_to_floatx(x)
+    shape = x.shape
     
     if self.auto_alpha:
       # get data-dependent quantization scale
-      quantization_scale = self._get_quantization_scale(x)
+      quantization_scale = self._get_auto_quantization_scale(x)
     else:
       # quantization scale determined by quantizer params, not data
       # see _set_default_quantization_scale for more info
@@ -788,6 +788,7 @@ class quantized_linear(BaseQuantizer):
     xq = scaled_xq * quantization_scale
 
     res = x + self.qnoise_factor * (xq - x)
+    res.set_shape(shape)
 
     return res
   
@@ -813,7 +814,7 @@ class quantized_linear(BaseQuantizer):
 
     return scaled_xq + shift
     
-  def _get_quantization_scale(self, x):
+  def _get_auto_quantization_scale(self, x):
     """Get quantization_scale, either from self or from input x"""
 
     # Get the minimum floating point scale that does not clip the max of x
@@ -839,6 +840,8 @@ class quantized_linear(BaseQuantizer):
     clip_min, clip_max = self.clip_bounds
     clip_range = clip_max - clip_min
     
+    # get quantization scale- depends on whether we are keeping negative
+    # divide by clip range to ensure that we clip right at the max of x
     if self.keep_negative:
       data_max = K.max(tf.math.abs(x), axis=axis, keepdims=True)
       quantization_scale = (data_max * 2) / clip_range
