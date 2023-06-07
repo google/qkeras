@@ -17,23 +17,30 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+import logging
+import os
+import tempfile
+
 import numpy as np
 from numpy.testing import assert_allclose
+from numpy.testing import assert_equal
 import pytest
-import logging
+import tensorflow as tf
 from tensorflow.keras import backend as K
+from tensorflow.keras.backend import clear_session
 from tensorflow.keras.layers import Activation
 from tensorflow.keras.layers import Flatten
 from tensorflow.keras.layers import Input
 from tensorflow.keras.models import Model
-from tensorflow.keras.backend import clear_session
 
 from qkeras import QActivation
 from qkeras import QDense
 from qkeras import quantized_bits
+from qkeras import quantized_relu
+from qkeras.utils import load_qmodel
 from qkeras.utils import model_save_quantized_weights
 from qkeras.utils import quantized_model_from_json
-
 
 def qdense_util(layer_cls,
                 kwargs=None,
@@ -91,6 +98,44 @@ def test_qdense(layer_kwargs, input_data, weight_data, bias_data,
       input_data=input_data,
       weight_data=[weight_data, bias_data],
       expected_output=expected_output)
+
+
+def test_qactivation_loads():
+  layer_size = 10
+
+  # Create a small model with QActivation layer.
+  x = xin = tf.keras.layers.Input(shape=(layer_size,), name='input')
+  x = QDense(
+      layer_size,
+      name='qdense',
+  )(x)
+  x = QActivation(activation=quantized_relu(8), name='relu')(x)
+  model = tf.keras.Model(inputs=xin, outputs=x)
+
+  # Generate random weights for the model.
+  w_k = np.random.rand(layer_size, layer_size)
+  w_b = np.random.rand(
+      layer_size,
+  )
+  model.set_weights([w_k, w_b])
+
+  # Save the model as an h5 file.
+  fd, fname = tempfile.mkstemp('.h5')
+  model.save(fname)
+
+  # Load the model.
+  loaded_model = load_qmodel(fname)
+
+  # Clean the h5 file after loading the model
+  os.close(fd)
+  os.remove(fname)
+
+  # Compare weights of original and loaded models.
+  model_weights = model.weights
+  loaded_model_weights = loaded_model.weights
+  assert_equal(len(model_weights), len(loaded_model_weights))
+  for i, model_weight in enumerate(model_weights):
+    assert_equal(model_weight.numpy(), loaded_model_weights[i].numpy())
 
 
 if __name__ == '__main__':
