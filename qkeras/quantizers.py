@@ -134,7 +134,11 @@ def _get_scaling_axis(scale_axis, len_axis):
     return axis
 
 
-def _get_scale(alpha, x, q, scale_axis=None, per_channel_scale=True):
+def _get_least_squares_scale(alpha, 
+                             x, 
+                             q, 
+                             scale_axis=None, 
+                             per_channel_scale=True):
   """Gets scaling factor for scaling the tensor per channel.
   It uses the least squares method to find the scaling factor.
 
@@ -549,7 +553,8 @@ class quantized_linear(BaseQuantizer):
         quantized.
       use_variables (bool): If true, we use tf.Variables to store certain 
         parameters. See the BaseQuantizer implementation for more details.
-        Defaults to False.
+        Defaults to False. If set to True, be sure to use the special attribute
+        update methods detailed in the BaseQuantizer.
       var_name (str or None): A variable name shared between the tf.Variables
         created in on initialization, if use_variables is true. If None, the 
         variable names are generated automatically based on the parameter names 
@@ -650,28 +655,12 @@ class quantized_linear(BaseQuantizer):
       self._set_default_quantization_scale()
 
   @property
-  def qnoise_factor(self):
-    return self._qnoise_factor
-
-  @qnoise_factor.setter
-  def qnoise_factor(self, qnoise_factor):
-    self._qnoise_factor = qnoise_factor
-
-  @property
   def use_stochastic_rounding(self):
     return self._use_stochastic_rounding
 
   @use_stochastic_rounding.setter
   def use_stochastic_rounding(self, use_stochastic_rounding):
     self._use_stochastic_rounding = use_stochastic_rounding
-
-  @property
-  def scale_axis(self):
-    return self._scale_axis
-
-  @scale_axis.setter
-  def scale_axis(self, scale_axis):
-    self._scale_axis = scale_axis
 
   @property
   def alpha(self):
@@ -704,14 +693,6 @@ class quantized_linear(BaseQuantizer):
   @property
   def scale(self):
     return self.quantization_scale / self.data_type_scale
-  
-  @property
-  def quantization_scale(self):
-    return self._quantization_scale
-  
-  @quantization_scale.setter
-  def quantization_scale(self, quantization_scale):
-    self._quantization_scale = quantization_scale
     
   @property
   def data_type_scale(self):
@@ -732,8 +713,7 @@ class quantized_linear(BaseQuantizer):
 
     return (self.bits == 1.0) and self.keep_negative
 
-  @property
-  def clip_bounds(self):
+  def get_clip_bounds(self):
     """Get bounds of clip range"""
 
     if self.use_sign_function:
@@ -795,12 +775,13 @@ class quantized_linear(BaseQuantizer):
   def _scale_clip_and_round(self, x, quantization_scale):
     """Scale, clip, and round x to an integer value in a limited range
     Note that the internal shift is needed for 1-bit quantization to ensure 
-    that a sign function is used."""
+    that a sign function is used. Otherise, the binary quantizer would have
+    three output values"""
 
     # special shifting needed to compute a sign function.
     shift = self.use_sign_function * 0.5
 
-    clip_min, clip_max = self.clip_bounds
+    clip_min, clip_max = self.get_clip_bounds()
 
     scaled_x = x / quantization_scale
     clipped_scaled_x = K.clip(scaled_x, clip_min, clip_max)
@@ -837,7 +818,7 @@ class quantized_linear(BaseQuantizer):
 
     axis = _get_scaling_axis(self.scale_axis, tf.rank(x))
 
-    clip_min, clip_max = self.clip_bounds
+    clip_min, clip_max = self.get_clip_bounds()
     clip_range = clip_max - clip_min
     
     # get quantization scale- depends on whether we are keeping negative
@@ -863,7 +844,7 @@ class quantized_linear(BaseQuantizer):
       """Loop body for least squares autoscaling"""
 
       scaled_xq = self._scale_clip_and_round(x, quantization_scale)
-      new_quantization_scale = _get_scale(
+      new_quantization_scale = _get_least_squares_scale(
           alpha="auto_po2",
           x=x,
           q=scaled_xq,
@@ -904,12 +885,12 @@ class quantized_linear(BaseQuantizer):
 
   def max(self):
     """Get maximum value that quantized_linear class can represent."""
-    _, clip_max = self.clip_bounds
+    _, clip_max = self.get_clip_bounds()
     return clip_max * self.quantization_scale
 
   def min(self):
     """Get minimum value that quantized_linear class can represent."""
-    clip_min, _ = self.clip_bounds
+    clip_min, _ = self.get_clip_bounds()
     return clip_min * self.quantization_scale
 
   def range(self):
@@ -919,7 +900,7 @@ class quantized_linear(BaseQuantizer):
     if self.use_sign_function:
       return K.cast_to_floatx([self.max(), self.min()])
     else:
-      clip_min, clip_max = self.clip_bounds
+      clip_min, clip_max = self.get_clip_bounds()
       clip_max = tf.cast(clip_max, tf.int32)
       clip_min = tf.cast(clip_min, tf.int32)
       pos_array = K.cast_to_floatx(tf.range(clip_max + 1))
@@ -1135,7 +1116,7 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
           v = tf.floor(tf.abs(x) / scale + 0.5)
           mask = v < levels / 2
           z = tf.sign(x) * tf.where(mask, v, tf.ones_like(v) * levels / 2)
-          scale = _get_scale(alpha="auto_po2", x=x, q=z,
+          scale = _get_least_squares_scale(alpha="auto_po2", x=x, q=z,
                              scale_axis=self.scale_axis)
 
       # If alpha is "auto", then get the "best" floating point scale
@@ -1347,7 +1328,7 @@ class bernoulli(BaseQuantizer):  # pylint: disable=invalid-name
 
     # if we use non stochastic binary to compute alpha,
     # this function seems to behave better
-    scale = _get_scale(self.alpha, x, q_non_stochastic)
+    scale = _get_least_squares_scale(self.alpha, x, q_non_stochastic)
     self.scale = scale
     return x + tf.stop_gradient(-x + scale * q)
 
@@ -1476,7 +1457,7 @@ class ternary(BaseQuantizer):  # pylint: disable=invalid-name
             use_stochastic_rounding=self.use_stochastic_rounding,
             precision=1. / 3.)
         q = K.cast(tf.abs(v) >= thres, K.floatx()) * tf.sign(x)
-        scale = _get_scale(self.alpha, x, q)
+        scale = _get_least_squares_scale(self.alpha, x, q)
     else:
       if self.threshold is None:
         thres = self.default_threshold
@@ -1614,7 +1595,7 @@ class stochastic_ternary(ternary):  # pylint: disable=invalid-name
       for _ in range(self.number_of_unrolls):
         T = scale / 2.0
         q_ns = K.cast(tf.abs(x) >= T, K.floatx()) * K.sign(x)
-        scale = _get_scale(self.alpha, x, q_ns)
+        scale = _get_least_squares_scale(self.alpha, x, q_ns)
 
       x_norm = x / (x_std + K.epsilon())
       T = scale / (2.0 * (x_std + K.epsilon()))
@@ -1772,7 +1753,7 @@ class binary(BaseQuantizer):  # pylint: disable=invalid-name
     if self.alpha is None:
       x = K.tanh(x)
 
-    scale = _get_scale(self.alpha, x, k_sign)
+    scale = _get_least_squares_scale(self.alpha, x, k_sign)
     self.scale = scale
     return x + tf.stop_gradient(-x + scale * k_sign)
 
@@ -1875,7 +1856,7 @@ class stochastic_binary(binary):  # pylint: disable=invalid-name
       q += (1.0 - tf.abs(q))
       q_non_stochastic = tf.sign(x)
       q_non_stochastic += (1.0 - tf.abs(q_non_stochastic))
-      scale = _get_scale(self.alpha, x, q_non_stochastic)
+      scale = _get_least_squares_scale(self.alpha, x, q_non_stochastic)
       self.scale = scale
       return x + tf.stop_gradient(-x + scale * q)
 
