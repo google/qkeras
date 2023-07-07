@@ -31,6 +31,8 @@ class QuantizerFactory:
 
   def __init__(self):
     self.quantizer_lookup = {
+        quantizers.quantized_linear:
+            quantizer_impl.QuantizedLinear,
         quantizers.quantized_bits:
             quantizer_impl.QuantizedBits,
         quantizers.binary:
@@ -59,6 +61,8 @@ class QuantizerFactory:
             
 
         # add following quantizer types for the use in GraphUpdateEdge
+        quantizer_impl.QuantizedLinear:
+            quantizer_impl.QuantizedLinear,
         quantizer_impl.QuantizedBits:
             quantizer_impl.QuantizedBits,
         quantizer_impl.Binary:
