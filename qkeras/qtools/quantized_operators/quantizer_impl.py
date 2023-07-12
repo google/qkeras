@@ -79,7 +79,7 @@ class IQuantizer(abc.ABC):
     self.op_type = "quantizer"
 
 
-class QuantizedBits(IQuantizer):
+class QuantizedLinear(IQuantizer):
   """quantized linear.
 
   Attributes:
