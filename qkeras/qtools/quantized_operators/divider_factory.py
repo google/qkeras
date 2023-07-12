@@ -41,7 +41,7 @@ class IDivider(abc.ABC):
             # when qbits is denominator, use default bits for float result
             (divider_impl.FloatingPointDivider, quantizer_impl.FloatingPoint(
                 bits=quantizer_impl.FLOATINGPOINT_BITS)),
-            (divider_impl.Shifter, quantizer_impl.QuantizedBits()),
+            (divider_impl.Shifter, quantizer_impl.QuantizedLinear()),
             (None, None),
             (None, None),
             (None, None),
@@ -63,7 +63,7 @@ class IDivider(abc.ABC):
         [
             (divider_impl.FloatingPointDivider, quantizer_impl.FloatingPoint(
                 bits=quantizer_impl.FLOATINGPOINT_BITS)),
-            (divider_impl.Shifter, quantizer_impl.QuantizedBits()),
+            (divider_impl.Shifter, quantizer_impl.QuantizedLinear()),
             (None, None),
             (None, None),
             (None, None),

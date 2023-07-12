@@ -261,7 +261,8 @@ def adjust_multiplier_for_auto_po2(multiplier, qkeras_weight_quantizer):
   print("adjust multiplier for auto_po2 ...")
   output_quantizer = multiplier.output
   if (hasattr(qkeras_weight_quantizer, "__str__") and
-      "quantized_bits" in qkeras_weight_quantizer.__str__() and
+      ("quantized_bits" in qkeras_weight_quantizer.__str__() or 
+       "quantized_linear" in qkeras_weight_quantizer.__str__()) and
       qkeras_weight_quantizer.alpha == "auto_po2"):
     bits = output_quantizer.bits
     int_bits = output_quantizer.int_bits
@@ -297,7 +298,8 @@ def adjust_multiplier_for_auto_po2(multiplier, qkeras_weight_quantizer):
             "scale", file=sys.stderr)
   elif hasattr(qkeras_weight_quantizer, "alpha") and (
       qkeras_weight_quantizer.alpha == "auto_po2"):
-    print("[WARNING] auto_po2 is detected on a non-quantized_bits quantizer."
+    print("[WARNING] auto_po2 is detected on a non-quantized_bits/"
+          "quantized_linear quantizer. "
           "Currently in QTools we do not yet support the auto_po2 with the "
           f" given quantizer type: {type(qkeras_weight_quantizer)}."
           "Therefore we do not adjust the multiplier and accumulator bit width")

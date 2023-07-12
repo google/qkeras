@@ -151,7 +151,7 @@ class QuantizedBits(IQuantizer):
         use_stochastic_rounding=use_stochastic_rounding,
         scale_axis=scale_axis, qnoise_factor=qnoise_factor)
 
-class QuantizedTanh(QuantizedBits):
+class QuantizedTanh(QuantizedLinear):
   """same as quantized bits."""
 
   def __init__(self):
@@ -173,7 +173,7 @@ class QuantizedTanh(QuantizedBits):
         symmetric=symmetric)
 
 
-class QuantizedUlaw(QuantizedBits):
+class QuantizedUlaw(QuantizedLinear):
   """quantized ulaw type."""
 
   # same as quantized bits

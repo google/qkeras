@@ -36,12 +36,12 @@ class MultiplierFactory:
         [
             (
                 multiplier_impl.FixedPointMultiplier,
-                quantizer_impl.QuantizedBits()
+                quantizer_impl.QuantizedLinear()
             ),
-            (multiplier_impl.Shifter, quantizer_impl.QuantizedBits()),
-            (multiplier_impl.Mux, quantizer_impl.QuantizedBits()),
-            (multiplier_impl.Mux, quantizer_impl.QuantizedBits()),
-            (multiplier_impl.AndGate, quantizer_impl.QuantizedBits()),
+            (multiplier_impl.Shifter, quantizer_impl.QuantizedLinear()),
+            (multiplier_impl.Mux, quantizer_impl.QuantizedLinear()),
+            (multiplier_impl.Mux, quantizer_impl.QuantizedLinear()),
+            (multiplier_impl.AndGate, quantizer_impl.QuantizedLinear()),
             (
                 multiplier_impl.FloatingPointMultiplier,
                 quantizer_impl.FloatingPoint(
@@ -49,7 +49,7 @@ class MultiplierFactory:
             )
         ],
         [
-            (multiplier_impl.Shifter, quantizer_impl.QuantizedBits()),
+            (multiplier_impl.Shifter, quantizer_impl.QuantizedLinear()),
             (multiplier_impl.Adder, quantizer_impl.PowerOfTwo()),
             (multiplier_impl.Mux, quantizer_impl.PowerOfTwo()),
             (multiplier_impl.Mux, quantizer_impl.PowerOfTwo()),
@@ -59,7 +59,7 @@ class MultiplierFactory:
             )
         ],
         [
-            (multiplier_impl.Mux, quantizer_impl.QuantizedBits()),
+            (multiplier_impl.Mux, quantizer_impl.QuantizedLinear()),
             (multiplier_impl.Mux, quantizer_impl.PowerOfTwo()),
             (multiplier_impl.Mux, quantizer_impl.Ternary()),
             (multiplier_impl.Mux, quantizer_impl.Ternary()),
@@ -68,7 +68,7 @@ class MultiplierFactory:
              quantizer_impl.FloatingPoint(bits=None))
         ],
         [
-            (multiplier_impl.Mux, quantizer_impl.QuantizedBits()),
+            (multiplier_impl.Mux, quantizer_impl.QuantizedLinear()),
             (multiplier_impl.Mux, quantizer_impl.PowerOfTwo()),
             (multiplier_impl.Mux, quantizer_impl.Ternary()),
             (multiplier_impl.XorGate, quantizer_impl.Binary(
@@ -78,7 +78,7 @@ class MultiplierFactory:
              quantizer_impl.FloatingPoint(bits=None))
         ],
         [
-            (multiplier_impl.AndGate, quantizer_impl.QuantizedBits()),
+            (multiplier_impl.AndGate, quantizer_impl.QuantizedLinear()),
             (multiplier_impl.AndGate, quantizer_impl.PowerOfTwo()),
             (multiplier_impl.AndGate, quantizer_impl.Ternary()),
             (multiplier_impl.AndGate, quantizer_impl.Ternary()),

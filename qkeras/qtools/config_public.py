@@ -16,8 +16,8 @@
 """configuration file for external usage."""
 
 config_settings = {
-    "default_source_quantizer": "quantized_bits(8, 0, 1)",
-    "default_interm_quantizer": "quantized_bits(8, 0, 1)",
+    "default_source_quantizer": "quantized_linear(8, 0, 1)",
+    "default_interm_quantizer": "quantized_linear(8, 0, 1)",
 
     "horowitz": {
         "fpm_add": [0.003125, 0],

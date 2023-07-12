@@ -16,6 +16,7 @@
 """Tests for various model architectures."""
 
 import json
+from collections import OrderedDict
 
 import numpy as np
 import pytest
@@ -67,7 +68,7 @@ def qdense_model_fork():
   return model
 
 
-def qconv_model():
+def qconv_model(quantizer):
   x = x_in = keras.layers.Input((23, 23, 1), name="input")
   x = QActivation("quantized_relu(4)", name="QA_0")(x)
   x = QConv2D(
@@ -77,17 +78,17 @@ def qconv_model():
       name="qconv2d_1")(x)
   x = QConv2D(
       8, 2, 2,
-      kernel_quantizer=quantizers.quantized_bits(4, 0, 1),
-      bias_quantizer=quantizers.quantized_bits(4, 0, 1),
+      kernel_quantizer=quantizer(4, 0, 1),
+      bias_quantizer=quantizer(4, 0, 1),
       activation=quantizers.quantized_relu(6, 2),
       name="qconv2D_2")(x)
   x = QConv2D(
       2, 2, 2,
-      kernel_quantizer=quantizers.quantized_bits(4, 0, 1),
-      bias_quantizer=quantizers.quantized_bits(4, 0, 1),
+      kernel_quantizer=quantizer(4, 0, 1),
+      bias_quantizer=quantizer(4, 0, 1),
       activation=quantizers.quantized_relu(6, 2),
       name="qconv2d_3")(x)
-  x = QActivation("quantized_bits(6, 0, 1)", name="QA_4")(x)
+  x = QActivation(quantizer(6, 0, 1), name="QA_4")(x)
 
   model = keras.Model(
       inputs=[x_in], outputs=[x])
@@ -945,6 +946,59 @@ def test_qdepthwiseconv2d():
   assert dtype_dict["pw_conv"]["accumulator"]["bits"] == 28
   assert dtype_dict["pw_conv"]["accumulator"]["int_bits"] == 11
 
+def test_quantized_linear_backwards_compatibility():
+
+  def get_output_dict(model, quantizer):
+    """Get output dict from qtools"""
+
+    input_quantizer_list = [quantizer()]
+    reference_internal = "int8"
+    reference_accumulator = "int32"
+
+    # generate QTools object which contains model data type map in json format
+    q = run_qtools.QTools(
+        model,
+        # energy calculation using a given process
+        process="horowitz",
+        # quantizers for model inputs
+        source_quantizers=input_quantizer_list,
+        # training or inference with a pre-trained model
+        is_inference=False,
+        # path to pre-trained model weights
+        weights_path=None,
+        # keras_quantizer to quantize weight/bias in non-quantized keras layers
+        keras_quantizer=reference_internal,
+        # keras_accumulator to quantize MAC in un-quantized keras layers
+        keras_accumulator=reference_accumulator,
+        # calculating baseline energy or not
+        for_reference=False)
+
+    return q._output_dict
+
+  qbits_model = qconv_model(quantizers.quantized_bits)
+  qlinear_model = qconv_model(quantizers.quantized_linear)
+
+  qbits_output_dict = get_output_dict(
+    qbits_model, quantizers.quantized_bits)
+  qlinear_output_dict = get_output_dict(
+    qlinear_model, quantizers.quantized_linear)
+  
+  def assert_output_dict_equal(qbits_output_dict, qlinear_output_dict):
+    # Check if the output dict of qbits and qlinear are the same
+    for key in qbits_output_dict:
+      assert key in qlinear_output_dict
+      if isinstance(qbits_output_dict[key], OrderedDict):
+        assert_output_dict_equal(qbits_output_dict[key], qlinear_output_dict[key])
+      elif isinstance(qbits_output_dict[key], list):
+        for i in range(len(qbits_output_dict[key])):
+          assert_output_dict_equal(
+            qbits_output_dict[key][i], qlinear_output_dict[key][i])
+      elif qbits_output_dict[key] == 'quantized_bits':
+        assert qlinear_output_dict[key] == 'quantized_linear'
+      else:
+        assert qbits_output_dict[key] == qlinear_output_dict[key]
+
+  assert_output_dict_equal(qbits_output_dict, qlinear_output_dict)
 
 if __name__ == "__main__":
   pytest.main([__file__])
