@@ -266,8 +266,12 @@ def adjust_multiplier_for_auto_po2(multiplier, qkeras_weight_quantizer):
       qkeras_weight_quantizer.alpha == "auto_po2"):
     bits = output_quantizer.bits
     int_bits = output_quantizer.int_bits
-    scale = qkeras_weight_quantizer.scale
+    if "quantized_bits" in qkeras_weight_quantizer.__str__():
+      scale = qkeras_weight_quantizer.scale
+    elif "quantized_linear" in qkeras_weight_quantizer.__str__():
+      scale = qkeras_weight_quantizer.quantization_scale
     if hasattr(scale, "numpy"):
+      scale = qkeras_weight_quantizer.scale
       # if scale doesn't have numpy() function, it means the quantizer has
       # never being called. Therfore we skip the following steps
       scale = scale.numpy()
@@ -275,7 +279,7 @@ def adjust_multiplier_for_auto_po2(multiplier, qkeras_weight_quantizer):
         scale = np.squeeze(scale)
         max_shift = int(np.log2(np.max(scale)))
         min_shift = int(np.log2(np.min(scale)))
-      elif isinstance(scale, float):
+      elif isinstance(scale, (float, np.float32)):
         max_shift = int(np.log2(scale))
         min_shift = max_shift
       else:
