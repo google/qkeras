@@ -983,20 +983,23 @@ def test_quantized_linear_backwards_compatibility():
   qlinear_output_dict = get_output_dict(
     qlinear_model, quantizers.quantized_linear)
   
-  def assert_output_dict_equal(qbits_output_dict, qlinear_output_dict):
+  def assert_output_dict_equal(qbits_output, qlinear_output):
     # Check if the output dict of qbits and qlinear are the same
-    for key in qbits_output_dict:
-      assert key in qlinear_output_dict
-      if isinstance(qbits_output_dict[key], OrderedDict):
-        assert_output_dict_equal(qbits_output_dict[key], qlinear_output_dict[key])
-      elif isinstance(qbits_output_dict[key], list):
-        for i in range(len(qbits_output_dict[key])):
-          assert_output_dict_equal(
-            qbits_output_dict[key][i], qlinear_output_dict[key][i])
-      elif qbits_output_dict[key] == 'quantized_bits':
-        assert qlinear_output_dict[key] == 'quantized_linear'
+
+    if isinstance(qbits_output, OrderedDict):
+      assert isinstance(qlinear_output, OrderedDict)
+      for key in qbits_output:
+        assert key in qlinear_output
+        assert_output_dict_equal(qbits_output[key], qlinear_output[key])
+    elif isinstance(qbits_output, list):
+      assert isinstance(qlinear_output, list)
+      for i in range(len(qbits_output)):
+        assert_output_dict_equal(qbits_output[i], qlinear_output[i])
+    else:
+      if qbits_output == 'quantized_bits':
+        assert qlinear_output == 'quantized_linear'
       else:
-        assert qbits_output_dict[key] == qlinear_output_dict[key]
+        assert qbits_output == qlinear_output
 
   assert_output_dict_equal(qbits_output_dict, qlinear_output_dict)
 
