@@ -103,7 +103,7 @@ class FixedPointAccumulator(IAccumulator):
     self.log_add_ops = int(np.ceil(np.log2(add_ops)))
 
     self.multiplier = multiplier
-    self.output = quantizer_impl.QuantizedLinear()
+    self.output = quantizer_impl.QuantizedBits()
     self.output.bits = self.log_add_ops + self.multiplier.output.bits
     self.output.int_bits = self.log_add_ops + self.multiplier.output.int_bits
     self.output.is_signed = self.multiplier.output.is_signed

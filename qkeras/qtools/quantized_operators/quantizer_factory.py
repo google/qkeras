@@ -61,10 +61,10 @@ class QuantizerFactory:
             
 
         # add following quantizer types for the use in GraphUpdateEdge
-        quantizer_impl.QuantizedLinear:
-            quantizer_impl.QuantizedLinear,
         quantizer_impl.QuantizedBits:
             quantizer_impl.QuantizedBits,
+        quantizer_impl.QuantizedLinear:
+            quantizer_impl.QuantizedLinear,
         quantizer_impl.Binary:
             quantizer_impl.Binary,
         quantizer_impl.QuantizedRelu:
@@ -140,19 +140,19 @@ class QuantizerFactory:
       return quantizer_impl.FloatingPoint(
           bits=16)
     elif mode == "int8":
-      qbits = quantizer_impl.QuantizedLinear()
+      qbits = quantizer_impl.QuantizedBits()
       qbits.convert_qkeras_quantizer(
-          quantizers.quantized_linear(8, 0, 1))
+          quantizers.quantized_bits(8, 0, 1))
       return qbits
     elif mode == "int16":
-      qbits = quantizer_impl.QuantizedLinear()
+      qbits = quantizer_impl.QuantizedBits()
       qbits.convert_qkeras_quantizer(
-          quantizers.quantized_linear(16, 7, 1))
+          quantizers.quantized_bits(16, 7, 1))
       return qbits
     elif mode == "int32":
-      qbits = quantizer_impl.QuantizedLinear()
+      qbits = quantizer_impl.QuantizedBits()
       qbits.convert_qkeras_quantizer(
-          quantizers.quantized_linear(32, 10, 1))
+          quantizers.quantized_bits(32, 10, 1))
       return qbits
     else:
       try:

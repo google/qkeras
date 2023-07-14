@@ -30,7 +30,7 @@ def po2_qbits_converter(po2_quantizer: quantizer_impl.IQuantizer):
 
   (bits_from_po2, int_bits_from_po2) = accumulator_impl.po2_to_qbits(
       po2_quantizer)
-  qbits_quantizer = quantizer_impl.QuantizedLinear()
+  qbits_quantizer = quantizer_impl.QuantizedBits()
   qbits_quantizer.bits = bits_from_po2
   qbits_quantizer.int_bits = int_bits_from_po2
   qbits_quantizer.is_signed = po2_quantizer.is_signed
@@ -51,7 +51,7 @@ class FixedPointAdder(IAdderImpl):
   """adder for fixed point."""
 
   def __init__(self, quantizer_1, quantizer_2):
-    self.output = quantizer_impl.QuantizedLinear()
+    self.output = quantizer_impl.QuantizedBits()
     self.output.int_bits = max(quantizer_1.int_bits,
                                quantizer_2.int_bits) + 1
     fractional_bits1 = (quantizer_1.bits - int(quantizer_1.is_signed)

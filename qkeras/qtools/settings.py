@@ -27,7 +27,7 @@ class ConfigClass:
 
   def __init__(self):
 
-    self.default_source_quantizer = "quantized_linear(8, 0, 1)"
+    self.default_source_quantizer = "quantized_bits(8, 0, 1)"
     self.default_interm_quantizer = "fp32"
 
     # Horowitz estimates from ISSCC 2014

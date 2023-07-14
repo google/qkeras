@@ -98,7 +98,7 @@ class Add(IMerger):
       self.output = quantizer_impl.FloatingPoint(
           bits=bits)
     else:
-      self.output = quantizer_impl.QuantizedLinear()
+      self.output = quantizer_impl.QuantizedBits()
       self.output.bits = max_bits + 1
       self.output.int_bits = max_int_bits + 1
       self.output.is_signed = is_signed
@@ -189,7 +189,7 @@ class Maximum(IMerger):
         self.output = quantizer_impl.FloatingPoint(
             bits=bits)
       else:
-        self.output = quantizer_impl.QuantizedLinear()
+        self.output = quantizer_impl.QuantizedBits()
         self.output.bits = max_bits
         self.output.int_bits = max_int_bits
         self.output.is_signed = is_signed
