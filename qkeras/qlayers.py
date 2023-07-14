@@ -150,6 +150,9 @@ class QInitializer(Initializer):
 class QActivation(Layer, PrunableLayer):
   """Implements quantized activation layers."""
 
+  # TODO(lishanok): Implement activation type conversion outside of the class.
+  # When caller calls the initializer, it should convert string to a quantizer
+  # object if string is given as activation.
   def __init__(self, activation, **kwargs):
 
     super(QActivation, self).__init__(**kwargs)
@@ -180,6 +183,22 @@ class QActivation(Layer, PrunableLayer):
     config = {"activation": self.activation}
     base_config = super(QActivation, self).get_config()
     return dict(list(base_config.items()) + list(config.items()))
+
+  @classmethod
+  def from_config(cls, config):
+    try:
+      if isinstance(config["activation"], dict):
+        # If config["activation"] is serialized, it would be a dict.
+        # Otherwise, it will be either string or quantizer object, which
+        # doesn't require deserialization.
+        config["activation"] = activations.deserialize(config["activation"])
+      return cls(**config)
+
+    except Exception as e:
+      raise TypeError(
+          f"Error when deserializing class '{cls.__name__}' using "
+          f"config={config}.\n\nException encountered: {e}"
+      )
 
   def get_quantization_config(self):
     return str(self.activation)
