@@ -20,7 +20,6 @@ from __future__ import print_function
 import six
 import re
 import numpy as np
-import warnings
 import tensorflow.compat.v2 as tf
 import tensorflow.keras.backend as K
 from six.moves import range
@@ -1027,10 +1026,6 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
                use_ste=True,
                use_variables=False):
     super(quantized_bits, self).__init__()
-
-    warnings.warn(
-        "quantized_bits is deprecated. Please use quantized_linear instead."
-    )
 
     self.bits = bits
     self.integer = integer
