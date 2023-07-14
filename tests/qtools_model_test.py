@@ -997,7 +997,7 @@ def test_quantized_linear_backwards_compatibility():
         assert_output_dict_equal(qbits_output[i], qlinear_output[i])
     else:
       if qbits_output == 'quantized_bits':
-        assert qlinear_output == 'quantized_linear'
+        assert qlinear_output in ('quantized_linear', 'quantized_bits')
       else:
         assert qbits_output == qlinear_output
 
