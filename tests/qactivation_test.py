@@ -721,6 +721,30 @@ class TestBackwardsCompatibilityForQuantizedLinear:
 
     assert old_str == new_str
 
+  @pytest.mark.parametrize('qnoise_factor', [0.0, 0.5, 1.0])
+  def test_qnoise_and_gradient(self, qnoise_factor):
+    """Make sure that gradient calculations vary w.r.t. qnoise correctly"""
+
+    qlinear = quantized_linear(qnoise_factor=qnoise_factor)
+    qbits = quantized_bits(qnoise_factor=qnoise_factor)
+
+    x = np.linspace(
+      qlinear.min() + K.epsilon(), 
+      qlinear.max() - K.epsilon(), 
+      10)
+    x = tf.Variable(x)
+
+    with tf.GradientTape() as tape:
+      res_linear = qlinear(x)
+
+    grad_linear = tape.gradient(res_linear, x)
+
+    with tf.GradientTape() as tape:
+      res_bits = qbits(x)
+
+    grad_bits = tape.gradient(res_bits, x)
+    tf.debugging.assert_equal(grad_linear, grad_bits)
+
   def _check_correctness(self, new_func, old_func, x, kwargs, 
                          check_errors_only=False):
     """Check that the new_func and old_func return the same result for x"""
