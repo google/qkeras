@@ -78,43 +78,6 @@ class IQuantizer(abc.ABC):
     self.name = None
     self.op_type = "quantizer"
 
-
-class QuantizedLinear(IQuantizer):
-  """quantized linear.
-
-  Attributes:
-    mode: index of the current quantizer in
-          MultiplierFactory.multiplier_impl_table
-    bits: total bits
-    int_bits: integer bits
-    is_signed: if a signed number
-    name: quantizer name
-  """
-
-  def __init__(self):
-    super().__init__()
-    self.mode = 0
-    self.is_signed = 1
-    self.name = "quantized_linear"
-
-  def convert_qkeras_quantizer(
-      self, quantizer: quantizers.quantized_linear):
-    self.mode = 0
-    self.bits = quantizer.bits
-    self.int_bits = get_np_value(quantizer.integer)
-    self.is_signed = quantizer.keep_negative
-
-  def convert_to_qkeras_quantizer(
-      self, symmetric=1, alpha=None, use_stochastic_rounding=False,
-      scale_axis=None, qnoise_factor=1.0):
-    """convert qtools quantizer to qkeras quantizer."""
-
-    return quantizers.quantized_linear(
-        bits=self.bits, integer=self.int_bits, keep_negative=self.is_signed,
-        symmetric=symmetric, alpha=alpha,
-        use_stochastic_rounding=use_stochastic_rounding,
-        scale_axis=scale_axis, qnoise_factor=qnoise_factor)
-
 class QuantizedBits(IQuantizer):
   """quantized bits.
 
@@ -150,6 +113,35 @@ class QuantizedBits(IQuantizer):
         symmetric=symmetric, alpha=alpha,
         use_stochastic_rounding=use_stochastic_rounding,
         scale_axis=scale_axis, qnoise_factor=qnoise_factor)
+
+
+class QuantizedLinear(QuantizedBits):
+  """quantized linear.
+
+  Attributes:
+    mode: index of the current quantizer in
+          MultiplierFactory.multiplier_impl_table
+    bits: total bits
+    int_bits: integer bits
+    is_signed: if a signed number
+    name: quantizer name
+  """
+
+  def __init__(self):
+    super().__init__()
+    self.name = "quantized_linear"
+
+  def convert_to_qkeras_quantizer(
+      self, symmetric=1, alpha=None, use_stochastic_rounding=False,
+      scale_axis=None, qnoise_factor=1.0):
+    """convert qtools quantizer to qkeras quantizer."""
+
+    return quantizers.quantized_linear(
+        bits=self.bits, integer=self.int_bits, keep_negative=self.is_signed,
+        symmetric=symmetric, alpha=alpha,
+        use_stochastic_rounding=use_stochastic_rounding,
+        scale_axis=scale_axis, qnoise_factor=qnoise_factor)
+
 
 class QuantizedTanh(QuantizedBits):
   """same as quantized bits."""
