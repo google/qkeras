@@ -601,6 +601,7 @@ class TestBackwardsCompatibilityForQuantizedLinear:
     "keep_negative": (True, False),
     "qnoise_factor": (1.0, 0.5, 0.0),
     "use_stochastic_rounding": (True, False),
+    "scale_axis": (None, 0, 1),
   }
 
   TEST_X_VALUES = (
@@ -608,6 +609,7 @@ class TestBackwardsCompatibilityForQuantizedLinear:
     *np.linspace(-2, 2, 10).tolist(),
     tf.random.uniform((2, )),
     tf.random.normal((2, 2)),
+    tf.random.normal((2, 2, 2)),
   )
 
   # get list of kwargs for test iteration
