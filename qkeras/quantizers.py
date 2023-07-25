@@ -122,7 +122,7 @@ def _get_integer_bits(min_value,
 def _get_scaling_axis(scale_axis, len_axis):
     """Get the axis to perform auto scaling with"""
 
-    if scale_axis is None or tf.equal(scale_axis, -1):
+    if scale_axis is None:
         if K.image_data_format() == "channels_last":
             axis = tf.range(tf.math.maximum(len_axis - 1, 0))
         else:
