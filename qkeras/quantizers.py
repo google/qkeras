@@ -448,7 +448,7 @@ class quantized_linear(BaseQuantizer):
 
     This quantizer maps inputs to the nearest value of a fixed number of
     outputs that are evenly spaced, with possible scaling and stochastic
-    rounding. This is an updated version of the now-deprecated quantized_bits.
+    rounding. This is an updated version of the legacy quantized_bits.
 
     The core computation is:
       1. Divide the tensor by a quantization scale
@@ -951,7 +951,7 @@ class quantized_linear(BaseQuantizer):
     return config
 
 class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
-  """Deprecated: Please use quantized_linear
+  """Legacy quantizer: Please use quantized_linear
   
   Quantizes the number to a number of bits.
 
