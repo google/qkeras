@@ -2752,7 +2752,7 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
     return config
 
 
-class quantized_hswish(quantized_linear):  # pylint: disable=invalid-name
+class quantized_hswish(quantized_bits):  # pylint: disable=invalid-name
   """Computes a quantized hard swish to a number of bits.
 
   Equation of h-swisth function in mobilenet v3:
