@@ -2754,6 +2754,7 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
 
 class quantized_hswish(quantized_bits):  # pylint: disable=invalid-name
   """Computes a quantized hard swish to a number of bits.
+  # TODO(mschoenb97): Update to inherit from quantized_linear.
 
   Equation of h-swisth function in mobilenet v3:
   hswish(x) = x * ReluY(x + relu_shift) / Y
