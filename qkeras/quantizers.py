@@ -571,7 +571,7 @@ class quantized_linear(BaseQuantizer):
     """
 
   # string options for alpha parameter
-  ALPHA_OPTIONS = ("auto", "auto_po2")
+  ALPHA_STRING_OPTIONS = ("auto", "auto_po2")
 
   def __init__(
       self,
@@ -627,9 +627,6 @@ class quantized_linear(BaseQuantizer):
   @integer.setter
   def integer(self, integer):
     self._integer = integer
-    err_msg = (f"Integer bit count {integer} must be nonnegative")
-    if integer < 0:
-      raise ValueError(err_msg)
     if self._initialized:
       self._set_default_quantization_scale()
 
@@ -667,17 +664,17 @@ class quantized_linear(BaseQuantizer):
 
   @alpha.setter
   def alpha(self, alpha):
-    """Set alpha and check if it isvalid."""
+    """Set alpha and check if it is valid."""
 
     self._alpha = alpha
 
     # Error checking
     if isinstance(alpha, six.string_types):
       # Check the quantizer has been given a valid alpha string
-      if not alpha in self.ALPHA_OPTIONS:
+      if not alpha in self.ALPHA_STRING_OPTIONS:
         raise ValueError(
             f"Invalid alpha '{alpha}' for auto alpha computation. "
-            f"Must be one of {self.ALPHA_OPTIONS}")
+            f"Must be one of {self.ALPHA_STRING_OPTIONS}")
     elif alpha is not None: # alpha is a tensor
       try:
         # any allowable array type can be cast as a numpy array
@@ -733,17 +730,12 @@ class quantized_linear(BaseQuantizer):
         self._initialized
     ), "Must initialize before calling _set_default_quantization_scale"
 
-    if self.bits < self.integer + self.keep_negative:
-      err_msg = (f"Bit count {self.bits} must exceed "
-                f" {self.integer + self.keep_negative}")
-      raise ValueError(err_msg)
-    else:
-      # Set default quantization scale
-      self.quantization_scale = self.data_type_scale
+    # Set default quantization scale
+    self.quantization_scale = self.data_type_scale
 
-      # Set scales for tensor alpha
-      if self.alpha is not None and not self.auto_alpha:
-          self.quantization_scale = self.alpha * self.data_type_scale
+    # Set scales for tensor alpha
+    if self.alpha is not None and not self.auto_alpha:
+        self.quantization_scale = self.alpha * self.data_type_scale
 
   def __call__(self, x):
     """Core quantization function"""
