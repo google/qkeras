@@ -476,8 +476,8 @@ class quantized_linear(BaseQuantizer):
     - Quantization noise (see the `qnoise_factor` parameter)
 
     Note on the various "scales" in quantized_linear:
-      - The quantization scale is the scale used in the core computation. You
-        can access it via the `quantization_scale` attribute.
+      - The quantization scale is the scale used in the core computation (see 
+        above). You can access it via the `quantization_scale` attribute.
       - The data type scale is the scale is determined by the type of data
         stored on hardware on a small device running a true quantized model. 
         It is the quantization scale needed to represent `bits` bits, `integer`
