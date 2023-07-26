@@ -62,6 +62,7 @@ from .quantizers import binary
 from .quantizers import bernoulli
 from .quantizers import get_weight_scale
 from .quantizers import quantized_bits
+from .quantizers import quantized_linear
 from .quantizers import quantized_relu
 from .quantizers import quantized_ulaw
 from .quantizers import quantized_tanh
@@ -1041,6 +1042,7 @@ def _add_supported_quantized_objects(custom_objects):
   custom_objects["QBatchNormalization"] = QBatchNormalization
   custom_objects["Clip"] = Clip
   custom_objects["quantized_bits"] = quantized_bits
+  custom_objects["quantized_linear"] = quantized_linear
   custom_objects["bernoulli"] = bernoulli
   custom_objects["stochastic_ternary"] = stochastic_ternary
   custom_objects["ternary"] = ternary
