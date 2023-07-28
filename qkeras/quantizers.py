@@ -469,7 +469,8 @@ class quantized_linear(BaseQuantizer):
     - Stochastic rounding (see the `stochastic_rounding` parameter)
     - Quantization noise (see the `qnoise_factor` parameter)
 
-    Note on the various "scales" in quantized_linear:
+    Notes on the various "scales" in quantized_linear:
+
       - The quantization scale is the scale used in the core computation (see 
         above). You can access it via the `quantization_scale` attribute.
       - The data type scale is the scale is determined by the type of data
@@ -482,8 +483,32 @@ class quantized_linear(BaseQuantizer):
       - The `scale` attribute stores the quotient of the quantization scale and
         the data type scale. This is also the scale that can be directly 
         specified by the user, via the `alpha` parameter. 
+
       These three quantities are related by the equation
       scale = quantization_scale / data_type_scale.
+
+      See the diagram below of scale usage in a quantized conv layer.
+
+      +------------------------------------------------------------------------+
+      |     data_type_scale        --------------->     stored_weights         |
+      | (determines decimal point)                            |                |
+      |                                                       V                |
+      |                                                    conv op             |
+      |                                                       |                |
+      |                                                       V                |
+      |                                                  accumulator           |
+      |                                                       |                |
+      |  determines quantization                              V                |
+      |    range and precision     --------------->   quantization_scale       |
+      |       (per channel)                                   |                |
+      |                                                       V                |
+      |                                                   activation           |
+      +------------------------------------------------------------------------+
+
+      # TODO: The only fundamentally necessary scale is the quantization scale. 
+      # We should consider removing the data type scale and scale attributes, 
+      # but know that this will require rewriting much of how qtools and HLS4ML 
+      # use these scale attributes. 
 
     Note on binary quantization (bits=1):
       The core computation is modified here when `keep_negative` is True to 
