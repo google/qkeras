@@ -522,25 +522,6 @@ def test_quantized_bits(bits, integer, symmetric, keep_negative, test_values,
 class TestQuantizedLinear:
   """Tests for quantized_linear"""
 
-  def test_attribute_updates(self):
-    """Test to see that attribute updates are working properly"""
-
-    quantizer = quantized_linear()
-    x = tf.constant([1.0, 2.0, 3.0, 4.0, 5.0])
-
-    res_0 = quantizer(x)
-    scale_0 = tf.constant(quantizer.scale)
-    quantizer.alpha = 'auto'
-
-    res_1 = quantizer(x)
-    scale_1 = tf.constant(quantizer.scale)
-    assert not tf.reduce_all(tf.equal(res_0, res_1))
-    assert not tf.reduce_all(tf.equal(scale_0, scale_1))
-
-    quantizer.integer = 3
-    scale_2 = tf.constant(quantizer.scale)
-    assert not tf.reduce_all(tf.equal(scale_1, scale_2))
-
   def test_sign_function(self):
     "Test to make sure that sign function is working properly"
 

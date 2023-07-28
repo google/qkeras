@@ -400,12 +400,6 @@ class BaseQuantizer(tf.Module):
             name=_create_variable_name("qnoise_factor", var_name=var_name),
             dtype=tf.float32,
             trainable=False)
-      if hasattr(self, "integer"):
-        self.integer = tf.Variable(
-            lambda: tf.constant(self.integer, dtype=tf.int32),
-            name=_create_variable_name("integer", var_name=var_name),
-            dtype=tf.int32,
-            trainable=False)
     self.built = True
 
   def _set_trainable_parameter(self):
@@ -588,87 +582,37 @@ class quantized_linear(BaseQuantizer):
   ):
     super(quantized_linear, self).__init__()
 
-    # Set _initialized parameter to False to prevent the setters from
-    # performing preliminary calculations
-    self._initialized = False
     self.var_name = var_name
-    self.bits = bits
-    self.integer = integer
-    self.symmetric = symmetric
-    self.keep_negative = keep_negative
-    self.qnoise_factor = qnoise_factor
-    self.use_stochastic_rounding = use_stochastic_rounding
-    self.alpha = alpha
-    self.scale_axis = scale_axis
-    self.use_variables = use_variables
 
-    # Perform preliminary calculations based on attributes above
-    self._initialized = True
-    self._set_default_quantization_scale()
+    # Error checking
+    self._check_bits(bits)
+    self._check_alpha(alpha)
 
-
-  @property
-  def bits(self):
-    return self._bits
-
-  @bits.setter
-  def bits(self, bits):
+    # Set non-modifyable attributes
     self._bits = bits
+    self._integer = integer
+    self._symmetric = symmetric
+    self._keep_negative = keep_negative
+    self._use_stochastic_rounding = use_stochastic_rounding
+    self._alpha = alpha
+    self._scale_axis = scale_axis
+    self._use_variables = use_variables
+
+    # Set modifyable attributes
+    self.qnoise_factor = qnoise_factor
+
+    # Set default quantization scale
+    self.quantization_scale = self.default_quantization_scale
+
+  def _check_bits(self, bits):
+    """Error checking for bits parameter"""
     err_msg = f"Bit count {bits} must be positive"
     if bits <= 0:
       raise ValueError(err_msg)
-    if self._initialized:
-      self._set_default_quantization_scale()
 
-  @property
-  def integer(self):
-    return self._integer
+  def _check_alpha(self, alpha):
+    """Error checking for alpha parameter"""
 
-  @integer.setter
-  def integer(self, integer):
-    self._integer = integer
-    if self._initialized:
-      self._set_default_quantization_scale()
-
-  @property
-  def symmetric(self):
-    return self._symmetric
-
-  @symmetric.setter
-  def symmetric(self, symmetric):
-    self._symmetric = symmetric
-    if self._initialized:
-      self._set_default_quantization_scale()
-
-  @property
-  def keep_negative(self):
-    return self._keep_negative
-
-  @keep_negative.setter
-  def keep_negative(self, keep_negative):
-    self._keep_negative = keep_negative
-    if self._initialized:
-      self._set_default_quantization_scale()
-
-  @property
-  def use_stochastic_rounding(self):
-    return self._use_stochastic_rounding
-
-  @use_stochastic_rounding.setter
-  def use_stochastic_rounding(self, use_stochastic_rounding):
-    self._use_stochastic_rounding = use_stochastic_rounding
-
-  @property
-  def alpha(self):
-    return self._alpha
-
-  @alpha.setter
-  def alpha(self, alpha):
-    """Set alpha and check if it is valid."""
-
-    self._alpha = alpha
-
-    # Error checking
     if isinstance(alpha, six.string_types):
       # Check the quantizer has been given a valid alpha string
       if not alpha in self.ALPHA_STRING_OPTIONS:
@@ -683,8 +627,37 @@ class quantized_linear(BaseQuantizer):
         raise TypeError(
             f"alpha must be, a string, an array, or None, not {type(alpha)}")
 
-    if self._initialized:
-      self._set_default_quantization_scale()
+  @property
+  def bits(self):
+    return self._bits
+
+  @property
+  def integer(self):
+    return self._integer
+
+  @property
+  def symmetric(self):
+    return self._symmetric
+
+  @property
+  def keep_negative(self):
+    return self._keep_negative
+
+  @property
+  def use_stochastic_rounding(self):
+    return self._use_stochastic_rounding
+
+  @property
+  def alpha(self):
+    return self._alpha
+  
+  @property
+  def scale_axis(self):
+    return self._scale_axis
+  
+  @property
+  def use_variables(self):
+    return self._use_variables
 
   @property
   def scale(self):
@@ -708,6 +681,19 @@ class quantized_linear(BaseQuantizer):
     """Return true if using sign function for quantization"""
 
     return (self.bits == 1.0) and self.keep_negative
+  
+  @property
+  def default_quantization_scale(self):
+    """Calculate and set quantization_scale default"""
+
+    # Set default quantization scale
+    quantization_scale = self.data_type_scale
+
+    # Quantization scale given by alpha
+    if self.alpha is not None and not self.auto_alpha:
+        quantization_scale = self.alpha * self.data_type_scale
+
+    return quantization_scale
 
   def get_clip_bounds(self):
     """Get bounds of clip range"""
@@ -723,19 +709,6 @@ class quantized_linear(BaseQuantizer):
       clip_max = unsigned_bits_po2 - K.cast_to_floatx(1.0)
 
     return clip_min, clip_max
-  
-  def _set_default_quantization_scale(self):
-    """Calculate and set quantization_scale default"""
-    assert (
-        self._initialized
-    ), "Must initialize before calling _set_default_quantization_scale"
-
-    # Set default quantization scale
-    self.quantization_scale = self.data_type_scale
-
-    # Set scales for tensor alpha
-    if self.alpha is not None and not self.auto_alpha:
-        self.quantization_scale = self.alpha * self.data_type_scale
 
   def __call__(self, x):
     """Core quantization function"""
@@ -752,7 +725,7 @@ class quantized_linear(BaseQuantizer):
       quantization_scale = self._get_auto_quantization_scale(x)
     else:
       # quantization scale determined by quantizer params, not data
-      # see _set_default_quantization_scale for more info
+      # see default_quantization_scale property for more info
       quantization_scale = self.quantization_scale
 
     scaled_xq = self._scale_clip_and_round(x, quantization_scale)
