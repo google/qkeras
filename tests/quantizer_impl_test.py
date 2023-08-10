@@ -228,5 +228,293 @@ def test_GetScale_PerChannelScale():
   assert_equal(tf.shape(scale_r4_pcs_true).numpy(), [1, 1, 1, 4])
   assert_equal(tf.shape(scale_r4_pcs_false).numpy(), [1, 1, 1, 1])
 
+
+def _get_num_unique_elements(input_tensor):
+  return len(np.unique(input_tensor.numpy()))
+
+
+def test_GetScale_ElementsPerScale_Scalar_ScaleAxis_EPS():
+  # Test get_scale function when elements_per_scale and scale_axis have scalar
+  # values and the input x and q tensors have rank 2
+  x_r2 = tf.random.uniform([4, 8])
+  q_r2 = tf.random.uniform([4, 8])
+  scale_r2_eps_none_ua_none = quantizers._get_scale(
+      "auto", x_r2, q_r2, elements_per_scale=None, scale_axis=None)
+  scale_r2_eps_2_ua_0 = quantizers._get_scale(
+      "auto", x_r2, q_r2, elements_per_scale=2, scale_axis=0)
+  scale_r2_eps_2_ua_1 = quantizers._get_scale(
+      "auto", x_r2, q_r2, elements_per_scale=2, scale_axis=1)
+
+  assert_equal(tf.shape(scale_r2_eps_none_ua_none).numpy(), [1, 8])
+  assert_equal(_get_num_unique_elements(scale_r2_eps_none_ua_none), 8)
+
+  assert_equal(tf.shape(scale_r2_eps_2_ua_0).numpy(), [4, 1])
+  assert_equal(_get_num_unique_elements(scale_r2_eps_2_ua_0), 2)
+
+  assert_equal(tf.shape(scale_r2_eps_2_ua_1).numpy(), [1, 8])
+  assert_equal(_get_num_unique_elements(scale_r2_eps_2_ua_1), 4)
+
+  # Test get_scale function when elements_per_scale and scale_axis have scalar
+  # values and the input x and q tensors have rank 3
+  x_r3 = tf.random.uniform([2, 4, 8])
+  q_r3 = tf.random.uniform([2, 4, 8])
+  scale_r3_eps_none_ua_none = quantizers._get_scale(
+      "auto", x_r3, q_r3, elements_per_scale=None, scale_axis=None)
+  scale_r3_eps_2_ua_0 = quantizers._get_scale(
+      "auto", x_r3, q_r3, elements_per_scale=2, scale_axis=0)
+  scale_r3_eps_2_ua_1 = quantizers._get_scale(
+      "auto", x_r3, q_r3, elements_per_scale=2, scale_axis=1)
+  scale_r3_eps_2_ua_2 = quantizers._get_scale(
+      "auto", x_r3, q_r3, elements_per_scale=2, scale_axis=2)
+
+  assert_equal(tf.shape(scale_r3_eps_none_ua_none).numpy(), [1, 1, 8])
+  assert_equal(_get_num_unique_elements(scale_r3_eps_none_ua_none), 8)
+
+  assert_equal(tf.shape(scale_r3_eps_2_ua_0).numpy(), [2, 1, 1])
+  assert_equal(_get_num_unique_elements(scale_r3_eps_2_ua_0), 1)
+
+  assert_equal(tf.shape(scale_r3_eps_2_ua_1).numpy(), [1, 4, 1])
+  assert_equal(_get_num_unique_elements(scale_r3_eps_2_ua_1), 2)
+
+  assert_equal(tf.shape(scale_r3_eps_2_ua_2).numpy(), [1, 1, 8])
+  assert_equal(_get_num_unique_elements(scale_r3_eps_2_ua_2), 4)
+
+  # Test get_scale function when elements_per_scale and scale_axis have scalar
+  # values and the input x and q tensors have rank 4
+  x_r4 = tf.random.uniform([2, 4, 8, 16])
+  q_r4 = tf.random.uniform([2, 4, 8, 16])
+  scale_r4_eps_none_ua_none = quantizers._get_scale(
+      "auto", x_r4, q_r4, elements_per_scale=None, scale_axis=None)
+  scale_r4_eps_2_ua_0 = quantizers._get_scale(
+      "auto", x_r4, q_r4, elements_per_scale=2, scale_axis=0)
+  scale_r4_eps_2_ua_1 = quantizers._get_scale(
+      "auto", x_r4, q_r4, elements_per_scale=2, scale_axis=1)
+  scale_r4_eps_2_ua_2 = quantizers._get_scale(
+      "auto", x_r4, q_r4, elements_per_scale=2, scale_axis=2)
+  scale_r4_eps_2_ua_3 = quantizers._get_scale(
+      "auto", x_r4, q_r4, elements_per_scale=2, scale_axis=3)
+
+  assert_equal(tf.shape(scale_r4_eps_none_ua_none).numpy(), [1, 1, 1, 16])
+  assert_equal(_get_num_unique_elements(scale_r4_eps_none_ua_none), 16)
+
+  assert_equal(tf.shape(scale_r4_eps_2_ua_0).numpy(), [2, 1, 1, 1])
+  assert_equal(_get_num_unique_elements(scale_r4_eps_2_ua_0), 1)
+
+  assert_equal(tf.shape(scale_r4_eps_2_ua_1).numpy(), [1, 4, 1, 1])
+  assert_equal(_get_num_unique_elements(scale_r4_eps_2_ua_1), 2)
+
+  assert_equal(tf.shape(scale_r4_eps_2_ua_2).numpy(), [1, 1, 8, 1])
+  assert_equal(_get_num_unique_elements(scale_r4_eps_2_ua_2), 4)
+
+  assert_equal(tf.shape(scale_r4_eps_2_ua_3).numpy(), [1, 1, 1, 16])
+  assert_equal(_get_num_unique_elements(scale_r4_eps_2_ua_3), 8)
+
+
+def test_GetScale_ElementsPerScale_List_ScaleAxis_EPS():
+  # Test get_scale function when elements_per_scale and scale_axis are lists of
+  # rank 1 and the input x and q tensors have rank 3
+  x_r3 = tf.random.uniform([2, 4, 8])
+  q_r3 = tf.random.uniform([2, 4, 8])
+
+  scale_r3_eps_none_ua_0 = quantizers._get_scale(
+      "auto", x_r3, q_r3, elements_per_scale=None, scale_axis=[0])
+  scale_r3_eps_2_ua_0 = quantizers._get_scale(
+      "auto", x_r3, q_r3, elements_per_scale=[2], scale_axis=[0])
+  scale_r3_eps_2_ua_1 = quantizers._get_scale(
+      "auto", x_r3, q_r3, elements_per_scale=[2], scale_axis=[1])
+  scale_r3_eps_2_ua_2 = quantizers._get_scale(
+      "auto", x_r3, q_r3, elements_per_scale=[2], scale_axis=[2])
+
+  assert_equal(tf.shape(scale_r3_eps_none_ua_0).numpy(), [2, 1, 1])
+  assert_equal(_get_num_unique_elements(scale_r3_eps_none_ua_0), 2)
+
+  assert_equal(tf.shape(scale_r3_eps_2_ua_0).numpy(), [2, 1, 1])
+  assert_equal(_get_num_unique_elements(scale_r3_eps_2_ua_0), 1)
+
+  assert_equal(tf.shape(scale_r3_eps_2_ua_1).numpy(), [1, 4, 1])
+  assert_equal(_get_num_unique_elements(scale_r3_eps_2_ua_1), 2)
+
+  assert_equal(tf.shape(scale_r3_eps_2_ua_2).numpy(), [1, 1, 8])
+  assert_equal(_get_num_unique_elements(scale_r3_eps_2_ua_2), 4)
+
+  # Test get_scale function when elements_per_scale and scale_axis are lists of
+  # rank 2 and the input x and q tensors have rank 3
+  x_r3 = tf.random.uniform([2, 4, 8])
+  q_r3 = tf.random.uniform([2, 4, 8])
+
+  scale_r3_eps_none_ua_01 = quantizers._get_scale(
+      "auto", x_r3, q_r3, elements_per_scale=None, scale_axis=[0, 1])
+  scale_r3_eps_22_ua_01 = quantizers._get_scale(
+      "auto", x_r3, q_r3, elements_per_scale=[2, 2], scale_axis=[0, 1])
+  scale_r3_eps_11_ua_12 = quantizers._get_scale(
+      "auto", x_r3, q_r3, elements_per_scale=[2, 2], scale_axis=[1, 2])
+  scale_r3_eps_11_ua_02 = quantizers._get_scale(
+      "auto", x_r3, q_r3, elements_per_scale=[1, 1], scale_axis=[0, 2])
+
+  assert_equal(tf.shape(scale_r3_eps_none_ua_01).numpy(), [2, 4, 1])
+  assert_equal(_get_num_unique_elements(scale_r3_eps_none_ua_01), 8)
+
+  assert_equal(tf.shape(scale_r3_eps_22_ua_01).numpy(), [2, 4, 1])
+  assert_equal(_get_num_unique_elements(scale_r3_eps_22_ua_01), 2)
+
+  assert_equal(tf.shape(scale_r3_eps_11_ua_12).numpy(), [1, 4, 8])
+  assert_equal(_get_num_unique_elements(scale_r3_eps_11_ua_12), 8)
+
+  assert_equal(tf.shape(scale_r3_eps_11_ua_02).numpy(), [2, 1, 8])
+  assert_equal(_get_num_unique_elements(scale_r3_eps_11_ua_02), 16)
+
+  # Test get_scale function when elements_per_scale and scale_axis are lists of
+  # rank 3 and the input x and q tensors have rank 4
+  x_r4 = tf.random.uniform([2, 4, 8, 16])
+  q_r4 = tf.random.uniform([2, 4, 8, 16])
+
+  scale_r4_eps_none_ua_012 = quantizers._get_scale(
+      "auto", x_r4, q_r4, elements_per_scale=None, scale_axis=[0, 1, 2])
+  scale_r4_eps_221_ua_012 = quantizers._get_scale(
+      "auto", x_r4, q_r4, elements_per_scale=[2, 2, 1], scale_axis=[0, 1, 2])
+  scale_r4_eps_221_ua_123 = quantizers._get_scale(
+      "auto", x_r4, q_r4, elements_per_scale=[2, 2, 1], scale_axis=[1, 2, 3])
+  scale_r4_eps_221_ua_013 = quantizers._get_scale(
+      "auto", x_r4, q_r4, elements_per_scale=[2, 2, 1], scale_axis=[0, 1, 3])
+
+  assert_equal(tf.shape(scale_r4_eps_none_ua_012).numpy(), [2, 4, 8, 1])
+  assert_equal(_get_num_unique_elements(scale_r4_eps_none_ua_012), 64)
+
+  assert_equal(tf.shape(scale_r4_eps_221_ua_012).numpy(), [2, 4, 8, 1])
+  assert_equal(_get_num_unique_elements(scale_r4_eps_221_ua_012), 16)
+
+  assert_equal(tf.shape(scale_r4_eps_221_ua_123).numpy(), [1, 4, 8, 16])
+  assert_equal(_get_num_unique_elements(scale_r4_eps_221_ua_123), 128)
+
+  assert_equal(tf.shape(scale_r4_eps_221_ua_013).numpy(), [2, 4, 1, 16])
+  assert_equal(_get_num_unique_elements(scale_r4_eps_221_ua_013), 32)
+
+
+def test_GetScale_MinPO2Exponent_MaxPO2Exponent():
+  """Verify get_scale function with min and max po2_exponent clipping."""
+
+  def _get_min_max_po2_exponent(x):
+    """Get min and max po2 exponent of x."""
+    po2_x = K.log(x)/np.log(2.0)
+    return (tf.math.reduce_min(po2_x).numpy(),
+            tf.math.reduce_max(po2_x).numpy())
+
+  # generate small decimal numbers to verify that po2 clipping works properly
+  x = 2**tf.random.uniform(shape=[2, 4, 8], minval=-50, maxval=0)
+  q = 2**tf.random.uniform(shape=[2, 4, 8], minval=-50, maxval=0)
+
+  # set various min and max po2 exponents for the scale
+  scale_min_neg3_max_1 = quantizers._get_scale(
+      "auto_po2", x, q, elements_per_scale=4, scale_axis=2, min_po2_exponent=-3,
+      max_po2_exponent=1)
+
+  scale_min_neg8_max_0 = quantizers._get_scale(
+      "auto_po2", x, q, elements_per_scale=4, scale_axis=2, min_po2_exponent=-8,
+      max_po2_exponent=0)
+
+  scale_min_neg10_max_1 = quantizers._get_scale(
+      "auto_po2", x, q, elements_per_scale=4, scale_axis=2,
+      min_po2_exponent=-10, max_po2_exponent=1)
+
+  # verify that the output scales have the correct min and max ranges
+  assert_equal(tf.shape(scale_min_neg3_max_1).numpy(), [1, 1, 8])
+  min_po2_exp, max_po2_exp = _get_min_max_po2_exponent(scale_min_neg3_max_1)
+  assert min_po2_exp >= -3
+  assert max_po2_exp <= 1
+
+  assert_equal(tf.shape(scale_min_neg8_max_0).numpy(), [1, 1, 8])
+  min_po2_exp, max_po2_exp = _get_min_max_po2_exponent(scale_min_neg8_max_0)
+  assert min_po2_exp >= -8
+  assert max_po2_exp <= 0
+
+  assert_equal(tf.shape(scale_min_neg10_max_1).numpy(), [1, 1, 8])
+  min_po2_exp, max_po2_exp = _get_min_max_po2_exponent(scale_min_neg10_max_1)
+  assert min_po2_exp >= -10
+  assert max_po2_exp <= 1
+
+
+def test_GetUnrolledShape_GetRolledBackShape():
+  x_r4 = [4, 4, 8, 16]
+
+  # Scalar unroll_factor and unroll_axis - Test _get_unrolled_shape
+  unrolled_x_r4_uf_2_ua_0 = quantizers._get_unrolled_shape(
+      x_r4, unroll_factor=2, unroll_axis=0)
+  unrolled_x_r4_uf_2_ua_1 = quantizers._get_unrolled_shape(
+      x_r4, unroll_factor=2, unroll_axis=1)
+  unrolled_x_r4_uf_2_ua_2 = quantizers._get_unrolled_shape(
+      x_r4, unroll_factor=2, unroll_axis=2)
+  unrolled_x_r4_uf_2_ua_3 = quantizers._get_unrolled_shape(
+      x_r4, unroll_factor=2, unroll_axis=3)
+
+  assert_equal(unrolled_x_r4_uf_2_ua_0, ([2, 2, 4, 8, 16], 0))
+  assert_equal(unrolled_x_r4_uf_2_ua_1, ([4, 2, 2, 8, 16], 1))
+  assert_equal(unrolled_x_r4_uf_2_ua_2, ([4, 4, 4, 2, 16], 2))
+  assert_equal(unrolled_x_r4_uf_2_ua_3, ([4, 4, 8, 8, 2], 3))
+
+  # Scalar unroll_factor and unroll_axis - Test _get_rolled_back_shape
+  rolled_back_x_r4_uf_2_ua_0 = quantizers._get_rolled_back_shape(
+      unrolled_x_r4_uf_2_ua_0[0], roll_axis=unrolled_x_r4_uf_2_ua_0[1])
+  rolled_back_x_r4_uf_2_ua_1 = quantizers._get_rolled_back_shape(
+      unrolled_x_r4_uf_2_ua_1[0], roll_axis=unrolled_x_r4_uf_2_ua_1[1])
+  rolled_back_x_r4_uf_2_ua_2 = quantizers._get_rolled_back_shape(
+      unrolled_x_r4_uf_2_ua_2[0], roll_axis=unrolled_x_r4_uf_2_ua_2[1])
+  rolled_back_x_r4_uf_2_ua_3 = quantizers._get_rolled_back_shape(
+      unrolled_x_r4_uf_2_ua_3[0], roll_axis=unrolled_x_r4_uf_2_ua_3[1])
+
+  assert_equal(x_r4, rolled_back_x_r4_uf_2_ua_0)
+  assert_equal(x_r4, rolled_back_x_r4_uf_2_ua_1)
+  assert_equal(x_r4, rolled_back_x_r4_uf_2_ua_2)
+  assert_equal(x_r4, rolled_back_x_r4_uf_2_ua_3)
+
+  # List[2] unroll_factor and unroll_axis - Test _get_unrolled_shape
+  unrolled_x_r4_uf_24_ua_01 = quantizers._get_unrolled_shape(
+      x_r4, unroll_factor=[2, 4], unroll_axis=[0, 1])
+  unrolled_x_r4_uf_24_ua_12 = quantizers._get_unrolled_shape(
+      x_r4, unroll_factor=[2, 4], unroll_axis=[1, 2])
+  unrolled_x_r4_uf_24_ua_13 = quantizers._get_unrolled_shape(
+      x_r4, unroll_factor=[2, 4], unroll_axis=[1, 3])
+  unrolled_x_r4_uf_24_ua_34 = quantizers._get_unrolled_shape(
+      x_r4, unroll_factor=[2, 4], unroll_axis=[2, 3])
+
+  assert_equal(unrolled_x_r4_uf_24_ua_01, ([2, 2, 1, 4, 8, 16], [0, 2]))
+  assert_equal(unrolled_x_r4_uf_24_ua_12, ([4, 2, 2, 2, 4, 16], [1, 3]))
+  assert_equal(unrolled_x_r4_uf_24_ua_13, ([4, 2, 2, 8, 4, 4], [1, 4]))
+  assert_equal(unrolled_x_r4_uf_24_ua_34, ([4, 4, 4, 2, 4, 4], [2, 4]))
+
+  # List[2] unroll_factor and unroll_axis - Test _get_rolled_back_shape
+  rolled_back_x_r4_uf_24_ua_01 = quantizers._get_rolled_back_shape(
+      unrolled_x_r4_uf_24_ua_01[0], roll_axis=unrolled_x_r4_uf_24_ua_01[1])
+  rolled_back_x_r4_uf_24_ua_12 = quantizers._get_rolled_back_shape(
+      unrolled_x_r4_uf_24_ua_12[0], roll_axis=unrolled_x_r4_uf_24_ua_12[1])
+  rolled_back_x_r4_uf_24_ua_13 = quantizers._get_rolled_back_shape(
+      unrolled_x_r4_uf_24_ua_13[0], roll_axis=unrolled_x_r4_uf_24_ua_13[1])
+  rolled_back_x_r4_uf_24_ua_34 = quantizers._get_rolled_back_shape(
+      unrolled_x_r4_uf_24_ua_34[0], roll_axis=unrolled_x_r4_uf_24_ua_34[1])
+
+  assert_equal(x_r4, rolled_back_x_r4_uf_24_ua_01)
+  assert_equal(x_r4, rolled_back_x_r4_uf_24_ua_12)
+  assert_equal(x_r4, rolled_back_x_r4_uf_24_ua_13)
+  assert_equal(x_r4, rolled_back_x_r4_uf_24_ua_34)
+
+  # List[3] unroll_factor and unroll_axis - Test _get_unrolled_shape
+  unrolled_x_r4_uf_242_ua_012 = quantizers._get_unrolled_shape(
+      x_r4, unroll_factor=[2, 4, 2], unroll_axis=[0, 1, 2])
+  unrolled_x_r4_uf_242_ua_023 = quantizers._get_unrolled_shape(
+      x_r4, unroll_factor=[2, 4, 2], unroll_axis=[0, 2, 3])
+
+  assert_equal(unrolled_x_r4_uf_242_ua_012, ([2, 2, 1, 4, 4, 2, 16], [0, 2, 4]))
+  assert_equal(unrolled_x_r4_uf_242_ua_023, ([2, 2, 4, 2, 4, 8, 2], [0, 3, 5]))
+
+  # List[3] unroll_factor and unroll_axis - Test _get_rolled_back_shape
+  rolled_back_x_r4_uf_242_ua_012 = quantizers._get_rolled_back_shape(
+      unrolled_x_r4_uf_242_ua_012[0],
+      roll_axis=unrolled_x_r4_uf_242_ua_012[1])
+  rolled_back_x_r4_uf_242_ua_023 = quantizers._get_rolled_back_shape(
+      unrolled_x_r4_uf_242_ua_023[0],
+      roll_axis=unrolled_x_r4_uf_242_ua_023[1])
+
+  assert_equal(x_r4, rolled_back_x_r4_uf_242_ua_012)
+  assert_equal(x_r4, rolled_back_x_r4_uf_242_ua_023)
+
 if __name__ == "__main__":
   pytest.main([__file__])

@@ -19,6 +19,7 @@ from __future__ import print_function
 
 import six
 import re
+from typing import List, Any, Tuple
 import numpy as np
 import tensorflow.compat.v2 as tf
 import tensorflow.keras.backend as K
@@ -119,12 +120,26 @@ def _get_integer_bits(min_value,
   return integer_bits
 
 
-def _get_scaling_axis(scale_axis, len_axis):
-  """Get the axis to perform auto scaling with."""
+def _get_scaling_axis(scale_axis: Any, len_axis: int) -> List[int]:
+  """Get the axis/axes to perform auto scaling at.
+
+  Args:
+    scale_axis: int or List[int] representing which axis/axes to calculate
+     scale at.
+    len_axis: int representing the shape of the tensor on which scaling is
+      performed.
+
+  Returns:
+    List[int] representing the scaling axes.
+
+  """
 
   if scale_axis is not None:
-    axis = list(range(scale_axis))
-    axis += list(range(scale_axis+1, len_axis))
+    if isinstance(scale_axis, list):
+      axis = [i for i in range(len_axis) if i not in scale_axis]
+    else:
+      axis = list(range(scale_axis))
+      axis += list(range(scale_axis+1, len_axis))
   else:
     if K.image_data_format() == "channels_last":
       axis = list(range(len_axis - 1))
@@ -133,8 +148,295 @@ def _get_scaling_axis(scale_axis, len_axis):
   return axis
 
 
-def _get_scale(alpha, x, q, scale_axis=None, per_channel_scale=True):
+def _get_unrolled_shape(input_shape: List[int], unroll_factor: Any,
+                        unroll_axis: Any) -> Tuple[List[int], Any]:
+  """Gets the shape of the unrolled tensor given unroll_factor and unroll_axis.
+
+  Both unroll_factor and unroll_axis can either be ints or List[int]. If they
+  are List[int], their lengths must match, and their values represent every
+  unroll axis and its corresponding unroll factor.
+
+  Examples:
+  1. If input_shape = [16, 32], the unroll_factor = 4, and unroll_axis = 1. This
+     means that axis 1 of the input should be unrolled by a factor of 4. This
+     function would return a tuple; the first element represents the unrolled
+     shape [16, 8, 4], and the second element represents the updated unroll axis
+     in the unrolled shape which, in this case, is still 1.
+  2. If input_shape = [16, 32], the unroll_factor = [2, 4], and unroll_axis =
+     [0, 1]. This means that axis 0 of the input should be unrolled by a factor
+     of 2, while axis 1 of the input should be unrolled by a factor of 4. This
+     function would return a tuple; the first element represents the unrolled
+     shape [4, 2, 8, 4], and the second element represents the updated unroll
+     axis in the unrolled shape which, in this case, will be [0, 2].
+
+  Args:
+    input_shape: List[int]. The shape of the input tensor to be unrolled.
+    unroll_factor: int or List[int] representing the unrolling factor(s) across
+      various dimensions of the input tensors. If a list is used, its length has
+      to match unroll_axis.
+    unroll_axis: int or List[int] representing which axis/axes to unroll. If
+      a list is used, its length has to match unroll_factor.
+
+  Returns:
+    Tuple of (List of ints representing the shape of the unrolled tensor,
+    Int or List[int] representing updated scale_axis after unrolling.
+  """
+  def _unroll_one_axis(shape, factor, axis):
+    shape[axis] = shape[axis] // factor
+    shape.insert(axis + 1, factor)
+
+  unrolled_shape = input_shape.copy()
+
+  if isinstance(unroll_factor, int) and isinstance(unroll_axis, int):
+    unrolled_scale_axis = unroll_axis
+    _unroll_one_axis(unrolled_shape, unroll_factor, unroll_axis)
+
+  elif isinstance(unroll_factor, list) and isinstance(unroll_axis, list):
+    # axis_shift shifts the pre-defined axis every time we add a new
+    # unrolled axis
+    assert len(unroll_axis) == len(unroll_factor), (
+        "unroll_axis and unroll_factor must have the same length")
+
+    unrolled_scale_axis = unroll_axis.copy()
+    axis_shift = 0
+    for idx, (axis, factor) in enumerate(zip(unroll_axis, unroll_factor)):
+      unrolled_scale_axis[idx] += axis_shift
+      _unroll_one_axis(unrolled_shape, factor, axis+axis_shift)
+      axis_shift += 1
+  else:
+    raise ValueError(
+        "Both unroll_factor and unroll_axis has to be either ints or lists"
+    )
+  return unrolled_shape, unrolled_scale_axis
+
+
+def _get_rolled_back_shape(input_shape: List[int], roll_axis: Any) -> List[int]:
+  """Gets the shape of the rolled back tensor given roll_axis.
+
+  If roll_axis is an int, the input shape will be rolled back once along the
+  roll_axis. If roll_axis is List[int], the input shape will be rolled back
+  len(roll_axis) times.
+
+  Examples:
+  1. If input_shape = [4, 2, 8, 4] and roll_axis = 1. This means that the axis
+     following axis 1 will be rolled back to axis 1. This function would return
+     a the rolled back shape which is [4, 16, 4] in this case.
+  2. If input_shape = [4, 2, 8, 4] and roll_axis = [0, 2]. This means that the
+     axis following axis 0 will be rolled back to axis 0, and the axis following
+     axis 2 will be rolled back to axis 2. This function would return the rolled
+     back shape which is [16, 32] in this case.
+
+  Args:
+    input_shape: List[int]. The shape of the input tensor to be rolled back.
+    roll_axis: int or List[int] representing which axis/axes of the tensor to
+      roll back.
+
+  Returns:
+    List of ints representing the shape of the rolled back tensor.
+  """
+  def _roll_back_one_axis(shape, axis):
+    shape[axis] *= shape[axis+1]
+    shape.pop(axis + 1)
+
+  rolled_shape = input_shape.copy()
+
+  if isinstance(roll_axis, int):
+    _roll_back_one_axis(rolled_shape, roll_axis)
+
+  elif isinstance(roll_axis, list):
+    # axis_shift shifts the pre-defined axis every time we roll back an axis.
+    axis_shift = 0
+    for axis in roll_axis:
+      _roll_back_one_axis(rolled_shape, axis+axis_shift)
+      axis_shift -= 1
+
+  return rolled_shape
+
+
+def _validate_axis_and_eps(x_shape: List[int], scale_axis: Any,
+                           elements_per_scale: Any) -> Tuple[Any, Any]:
+  """Validates scale_axis and elements_per_scale.
+
+  This function verifies that the values for scale_axis and elements_per_scale
+  are valid and perform any required transformations returning a Tuple of
+  verified (scale_axis, elements_per_scale)
+
+  This fuction accepts scale_axis and elements_per_scale to be either ints or
+  list of ints, so it verifies 4 different scenarios:
+  1. If both scale_axis and elements_per_scale are ints. The function verifies
+     that the x_shape is divisible by elements_per_scale at the scale_axis.
+  2. If scale_axis is an int while elements_per_scale is a list. The function
+     raises an error since this is an ambigious state.
+  3. If scale_axis is a list and elements_per_scale is an int. The function
+     modifies elements_per_scale to a list of length scale_axis, and it verifies
+     that the x_shape is divisible by the elements_per_scale at the
+     corresponding scale_axis.
+  4. If scale_axis is a list and elements_per_scale is a list. The function
+     verifies that the length of the two lists match, and that the x_shape is
+     divisible by the corresponding elements_per_scale at the corresponding
+     scale_axis.
+
+  Examples:
+  - Input_shape=[16, 32, 4], scale_axis=0, and elements_per_scale=4 --> Valid
+  - Input_shape=[16, 32, 4], scale_axis=0, and elements_per_scale=3 --> Invalid
+  - Input_shape=[16, 32, 4], scale_axis=0, and elements_per_scale=[2, 4]
+    --> Invalid
+  - Input_shape=[16, 32, 4], scale_axis=[0, 1], and elements_per_scale=2
+    --> Valid
+  - Input_shape=[16, 32, 4], scale_axis=[0, 1], and elements_per_scale=[2, 4]
+    --> Valid
+  - Input_shape=[16, 32, 4], scale_axis=[0, 1], and elements_per_scale=[1, 2, 4]
+    --> Invalid
+
+  Args:
+    x_shape: List[int] representing the shape of the input tensor.
+    scale_axis: Int or List[int] representing the axis/axes to perform auto
+      scaling at.
+    elements_per_scale: Int or List[int] representing the number of
+     elements/values associated with every scale along the corresponding
+     scale_axis.
+
+  Returns:
+    A Tuple of verified (scale_axis, elements_per_scale).
+  """
+
+  assert (
+      scale_axis is not None
+  ), "scale_axis must be set if elements_per_scale is used."
+
+  # if both are ints
+  if isinstance(scale_axis, int) and isinstance(elements_per_scale, int):
+    assert x_shape[scale_axis] % elements_per_scale == 0, (
+        f"scaling axis of dimension {x_shape[scale_axis]} has to be divisible "
+        f"by thenumber of elements per scale, given {elements_per_scale}."
+    )
+
+  # if scale_axis is int and elements_per_scale is a list of ints
+  elif isinstance(scale_axis, int) and isinstance(elements_per_scale, list):
+    raise ValueError(
+        f"scale_axis is an integer {scale_axis}, "
+        f"while {elements_per_scale} is a list of values which is ambigious."
+    )
+
+  # if scale_axis is list of ints and elements_per_scale is an int
+  elif isinstance(scale_axis, list) and isinstance(elements_per_scale, int):
+    for axis in scale_axis:
+      assert x_shape[axis] % elements_per_scale == 0, (
+          f"scaling axis of dimension {x_shape[axis]} has to be divisible by "
+          f"number of elements per scale, given {elements_per_scale}."
+      )
+    # duplicate the elements_per_scale to match length of scale_axis
+    elements_per_scale = [elements_per_scale] * len(scale_axis)
+
+  # if both scale_axis and elements_per_scale are lists
+  else:
+    assert len(scale_axis) == len(
+        elements_per_scale
+    ), (f"both scale_axis and elements_per_scale lists must match in length; "
+        f"Got {len(scale_axis)} and {len(elements_per_scale)}")
+    for axis, eps in zip(scale_axis, elements_per_scale):
+      assert x_shape[axis] % eps == 0, (
+          f"scaling axis of dimension {x_shape[axis]} has to be divisible by"
+          f" the corresponding number of elements per scale, given {eps}."
+      )
+
+  assert (
+      isinstance(scale_axis, int) and isinstance(elements_per_scale, int)
+  ) or (isinstance(scale_axis, list) and isinstance(elements_per_scale, list))
+
+  return scale_axis, elements_per_scale
+
+
+def _repeat_along_axis(x: tf.Tensor, axis: int, repeats: int) -> tf.Tensor:
+  """Repeats the elements in a tensor along the specified axis."""
+  return tf.repeat(x, repeats=repeats, axis=axis)
+
+
+def _repeat_along_axes(x: tf.Tensor, axis: Any, repeats: Any) -> tf.Tensor:
+  """Repeats the elements in a tensor along the specified axes."""
+  if isinstance(axis, int) and isinstance(repeats, int):
+    x = _repeat_along_axis(x, axis, repeats)
+  elif isinstance(axis, list) and isinstance(repeats, list):
+    for a, r in zip(axis, repeats):
+      x = _repeat_along_axis(x, axis=a, repeats=r)
+  return x
+
+
+def _get_scale_mean(
+    scale_axis: Any, x: tf.Tensor, q: tf.Tensor, elements_per_scale: Any
+):
+  """Gets the mean of the tensor along the specified scaling axis/axes.
+
+  Args:
+    scale_axis: int or List[int] representing which axis/axes to calculate
+     scale at.
+    x: A tensor object. Its elements are in float.
+    q: A tensor object. Its elements are in quantized format of x.
+    elements_per_scale: if set to an int or List[int], we create multiple scales
+      per axis across scale_axis, where 'elements_per_scale' represents the
+      number of elements/values associated with every separate scale value.
+
+  Returns:
+    A tuple of two tensors representing the mean of x and its quantized format
+    along the specified scaling axis/axes.
+  """
+  if elements_per_scale is not None:
+    # Get the input shape
+    x_shape = x.shape.as_list()
+
+    scale_axis, elements_per_scale = _validate_axis_and_eps(
+        x_shape, scale_axis, elements_per_scale)
+
+    # get the shape of unrolled tensors x and q
+    unrolled_shape, unrolled_scale_axis = _get_unrolled_shape(
+        x_shape, elements_per_scale, scale_axis)
+
+    # Unroll x and q
+    x1 = tf.reshape(x, unrolled_shape)
+    q1 = tf.reshape(q, unrolled_shape)
+
+    # Get the mean along the unroll axis/axes
+    axes_of_mean = _get_scaling_axis(unrolled_scale_axis, len(unrolled_shape))
+    qx = K.mean(tf.math.multiply(x1, q1), axis=axes_of_mean, keepdims=True)
+    qq = K.mean(tf.math.multiply(q1, q1), axis=axes_of_mean, keepdims=True)
+
+    # Reshape qx and qq to be divisible by the input shape.
+    # To achieve this, qx and qq are first rolled back along unroll axis.
+    # Then, the values along the scale_axis are repeated "elements_per_scale"
+    # times to match the original shape.
+    rolled_back_shape = _get_rolled_back_shape(qx.shape.as_list(),
+                                               roll_axis=unrolled_scale_axis)
+
+    qx = tf.reshape(qx, rolled_back_shape)
+    qx = _repeat_along_axes(qx, repeats=elements_per_scale, axis=scale_axis)
+
+    qq = tf.reshape(qq, rolled_back_shape)
+    qq = _repeat_along_axes(qq, repeats=elements_per_scale, axis=scale_axis)
+  else:
+    len_axis = len(x.shape)
+    axis = _get_scaling_axis(scale_axis, len_axis)
+    qx = K.mean(tf.math.multiply(x, q), axis=axis, keepdims=True)
+    qq = K.mean(tf.math.multiply(q, q), axis=axis, keepdims=True)
+  return qx, qq
+
+
+def _clip_po2_scale(scale: tf.Tensor, min_po2_exponent: Any,
+                    max_po2_exponent: Any):
+  """Clip power-of-two scales given minimum and maximum po2 exponenets."""
+
+  min_po2 = None if min_po2_exponent is None else 2**min_po2_exponent
+  max_po2 = None if max_po2_exponent is None else 2**max_po2_exponent
+  scale = K.clip(scale, min_value=min_po2, max_value=max_po2)
+
+  return scale
+
+
+def _get_scale(alpha: Any, x: tf.Tensor, q: tf.Tensor,
+               scale_axis: Any = None, per_channel_scale: bool = True,
+               elements_per_scale: Any = None, min_po2_exponent: Any = None,
+               max_po2_exponent: Any = None):
   """Gets scaling factor for scaling the tensor per channel.
+
   It uses the least squares method to find the scaling factor.
 
   (https://en.wikipedia.org/wiki/Linear_least_squares)
@@ -143,10 +445,18 @@ def _get_scale(alpha, x, q, scale_axis=None, per_channel_scale=True):
     alpha: A float or string. When it is string, it should be either "auto" or
       "auto_po2", and scale = sum(x * q, axis=all but last) / sum(q * q,
       axis=all but last)
-     x: A tensor object. Its elements are in float.
-     q: A tensor object. Its elements are in quantized format of x.
-     scale_axis: which axis to calculate scale from
-     per_channel_scale: A bool. Whether to perform per-channel scaling or not.
+    x: A tensor object. Its elements are in float.
+    q: A tensor object. Its elements are in quantized format of x.
+    scale_axis: int or List[int] representing which axis/axes to calculate
+     scale from.
+    per_channel_scale: A bool. Whether to perform per-channel scaling or not.
+    elements_per_scale: if set to an int or List[int], we create multiple scales
+      per axis across scale_axis, where 'elements_per_scale' represents the
+      number of elements/values associated with every separate scale value.
+    min_po2_exponent: if set while using "auto_po2", it represents the minimum
+      allowed power of two exponent.
+    max_po2_exponent: if set while using "auto_po2", it represents the maximum
+      allowed power of two exponent.
 
   Returns:
     A scaling factor tensor or scalar for scaling tensor per channel.
@@ -167,9 +477,7 @@ def _get_scale(alpha, x, q, scale_axis=None, per_channel_scale=True):
       qq = K.mean(q * q, keepdims=True)
     else:
       if len_axis > 1:
-        axis = _get_scaling_axis(scale_axis, len_axis)
-        qx = K.mean(tf.math.multiply(x, q), axis=axis, keepdims=True)
-        qq = K.mean(tf.math.multiply(q, q), axis=axis, keepdims=True)
+        qx, qq = _get_scale_mean(scale_axis, x, q, elements_per_scale)
       else:
         # No summing (averaging) along the channel axis to get per-channel
         # scales.
@@ -180,6 +488,10 @@ def _get_scale(alpha, x, q, scale_axis=None, per_channel_scale=True):
     if alpha == "auto_po2":
       scale = K.pow(2.0,
                     tf.math.round(K.log(scale + K.epsilon()) / np.log(2.0)))
+
+      if min_po2_exponent is not None or max_po2_exponent is not None:
+        scale = _clip_po2_scale(scale, min_po2_exponent, max_po2_exponent)
+
   elif alpha is None:
     scale = 1.0
   elif isinstance(alpha, np.ndarray):
@@ -1146,6 +1458,32 @@ class binary(BaseQuantizer):  # pylint: disable=invalid-name
 
   Modified from original binary to match QNN implementation.
 
+  The binary qunatizer supports multiple-scales per tensor where:
+  - alpha: It can be set to "auto" or "auto_po2" to enable auto-scaling. "auto"
+           allows arbitrary scale while "auto_po2" allows power-of-two scales
+           only. It can also be set to a fixed value or None (i.e., no scaling).
+  - scale_axis: It determines the axis/axes to calculate the auto-scale at.
+  - elements_per_scale: It enables fine-grained scaling where it determines
+    the number of elements across scale axis/axes that should be grouped into
+    one scale.
+
+  Examples:
+
+  1. Input shape = [1, 8, 8, 16] alpha="auto", scale_axis=None,
+     elements_per_scale=None --> Number of separate scales = 16
+
+  2. Input shape = [1, 8, 8, 16] alpha="auto", scale_axis=1,
+     elements_per_scale=None --> Number of separate scales = 8
+
+  3. Input shape = [1, 8, 8, 16] alpha="auto", scale_axis=1,
+     elements_per_scale=2 --> Number of separate scales = 4
+
+  4. Input shape = [1, 8, 8, 16] alpha="auto", scale_axis=[2, 3],
+     elements_per_scale=2 --> Number of separate scales = 4*8 = 32
+
+  5. Input shape = [1, 8, 8, 16] alpha="auto", scale_axis=[2, 3],
+     elements_per_scale=[2, 4] --> Number of separate scales = 4*4 = 16
+
   Attributes:
     x: tensor to perform sign_through.
     bits: number of bits to perform quantization.
@@ -1153,12 +1491,22 @@ class binary(BaseQuantizer):  # pylint: disable=invalid-name
     alpha: binary is -alpha or +alpha, or "auto", "auto_po2" to compute
       automatically.
     use_stochastic_rounding: if true, we perform stochastic rounding.
+    elements_per_scale: if set to an int or List[int], we create multiple scales
+      per axis across scale_axis, where 'elements_per_scale' represents the
+      number of elements/values associated with every separate scale value.
+    scale_axis: int or List[int] which axis/axes to calculate scale from.
+    min_po2_exponent: if set while using "auto_po2", it represents the minimum
+      allowed power of two exponent.
+    max_po2_exponent: if set while using "auto_po2", it represents the maximum
+      allowed power of two exponent.
 
   Returns:
     Computation of sign operation with straight through gradient.
   """
 
-  def __init__(self, use_01=False, alpha=None, use_stochastic_rounding=False):
+  def __init__(self, use_01=False, alpha=None, use_stochastic_rounding=False,
+               scale_axis=None, elements_per_scale=None, min_po2_exponent=None,
+               max_po2_exponent=None):
     super(binary, self).__init__()
     self.use_01 = use_01
     self.bits = 1
@@ -1166,8 +1514,15 @@ class binary(BaseQuantizer):  # pylint: disable=invalid-name
     self.use_stochastic_rounding = use_stochastic_rounding
     self.default_alpha = 1.0
     self.scale = None
+    self.scale_axis = scale_axis
+    self.elements_per_scale = elements_per_scale
+    self.min_po2_exponent = min_po2_exponent
+    self.max_po2_exponent = max_po2_exponent
 
   def __str__(self):
+    def list_to_str(l):
+      return ",".join([str(x) for x in l])
+
     flags = []
     if self.use_01:
       flags.append("use_01=" + str(int(self.use_01)))
@@ -1176,6 +1531,21 @@ class binary(BaseQuantizer):  # pylint: disable=invalid-name
       if isinstance(self.alpha, six.string_types):
         alpha = "'" + alpha + "'"
       flags.append("alpha=" + alpha)
+    if self.elements_per_scale is not None:
+      if isinstance(self.elements_per_scale, list):
+        flags.append("elements_per_scale=[" +
+                     list_to_str(self.elements_per_scale) + "]")
+      else:
+        flags.append("elements_per_scale=" + str(self.elements_per_scale))
+    if self.scale_axis is not None:
+      if isinstance(self.scale_axis, list):
+        flags.append("scale_axis=[" + list_to_str(self.scale_axis) + "]")
+      else:
+        flags.append("scale_axis=" + str(self.scale_axis))
+    if self.min_po2_exponent is not None:
+      flags.append("min_po2_exponent=" + str(self.min_po2_exponent))
+    if self.max_po2_exponent is not None:
+      flags.append("max_po2_exponent=" + str(self.max_po2_exponent))
     if self.use_stochastic_rounding:
       flags.append(
           "use_stochastic_rounding=" + str(self.use_stochastic_rounding))
@@ -1235,9 +1605,16 @@ class binary(BaseQuantizer):  # pylint: disable=invalid-name
     if self.alpha is None:
       x = K.tanh(x)
 
-    scale = _get_scale(self.alpha, x, k_sign)
-    self.scale = scale
-    return x + tf.stop_gradient(-x + scale * k_sign)
+    self.scale = _get_scale(
+        self.alpha,
+        x,
+        k_sign,
+        elements_per_scale=self.elements_per_scale,
+        scale_axis=self.scale_axis,
+        min_po2_exponent=self.min_po2_exponent,
+        max_po2_exponent=self.max_po2_exponent,
+    )
+    return x + tf.stop_gradient(-x + self.scale * k_sign)
 
   def _set_trainable_parameter(self):
     if self.alpha is None:
