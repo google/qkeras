@@ -29,7 +29,7 @@ from tensorflow.keras.layers import Dense
 from tensorflow.keras.layers import Dropout
 from tensorflow.keras.layers import Input
 from tensorflow.keras.models import Model
-from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.optimizers.legacy import Adam
 from tensorflow.keras.utils import to_categorical
 
 from qkeras.autoqkeras import AutoQKerasScheduler
@@ -104,7 +104,7 @@ def test_autoqkeras():
 
   model = dense_model()
   model.summary()
-  optimizer = Adam(lr=0.01)
+  optimizer = Adam(learning_rate=0.015)
   model.compile(optimizer=optimizer, loss="categorical_crossentropy",
                 metrics=["acc"])
 
@@ -140,7 +140,7 @@ def test_autoqkeras():
 
   qmodel = autoqk.get_best_model()
 
-  optimizer = Adam(lr=0.01)
+  optimizer = Adam(learning_rate=0.015)
   qmodel.compile(optimizer=optimizer, loss="categorical_crossentropy",
                  metrics=["acc"])
   history = qmodel.fit(x_train, y_train, epochs=5, batch_size=150,
