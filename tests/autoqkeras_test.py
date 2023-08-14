@@ -29,6 +29,7 @@ from tensorflow.keras.layers import Dense
 from tensorflow.keras.layers import Dropout
 from tensorflow.keras.layers import Input
 from tensorflow.keras.models import Model
+# TODO: Update to new optimizer API
 from tensorflow.keras.optimizers.legacy import Adam
 from tensorflow.keras.utils import to_categorical
 
