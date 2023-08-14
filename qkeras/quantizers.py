@@ -616,7 +616,6 @@ class quantized_linear(BaseQuantizer):
     # Set non-modifyable attributes
     self._bits = bits
     self._integer = integer
-    self._symmetric = symmetric
     self._keep_negative = keep_negative
     self._use_stochastic_rounding = use_stochastic_rounding
     self._scale_axis = scale_axis
@@ -625,6 +624,7 @@ class quantized_linear(BaseQuantizer):
     # Set modifyable attributes
     self.alpha = alpha
     self.qnoise_factor = qnoise_factor
+    self.symmetric = symmetric
 
     # Set default quantization scale
     self.quantization_scale = self.default_quantization_scale
@@ -659,10 +659,6 @@ class quantized_linear(BaseQuantizer):
   @property
   def integer(self):
     return self._integer
-
-  @property
-  def symmetric(self):
-    return self._symmetric
 
   @property
   def keep_negative(self):
