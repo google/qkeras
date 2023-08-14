@@ -191,9 +191,9 @@ def test_GetScale_PerChannelScale():
   # Rank1 tensors
   x_r1 = tf.ones([4])
   q_r1 = tf.ones([4])
-  scale_r1_pcs_true = quantizers._get_scale(
+  scale_r1_pcs_true = quantizers._get_least_squares_scale(
       "auto", x_r1, q_r1, scale_axis=None, per_channel_scale=True)
-  scale_r1_pcs_false = quantizers._get_scale(
+  scale_r1_pcs_false = quantizers._get_least_squares_scale(
       "auto", x_r1, q_r1, scale_axis=None, per_channel_scale=False)
   assert_equal(tf.shape(scale_r1_pcs_true).numpy(), [4])
   assert_equal(tf.shape(scale_r1_pcs_false).numpy(), [1])
@@ -201,9 +201,9 @@ def test_GetScale_PerChannelScale():
   # Rank2 tensors
   x_r2 = tf.ones([2, 4])
   q_r2 = tf.ones([2, 4])
-  scale_r2_pcs_true = quantizers._get_scale(
+  scale_r2_pcs_true = quantizers._get_least_squares_scale(
       "auto", x_r2, q_r2, scale_axis=None, per_channel_scale=True)
-  scale_r2_pcs_false = quantizers._get_scale(
+  scale_r2_pcs_false = quantizers._get_least_squares_scale(
       "auto", x_r2, q_r2, scale_axis=None, per_channel_scale=False)
   assert_equal(tf.shape(scale_r2_pcs_true).numpy(), [1, 4])
   assert_equal(tf.shape(scale_r2_pcs_false).numpy(), [1, 1])
@@ -211,9 +211,9 @@ def test_GetScale_PerChannelScale():
   # Rank3 tensors
   x_r3 = tf.ones([3, 3, 4])
   q_r3 = tf.ones([3, 3, 4])
-  scale_r3_pcs_true = quantizers._get_scale(
+  scale_r3_pcs_true = quantizers._get_least_squares_scale(
       "auto", x_r3, q_r3, scale_axis=None, per_channel_scale=True)
-  scale_r3_pcs_false = quantizers._get_scale(
+  scale_r3_pcs_false = quantizers._get_least_squares_scale(
       "auto", x_r3, q_r3, scale_axis=None, per_channel_scale=False)
   assert_equal(tf.shape(scale_r3_pcs_true).numpy(), [1, 1, 4])
   assert_equal(tf.shape(scale_r3_pcs_false).numpy(), [1, 1, 1])
@@ -221,9 +221,9 @@ def test_GetScale_PerChannelScale():
   # Rank4 tensors
   x_r4 = tf.ones([1, 1, 3, 4])
   q_r4 = tf.ones([1, 1, 3, 4])
-  scale_r4_pcs_true = quantizers._get_scale(
+  scale_r4_pcs_true = quantizers._get_least_squares_scale(
       "auto", x_r4, q_r4, scale_axis=None, per_channel_scale=True)
-  scale_r4_pcs_false = quantizers._get_scale(
+  scale_r4_pcs_false = quantizers._get_least_squares_scale(
       "auto", x_r4, q_r4, scale_axis=None, per_channel_scale=False)
   assert_equal(tf.shape(scale_r4_pcs_true).numpy(), [1, 1, 1, 4])
   assert_equal(tf.shape(scale_r4_pcs_false).numpy(), [1, 1, 1, 1])

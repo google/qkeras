@@ -619,11 +619,11 @@ class quantized_linear(BaseQuantizer):
     self._symmetric = symmetric
     self._keep_negative = keep_negative
     self._use_stochastic_rounding = use_stochastic_rounding
-    self._alpha = alpha
     self._scale_axis = scale_axis
     self._use_variables = use_variables
 
     # Set modifyable attributes
+    self.alpha = alpha
     self.qnoise_factor = qnoise_factor
 
     # Set default quantization scale
@@ -672,10 +672,6 @@ class quantized_linear(BaseQuantizer):
   def use_stochastic_rounding(self):
     return self._use_stochastic_rounding
 
-  @property
-  def alpha(self):
-    return self._alpha
-  
   @property
   def scale_axis(self):
     return self._scale_axis

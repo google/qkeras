@@ -28,4 +28,4 @@ jobs:
         python setup.py install 
     - name: Test with pytest
       run: |
-        pytest
+        python -m pytest
