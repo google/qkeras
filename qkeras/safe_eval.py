@@ -70,6 +70,25 @@ def IsNone(s):
 def Bool(s):
   return True if "True" in s else False
 
+def ListofNums(s):
+  # remove list brackets
+  s = s.replace("[", "").replace("]", "")
+  list_s = s.split(" ")
+  return [Num(e) for e in list_s]
+
+def IsListofNums(s):
+  # remove list brackets
+  s = s.replace("[", "").replace("]", "")
+  list_s = s.split(" ")
+  if len(list_s) > 1:
+    for e in list_s:
+      # if any of the elements is not a number return false
+      if not IsNum(e):
+        return False
+    return True
+  else:
+    return False
+
 def GetArg(s):
   if IsBool(s):
     return Bool(s)
@@ -77,6 +96,8 @@ def GetArg(s):
     return Num(s)
   elif IsNone(s):
     return None
+  elif IsListofNums(s):
+    return ListofNums(s)
   else:
     return Str(s)
 

@@ -467,11 +467,8 @@ def get_y_from_TFOpLambda(model_cfg, layer):
 
     # TODO(lishanok): Extend support for other TFOpLambda types when needed
     if op_name == layer.name and  class_name == "TFOpLambda":
-      assert (
-          "tf.__operators__.add" in op_name
-          or "tf.math.add" in op_name
-          or "tf.math.multiply" in op_name
-      ), "TFOpLambda layer {} not supported!".format(op_name)
+      assert ("tf.__operators__.add" in op_name or "tf.math.multiply"
+              in op_name), "TFOpLambda layer {} not supported!".format(op_name)
       return layer_config["inbound_nodes"][-1][-1]["y"]
 
   return None
