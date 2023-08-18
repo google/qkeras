@@ -552,11 +552,53 @@ class TestQuantizedLinear:
     assert auto_quantizer.scale.shape == expected_shape
     assert auto_po2_quantizer.scale.shape == expected_shape
 
+  @pytest.mark.parametrize(
+    'inputs, expected_auto_scale, expected_auto_po2_scale',
+    [
+      ( # rank 1
+        [1.0, 2.0, 3.0, 4.0, 5.0],
+        [2.0, 4.0, 6.0, 8.0, 10.0],
+        [2.0, 4.0, 8.0, 8.0, 8.0]
+      ),
+      ( # rank 2
+        [[-1.0, 0.0, 1.0,  2.5,  4.0],
+         [-1.0, 4.0, 5.0, -2.0, -1.0],
+         [ 1.0, 2.0, 3.0,  0.0, 20.0]],
+        [[ 2.0, 8.0, 10.0, 5.0, 40.0,]],
+        [[ 2.0, 8.0,  8.0, 4.0, 32.0,]],
+      ),
+      ( # rank 3
+        [[[0.0, 1.0], [2.0, 3.0]], 
+         [[4.0, 5.0], [6.0, 7.0]]], 
+        [[[12.0, 14.0]]],
+        [[[16.0, 16.0]]],        
+      )
+    ]
+  )
+  def test_scale_values(
+    self, inputs, expected_auto_scale, expected_auto_po2_scale):
+    """
+    Test to make sure that scale is the right value for auto-alphas
+    
+    Note that since bits=2, the data type scale will be 0.5. This means that
+    the scale values will be 2x the quantization_scale values.
+    """
+
+    auto_quantizer = quantized_linear(alpha='auto', bits=2)
+    auto_po2_quantizer = quantized_linear(alpha='auto_po2', bits=2)
+    
+    auto_quantizer(inputs)
+    auto_po2_quantizer(inputs)
+
+    tf.debugging.assert_equal(auto_quantizer.scale, expected_auto_scale)
+    tf.debugging.assert_equal(auto_po2_quantizer.scale, expected_auto_po2_scale)
+
   @pytest.mark.parametrize('alpha', [None, 2.0])
   @pytest.mark.parametrize('symmetric,keep_negative', 
                           [(True, True), (False, True), (False, False)])
   @pytest.mark.parametrize('bits', [1, 8])
-  def test_gradients(self, bits, symmetric, keep_negative, alpha):
+  def test_gradient_formula(self, bits, symmetric, keep_negative, alpha):
+    """Test to make sure that the gradient formula is correct"""
 
     quantizer = quantized_linear(bits=bits, symmetric=symmetric,
                                  keep_negative=keep_negative, alpha=alpha)
@@ -570,6 +612,27 @@ class TestQuantizedLinear:
     expected_grad = K.cast_to_floatx(expected_grad)
     assert grad is not None
     tf.debugging.assert_equal(grad, expected_grad)
+
+  @pytest.mark.parametrize(
+    'keep_negative, bits, expected_gradient',
+    [(True, 1, [0, 1, 1, 1, 0]),
+    (True, 8, [0, 1, 1, 1, 0]),
+    (False, 1, [0, 0, 1, 1, 0]),
+    (False, 8, [0, 0, 1, 1, 0])]
+  )
+  def test_gradients_explicit(self, keep_negative, bits, expected_gradient):
+    """Tests on specific gradient values"""
+
+    inputs = tf.Variable([-1.1, -0.1, 0.0, 0.1, 1.1])
+    expected_gradient = tf.Variable(expected_gradient)
+
+    q = quantized_linear(bits=bits, keep_negative=keep_negative)
+    with tf.GradientTape() as tape:
+      tape.watch(inputs)
+      outputs = q(inputs)
+
+    gradients = tape.gradient(outputs, inputs)
+    assert_allclose(gradients, expected_gradient)
 
 class TestBackwardsCompatibilityForQuantizedLinear:
   """Regression tests for quantized_linear, comparing to quantized_bits"""

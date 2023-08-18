@@ -500,6 +500,9 @@ def _get_least_squares_scale(
     scale = float(alpha)
   return scale
 
+def _get_scale(*args, **kwargs):
+  """Old name for _get_least_squares_scale. Kept for backwards compatibility."""
+  return _get_least_squares_scale(*args, **kwargs)
 
 def smooth_sigmoid(x):
   """Implements a linear approximation of a sigmoid function."""

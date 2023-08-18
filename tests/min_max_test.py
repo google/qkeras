@@ -84,12 +84,18 @@ def test_quantized_bits():
 @pytest.mark.parametrize('bits', [1, 8])
 def test_quantized_linear(bits, symmetric, keep_negative, alpha):
 
-    q = quantized_linear(bits=bits, 
-                         symmetric=symmetric, 
-                         keep_negative=keep_negative, 
-                         alpha=alpha)
-    assert q(-1000) == q.min()
-    assert q(1000)== q.max()
+  q = quantized_linear(bits=bits, 
+                        symmetric=symmetric, 
+                        keep_negative=keep_negative, 
+                        alpha=alpha)
+  assert q(-1000) == q.min()
+  assert q(1000)== q.max()
+  assert q(q.min()) == q.min()
+  assert q(q.max()) == q.max()
+  if bits != 1:
+    middle_point = (q.max() + q.min()) / 2.0
+    assert q(middle_point) != q.max()
+    assert q(middle_point) != q.min()
 
 def test_po2():
   po2 = {
