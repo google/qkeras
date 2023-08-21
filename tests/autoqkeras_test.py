@@ -22,7 +22,6 @@ from sklearn.datasets import load_iris
 from sklearn.preprocessing import MinMaxScaler
 import tensorflow.compat.v2 as tf
 tf.enable_v2_behavior()
-tf.config.experimental.enable_op_determinism()
 
 from tensorflow.keras.layers import Activation
 from tensorflow.keras.layers import BatchNormalization
@@ -35,6 +34,10 @@ from tensorflow.keras.optimizers.legacy import Adam
 from tensorflow.keras.utils import to_categorical
 
 from qkeras.autoqkeras import AutoQKerasScheduler
+
+np.random.seed(42)
+tf.random.set_seed(42)
+tf.config.experimental.enable_op_determinism()
 
 
 def dense_model():
@@ -68,8 +71,6 @@ def dense_model():
 
 def test_autoqkeras():
   """Tests AutoQKeras scheduler."""
-  np.random.seed(42)
-  tf.random.set_seed(42)
 
   x_train, y_train = load_iris(return_X_y=True)
 
