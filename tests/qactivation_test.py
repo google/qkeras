@@ -636,7 +636,6 @@ class TestQuantizedLinear:
     initial_weights = np.random.rand(*weight_shape)
     model.layers[0].set_weights([initial_weights])
 
-
     # Create fake output data
     output_shape = model.output_shape[1:]
     y = np.random.rand(100, *output_shape)
@@ -646,11 +645,14 @@ class TestQuantizedLinear:
       def __init__(self):
           
         self.quantized_weights = []
+        self.scales = []
 
       def on_train_batch_begin(self, batch, logs=None):
         weights = self.model.layers[0].get_weights()[0]
         qweights = self.model.layers[0].kernel_quantizer_internal(weights)
+        scale = self.model.layers[0].kernel_quantizer_internal.scale
         self.quantized_weights.append(qweights)
+        self.scales.append(scale)
 
     capture_weights_callback = CaptureQuantizedWeightsCallback()
 
@@ -660,10 +662,15 @@ class TestQuantizedLinear:
     # Capture the weights during evaluation (testing phase)
     weights = model.layers[0].get_weights()[0]
     eval_quantized_weights = model.layers[0].kernel_quantizer_internal(weights)
+    eval_scale = model.layers[0].kernel_quantizer_internal.scale
 
     # Compare the weights during training and evaluation
     for train_quantized_weights in capture_weights_callback.quantized_weights:
       assert np.allclose(train_quantized_weights, eval_quantized_weights)
+
+    # Compare the scales during training and evaluation
+    for train_scale in capture_weights_callback.scales:
+      assert np.allclose(train_scale, eval_scale)
 
   @pytest.mark.parametrize('alpha', [None, 2.0])
   @pytest.mark.parametrize('symmetric,keep_negative', 
