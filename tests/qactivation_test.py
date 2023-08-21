@@ -23,6 +23,10 @@ from numpy.testing import assert_allclose
 import pytest
 from tensorflow.keras import backend as K
 import tensorflow as tf
+from keras.models import Sequential
+from keras.callbacks import Callback
+from keras.optimizers import SGD
+
 
 from qkeras import set_internal_sigmoid
 from qkeras import binary
@@ -40,6 +44,8 @@ from qkeras import stochastic_binary
 from qkeras import stochastic_ternary
 from qkeras import ternary
 from qkeras.quantizers import _default_sigmoid_type
+from qkeras import QDense, QConv2D
+
 
 
 @pytest.mark.parametrize(
@@ -592,6 +598,72 @@ class TestQuantizedLinear:
 
     tf.debugging.assert_equal(auto_quantizer.scale, expected_auto_scale)
     tf.debugging.assert_equal(auto_po2_quantizer.scale, expected_auto_po2_scale)
+
+  @pytest.mark.parametrize('layer_type', ['QDense', 'QConv2D'])
+  @pytest.mark.parametrize('alpha', ['auto', 'auto_po2'])
+  def test_training_eval_equivalence(self, layer_type, alpha):
+    """Test the behavior of quantizer during training and eval"""
+
+    np.random.seed(42)
+
+    # Define the quantizer
+    quantizer = quantized_linear(alpha=alpha)
+    model = Sequential()
+
+    if layer_type == 'QConv2D':
+      input_shape = (28, 28, 1) # Example shape for a grayscale image
+      weight_shape = (3, 3, 1, 1)
+      conv_layer = QConv2D(
+        1, (3, 3), kernel_quantizer=quantizer, use_bias=False)
+      model.add(conv_layer)
+      # Create fake data with the corresponding shape
+      X = np.random.rand(100, *input_shape)
+    elif layer_type == 'QDense':
+      input_shape = (2,) # Example shape for 2 input features
+      weight_shape = (2, 3)
+      dense_layer = QDense(
+        3, input_shape=input_shape, kernel_quantizer=quantizer, use_bias=False)
+      model.add(dense_layer)
+      # Create fake data with the corresponding shape
+      X = np.random.rand(100, *input_shape)
+
+    # Set learning rate to zero
+    opt = SGD(learning_rate=0.0)
+    model.compile(optimizer=opt, loss='mse')
+
+    # Initialize the weights
+    model.build((None, *input_shape))
+    initial_weights = np.random.rand(*weight_shape)
+    model.layers[0].set_weights([initial_weights])
+
+
+    # Create fake output data
+    output_shape = model.output_shape[1:]
+    y = np.random.rand(100, *output_shape)
+
+    # Define a callback to capture weights during training
+    class CaptureQuantizedWeightsCallback(Callback):
+      def __init__(self):
+          
+        self.quantized_weights = []
+
+      def on_train_batch_begin(self, batch, logs=None):
+        weights = self.model.layers[0].get_weights()[0]
+        qweights = self.model.layers[0].kernel_quantizer_internal(weights)
+        self.quantized_weights.append(qweights)
+
+    capture_weights_callback = CaptureQuantizedWeightsCallback()
+
+    # Train the model
+    model.fit(X, y, epochs=1, callbacks=[capture_weights_callback])
+
+    # Capture the weights during evaluation (testing phase)
+    weights = model.layers[0].get_weights()[0]
+    eval_quantized_weights = model.layers[0].kernel_quantizer_internal(weights)
+
+    # Compare the weights during training and evaluation
+    for train_quantized_weights in capture_weights_callback.quantized_weights:
+      assert np.allclose(train_quantized_weights, eval_quantized_weights)
 
   @pytest.mark.parametrize('alpha', [None, 2.0])
   @pytest.mark.parametrize('symmetric,keep_negative', 
