@@ -22,6 +22,7 @@ from sklearn.datasets import load_iris
 from sklearn.preprocessing import MinMaxScaler
 import tensorflow.compat.v2 as tf
 tf.enable_v2_behavior()
+tf.config.experimental.enable_op_determinism()
 
 from tensorflow.keras.layers import Activation
 from tensorflow.keras.layers import BatchNormalization
@@ -53,8 +54,17 @@ def dense_model():
   x = Activation("softmax", name="softmax")(x)
 
   model = Model(inputs=x_in, outputs=x)
-  return model
 
+  # Manually set the weights for each layer. Needed for test determinism.
+  for layer in model.layers:
+    if isinstance(layer, Dense):
+      weights_shape = layer.get_weights()[0].shape
+      bias_shape = layer.get_weights()[1].shape
+      weights = np.random.RandomState(42).randn(*weights_shape)
+      bias = np.random.RandomState(42).randn(*bias_shape)
+      layer.set_weights([weights, bias])
+
+  return model
 
 def test_autoqkeras():
   """Tests AutoQKeras scheduler."""
