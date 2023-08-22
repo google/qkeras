@@ -38,6 +38,7 @@ from qkeras.qtools import generate_layer_data_type_map
 from qkeras.utils import model_save_quantized_weights
 from qkeras.qtools.quantized_operators import adder_impl
 from qkeras.qtools.quantized_operators import quantizer_impl
+from qkeras.qtools import divide_and_conquer
 
 
 def qdense_model_fork():
@@ -944,6 +945,51 @@ def test_qdepthwiseconv2d():
   assert dtype_dict["pw_conv"]["multiplier"]["int_bits"] == 8
   assert dtype_dict["pw_conv"]["accumulator"]["bits"] == 28
   assert dtype_dict["pw_conv"]["accumulator"]["int_bits"] == 11
+
+
+def test_divide_and_conquer_sequential_conv2d():
+  # These following values are verified manually to be globally optimal.
+
+  # The test has two purposes:
+  # 1) check if the code runs ok;
+  # 2) for a simple conv2d model, the output is as expected.
+
+  # We will need to add more tests with more complex graph architecture
+  # in the future as our solution grows.
+
+  xin = x = tf.keras.layers.Input(shape=(16, 16, 1), name="input_layer")
+  x = QConv2D(
+      kernel_size=3,
+      filters=3,
+      use_bias=False,
+      kernel_quantizer=quantizers.quantized_bits(4, 0, alpha=1.0),
+      name="conv_1",
+  )(x)
+  x = QConv2D(
+      kernel_size=3,
+      filters=5,
+      use_bias=False,
+      kernel_quantizer=quantizers.quantized_bits(4, 0, alpha=1.0),
+      name="conv_2",
+  )(x)
+
+  # Create a model
+  model = tf.keras.Model(inputs=xin, outputs=x)
+
+  best_path, best_cost = divide_and_conquer.estimate_model_cost(
+      model,
+      input_quantizer_bits=8,
+      target_OutElementPerClk=10,
+      target_throughput=1.0,
+      compute_to_memory_max_ratio=1,
+      memory_to_unroll_max_ratio=1,
+      mode=divide_and_conquer.CostMode.NAIVE,
+  )
+
+  assert best_path[1][2] == 681
+  assert best_path[1][3] == 3
+  assert best_path[2][3] == 10
+  assert best_cost == 681
 
 
 if __name__ == "__main__":

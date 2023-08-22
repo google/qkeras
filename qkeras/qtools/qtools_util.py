@@ -23,7 +23,7 @@ import copy
 import sys
 import numpy as np
 import tensorflow.keras.backend as K
-
+import tensorflow as tf
 from qkeras.qtools import quantized_operators
 
 
@@ -337,3 +337,39 @@ def adjust_accumulator_for_auto_po2(
         fused_kernel_accumulator.output, bias_quantizer)
 
   return fused_accumulator
+
+
+def find_divisors(num):
+  return [i for i in range(1, num + 1) if num % i == 0]
+
+
+def get_layer_info(layer: tf.keras.layers.Layer, attr_name: str):
+
+  layer_type = layer.__class__.__name__
+  supported_layer_types = ["QConv2D"]
+  assert layer_type in supported_layer_types, (
+      f"For now only {supported_layer_types} layers are supported. "
+      f"Found {layer_type} instead.")
+
+  # Get layer info such as input/output channels, kernel size and quantizers.
+  input_channel = layer.input_shape[-1]
+  output_channel = layer.output_shape[-1]
+
+  kernel_height, kernel_width = layer.kernel_size if hasattr(
+      layer, "kernel_size") else (None, None)
+
+  quantizer_bits = layer.kernel_quantizer.bits
+  layer_dict = {
+      "layer_type": layer_type,
+      "input_channel": input_channel,
+      "output_channel": output_channel,
+      "kernel_height": kernel_height,
+      "kernel_width": kernel_width,
+      "quantizer_bits": quantizer_bits
+  }
+  return layer_dict.get(attr_name, None)
+
+
+def is_upsampled(layer: tf.keras.layers.Layer):
+  # Evaluate if a given layer is doing upsampling.
+  return "UpSampling" in layer.__class__.__name__
