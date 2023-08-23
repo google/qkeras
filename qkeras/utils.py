@@ -75,6 +75,7 @@ from .quantizers import ternary
 
 from .safe_eval import safe_eval
 from tensorflow.python.ops import math_ops
+from .qmac import QScaleShift
 
 
 REGISTERED_LAYERS = [
@@ -1059,6 +1060,7 @@ def _add_supported_quantized_objects(custom_objects):
 
   custom_objects["QAveragePooling2D"] = QAveragePooling2D
   custom_objects["QGlobalAveragePooling2D"] = QGlobalAveragePooling2D
+  custom_objects["QScaleShift"] = QScaleShift
 
 
 def clone_model(model, custom_objects=None):
