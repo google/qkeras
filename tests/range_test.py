@@ -22,9 +22,11 @@ from numpy.testing import assert_allclose
 
 import pytest
 from tensorflow.keras import backend as K
+import tensorflow as tf
 
 from qkeras import quantized_relu
 from qkeras import quantized_bits
+from qkeras import quantized_linear
 
 
 @pytest.mark.parametrize(
@@ -72,6 +74,53 @@ def test_quantized_bits_range(bits, integer, expected_values):
   q = quantized_bits(bits, integer)
   result = q.range()
   assert_allclose(result, expected_values, rtol=1e-05)
+
+@pytest.mark.parametrize('alpha', [None, 2.0])
+@pytest.mark.parametrize('symmetric,keep_negative', 
+                         [(True, True), (False, True), (False, False)])
+@pytest.mark.parametrize('bits', [1, 8])
+def test_quantized_linear_range(bits, symmetric, keep_negative, alpha):
+  """Test quantized_linear range function."""
+  q = quantized_linear(bits, 0, symmetric=symmetric, keep_negative=keep_negative,
+                       alpha=alpha)
+  # compute output on array of inputs, and compare to q.range()
+  x = np.linspace(-10.0, 10.0, 10 * 2**(bits + 1) + 1)
+  y = q(x)
+  q_range = q.range()
+  # assert that y and q_range have the same set of values
+  _assert_same_unique_values(q_range, y)
+  # assert that values ordered on binary range asending
+  _assert_binary_range_ordering(q_range)
+
+
+def _assert_same_unique_values(x, y):
+    """Check if two TensorFlow tensors have the same unique set of values."""
+    # Get the unique values of each tensor
+    unique_x = tf.unique(x)[0].numpy()
+    unique_y = tf.unique(y)[0].numpy()
+
+    # sort the unique values
+    unique_x.sort()
+    unique_y.sort()
+
+    assert unique_x.shape == unique_y.shape
+    assert np.allclose(unique_x, unique_y)
+
+
+def _assert_binary_range_ordering(x):
+  """Assert that x is ordered by binary representation ascending"""
+
+  x = np.array(x)
+  # get positive values in x
+  x_pos = x[x >= 0]
+  # get negative values in x
+  x_neg = x[x < 0]
+  # assert that positive values are ordered ascending
+  assert np.all(np.diff(x_pos) >= 0)
+  # assert that negative values are ordered ascending
+  assert np.all(np.diff(x_neg) >= 0)
+  # assert that all positive values come before negative values
+  assert np.all(x == np.concatenate([x_pos, x_neg]))
 
 
 if __name__ == "__main__":
