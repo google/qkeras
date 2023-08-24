@@ -1244,9 +1244,7 @@ class quantized_linear(BaseQuantizer):
     return config
 
 class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
-  """Legacy quantizer: Please use quantized_linear
-  
-  Quantizes the number to a number of bits.
+  """Legacy quantizer: Quantizes the number to a number of bits.
 
   In general, we want to use a quantization function like:
 
