@@ -46,6 +46,56 @@ def test_QuantizedBits():
     assert_equal(val, qkeras_quantizer.__dict__[key])
 
 
+def test_QuantizedBits_ElementsPerScale():
+  """Tests quantized_bits with elements_per_scale."""
+  def _get_min_max_po2_exponent(x):
+    """Get min and max po2 exponent of x."""
+    po2_x = K.log(x)/np.log(2.0)
+    return (tf.math.reduce_min(po2_x).numpy(),
+            tf.math.reduce_max(po2_x).numpy())
+
+  qkeras_quantizer = quantizers.quantized_bits(
+      alpha="auto_po2", elements_per_scale=[1, 1], scale_axis=[1, 2],
+      min_po2_exponent=-3, max_po2_exponent=3)
+
+  qtools_quantizer = quantizer_impl.QuantizedBits()
+  qtools_quantizer.convert_qkeras_quantizer(qkeras_quantizer)
+  new_quantizer = qtools_quantizer.convert_to_qkeras_quantizer(
+      symmetric=qkeras_quantizer.symmetric,
+      alpha=qkeras_quantizer.alpha,
+      use_stochastic_rounding=qkeras_quantizer.use_stochastic_rounding,
+      scale_axis=qkeras_quantizer.scale_axis,
+      qnoise_factor=qkeras_quantizer.qnoise_factor,
+      elements_per_scale=qkeras_quantizer.elements_per_scale,
+      min_po2_exponent=qkeras_quantizer.min_po2_exponent,
+      max_po2_exponent=qkeras_quantizer.max_po2_exponent,
+  )
+
+  # for quantized_bits the scale is multiplied by the integer scale as well
+  # the integer scale depends on the sign bit
+  integer_po2_scale = new_quantizer.bits - new_quantizer.keep_negative
+
+  # Test for input tensors of rank 3
+  x_r3 = tf.random.uniform([1, 8, 8])
+  new_quantizer(x_r3)
+  x_r3_scale = new_quantizer.scale
+  xq_r3_min_exp, xq_r3_max_exp = _get_min_max_po2_exponent(x_r3_scale)
+
+  assert_equal(new_quantizer.scale.shape, [1, 8, 8])
+  assert xq_r3_min_exp >= -3*integer_po2_scale
+  assert xq_r3_max_exp <= 3*integer_po2_scale
+
+  # Test for input tensors of rank 4
+  x_r4 = tf.random.uniform([1, 2, 4, 8])
+  new_quantizer(x_r4)
+  x_r4_scale = new_quantizer.scale
+  xq_r4_min_exp, xq_r4_max_exp = _get_min_max_po2_exponent(x_r4_scale)
+
+  assert_equal(new_quantizer.scale.shape, [1, 2, 4, 1])
+  assert xq_r4_min_exp >= -3*integer_po2_scale
+  assert xq_r4_max_exp <= 3*integer_po2_scale
+
+
 def test_QuantizedTanh():
   qkeras_quantizer = quantizers.quantized_tanh()
   qtools_quantizer = quantizer_impl.QuantizedTanh()
