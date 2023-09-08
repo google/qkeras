@@ -29,15 +29,10 @@ from tensorflow.keras.layers import Dense
 from tensorflow.keras.layers import Dropout
 from tensorflow.keras.layers import Input
 from tensorflow.keras.models import Model
-# TODO: Update to new optimizer API
-from tensorflow.keras.optimizers.legacy import Adam
+from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.utils import to_categorical
 
 from qkeras.autoqkeras import AutoQKerasScheduler
-
-np.random.seed(42)
-tf.random.set_seed(42)
-tf.config.experimental.enable_op_determinism()
 
 
 def dense_model():
@@ -57,20 +52,13 @@ def dense_model():
   x = Activation("softmax", name="softmax")(x)
 
   model = Model(inputs=x_in, outputs=x)
-
-  # Manually set the weights for each layer. Needed for test determinism.
-  for layer in model.layers:
-    if isinstance(layer, Dense):
-      weights_shape = layer.get_weights()[0].shape
-      bias_shape = layer.get_weights()[1].shape
-      weights = np.random.RandomState(42).randn(*weights_shape)
-      bias = np.random.RandomState(42).randn(*bias_shape)
-      layer.set_weights([weights, bias])
-
   return model
+
 
 def test_autoqkeras():
   """Tests AutoQKeras scheduler."""
+  np.random.seed(42)
+  tf.random.set_seed(42)
 
   x_train, y_train = load_iris(return_X_y=True)
 
@@ -116,7 +104,7 @@ def test_autoqkeras():
 
   model = dense_model()
   model.summary()
-  optimizer = Adam(learning_rate=0.015)
+  optimizer = Adam(lr=0.01)
   model.compile(optimizer=optimizer, loss="categorical_crossentropy",
                 metrics=["acc"])
 
@@ -152,7 +140,7 @@ def test_autoqkeras():
 
   qmodel = autoqk.get_best_model()
 
-  optimizer = Adam(learning_rate=0.015)
+  optimizer = Adam(lr=0.01)
   qmodel.compile(optimizer=optimizer, loss="categorical_crossentropy",
                  metrics=["acc"])
   _ = qmodel.fit(x_train, y_train, epochs=5, batch_size=150,

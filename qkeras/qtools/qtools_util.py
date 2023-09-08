@@ -261,17 +261,12 @@ def adjust_multiplier_for_auto_po2(multiplier, qkeras_weight_quantizer):
   print("adjust multiplier for auto_po2 ...")
   output_quantizer = multiplier.output
   if (hasattr(qkeras_weight_quantizer, "__str__") and
-      ("quantized_bits" in qkeras_weight_quantizer.__str__() or 
-       "quantized_linear" in qkeras_weight_quantizer.__str__()) and
+      "quantized_bits" in qkeras_weight_quantizer.__str__() and
       qkeras_weight_quantizer.alpha == "auto_po2"):
     bits = output_quantizer.bits
     int_bits = output_quantizer.int_bits
-    if "quantized_bits" in qkeras_weight_quantizer.__str__():
-      scale = qkeras_weight_quantizer.scale
-    elif "quantized_linear" in qkeras_weight_quantizer.__str__():
-      scale = qkeras_weight_quantizer.quantization_scale
+    scale = qkeras_weight_quantizer.scale
     if hasattr(scale, "numpy"):
-      scale = qkeras_weight_quantizer.scale
       # if scale doesn't have numpy() function, it means the quantizer has
       # never being called. Therfore we skip the following steps
       scale = scale.numpy()
@@ -279,7 +274,7 @@ def adjust_multiplier_for_auto_po2(multiplier, qkeras_weight_quantizer):
         scale = np.squeeze(scale)
         max_shift = int(np.log2(np.max(scale)))
         min_shift = int(np.log2(np.min(scale)))
-      elif isinstance(scale, (float, np.float32)):
+      elif isinstance(scale, float):
         max_shift = int(np.log2(scale))
         min_shift = max_shift
       else:
@@ -302,8 +297,7 @@ def adjust_multiplier_for_auto_po2(multiplier, qkeras_weight_quantizer):
             "scale", file=sys.stderr)
   elif hasattr(qkeras_weight_quantizer, "alpha") and (
       qkeras_weight_quantizer.alpha == "auto_po2"):
-    print("[WARNING] auto_po2 is detected on a non-quantized_bits/"
-          "quantized_linear quantizer. "
+    print("[WARNING] auto_po2 is detected on a non-quantized_bits quantizer."
           "Currently in QTools we do not yet support the auto_po2 with the "
           f" given quantizer type: {type(qkeras_weight_quantizer)}."
           "Therefore we do not adjust the multiplier and accumulator bit width")
