@@ -427,7 +427,6 @@ def _clip_po2_scale(scale: tf.Tensor, min_po2_exponent: Any,
   min_po2 = None if min_po2_exponent is None else 2**min_po2_exponent
   max_po2 = None if max_po2_exponent is None else 2**max_po2_exponent
   scale = K.clip(scale, min_value=min_po2, max_value=max_po2)
-
   return scale
 
 
@@ -1288,7 +1287,7 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
       If None, the scaling factor is 1 for all channels.
     keep_negative: if true, we do not clip negative numbers.
     use_stochastic_rounding: if true, we perform stochastic rounding.
-    scale_axis: which axis to calculate scale from.
+    scale_axis: int or List[int] which axis/axes to calculate scale from.
     qnoise_factor: float. a scalar from 0 to 1 that represents the level of
       quantization noise to add. This controls the amount of the quantization
       noise to add to the outputs by changing the weighted sum of
@@ -1299,6 +1298,14 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
         not.
     use_variables: Bool. Whether to make the quantizer variables to be dynamic
       tf.Variables or not.
+    elements_per_scale: if set to an int or List[int], we create multiple scales
+      per axis across scale_axis, where 'elements_per_scale' represents the
+      number of elements/values associated with every separate scale value.
+      It is only supported when using "auto_po2".
+    min_po2_exponent: if set while using "auto_po2", it represents the minimum
+      allowed power of two exponent.
+    max_po2_exponent: if set while using "auto_po2", it represents the maximum
+      allowed power of two exponent.
 
   Returns:
     Function that computes fixed-point quantization with bits.
@@ -1315,7 +1322,10 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
                qnoise_factor=1.0,
                var_name=None,
                use_ste=True,
-               use_variables=False):
+               use_variables=False,
+               elements_per_scale=None,
+               min_po2_exponent=None,
+               max_po2_exponent=None):
     super(quantized_bits, self).__init__()
 
     self.bits = bits
@@ -1333,6 +1343,9 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
     self.use_ste = use_ste
     self.var_name = var_name
     self.use_variables = use_variables
+    self.elements_per_scale = elements_per_scale
+    self.min_po2_exponent = min_po2_exponent
+    self.max_po2_exponent = max_po2_exponent
 
   def __str__(self):
     # Convert Tensors to printable strings by converting to a numpy array and
@@ -1372,6 +1385,19 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
     m = K.pow(2.0, K.cast_to_floatx(unsigned_bits))
     m_i = K.pow(2.0, K.cast_to_floatx(self.integer))
 
+    # Verify that "elements_per_scale", "min_po2_exponent",
+    # and "max_po2_exponent" are only set when alpha is "auto_po2"
+    if self.alpha != "auto_po2":
+      assert (
+          self.elements_per_scale is None
+      ), "elements_per_scale is only supported when using auto_po2"
+      assert (
+          self.min_po2_exponent is None
+      ), "min_po2_exponent is only supported when using auto_po2"
+      assert (
+          self.max_po2_exponent is None
+      ), "max_po2_exponent is only supported when using auto_po2"
+
     if self.alpha is None:
       scale = 1.0
     elif isinstance(self.alpha, six.string_types):
@@ -1398,12 +1424,16 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
       if "po2" in self.alpha:
         scale = K.pow(2.0,
                       tf.math.round(K.log(scale + K.epsilon()) / np.log(2.0)))
-        for _ in range(5):
+        for idx in range(5):
           v = tf.floor(tf.abs(x) / scale + 0.5)
           mask = v < levels / 2
           z = tf.sign(x) * tf.where(mask, v, tf.ones_like(v) * levels / 2)
+          print(idx, self.min_po2_exponent, self.max_po2_exponent, m)
           scale = _get_least_squares_scale(alpha="auto_po2", x=x, q=z,
-                             scale_axis=self.scale_axis)
+                             scale_axis=self.scale_axis,
+                             elements_per_scale=self.elements_per_scale,
+                             min_po2_exponent=self.min_po2_exponent,
+                             max_po2_exponent=self.max_po2_exponent)
 
       # If alpha is "auto", then get the "best" floating point scale
       elif self.alpha == "auto":

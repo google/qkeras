@@ -27,12 +27,12 @@ import tensorflow as tf
 from qkeras.qtools import quantized_operators
 
 
-def get_val(feature, key):
+def get_val(feature, key, default_val=None):
   # Return feature[key] or feature.key
   if isinstance(feature, dict):
-    val = feature.get(key, None)
+    val = feature.get(key, default_val)
   else:
-    val = getattr(feature, key, None)
+    val = getattr(feature, key, default_val)
   return val
 
 
@@ -352,7 +352,10 @@ def find_divisors(num):
 def get_layer_info(layer: tf.keras.layers.Layer, attr_name: str):
 
   layer_type = layer.__class__.__name__
-  supported_layer_types = ["QConv2D"]
+  supported_layer_types = [
+      "QDense", "QConv2D", "QDepthwiseConv2D", "MaxPooling2D",
+      "GlobalMaxPooling2D", "QAveragePooling2D", "QGlobalAveragePooling2D",
+      "UpSampling2D", "Concatenate"]
   assert layer_type in supported_layer_types, (
       f"For now only {supported_layer_types} layers are supported. "
       f"Found {layer_type} instead.")
@@ -361,17 +364,16 @@ def get_layer_info(layer: tf.keras.layers.Layer, attr_name: str):
   input_channel = layer.input_shape[-1]
   output_channel = layer.output_shape[-1]
 
+  # Change default kernel_size to 1 to represent Dense Layer with Conv Layers.
   kernel_height, kernel_width = layer.kernel_size if hasattr(
-      layer, "kernel_size") else (None, None)
+      layer, "kernel_size") else (1, 1)
 
-  quantizer_bits = layer.kernel_quantizer.bits
   layer_dict = {
       "layer_type": layer_type,
       "input_channel": input_channel,
       "output_channel": output_channel,
       "kernel_height": kernel_height,
-      "kernel_width": kernel_width,
-      "quantizer_bits": quantizer_bits
+      "kernel_width": kernel_width
   }
   return layer_dict.get(attr_name, None)
 

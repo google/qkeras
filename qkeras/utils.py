@@ -25,7 +25,6 @@ import re
 import networkx as nx
 import tensorflow as tf
 import tensorflow.keras.backend as K
-from keras.layers.core import TFOpLambda
 
 from tensorflow.keras.models import Model
 from tensorflow.keras.models import model_from_json
@@ -445,8 +444,7 @@ def get_config(quantizer_config, layer, layer_class, parameter=None):
 
 
 def is_TFOpLambda_layer(layer):
-  return (isinstance(layer, TFOpLambda) or
-          layer.__class__.__name__ == "TFOpLambda")
+  return layer.__class__.__name__ == "TFOpLambda"
 
 
 def get_y_from_TFOpLambda(model_cfg, layer):
@@ -467,7 +465,7 @@ def get_y_from_TFOpLambda(model_cfg, layer):
     class_name = layer_config["class_name"]
 
     # TODO(lishanok): Extend support for other TFOpLambda types when needed
-    if op_name == layer.name and  class_name == "TFOpLambda":
+    if op_name == layer.name and class_name == "TFOpLambda":
       assert ("tf.__operators__.add" in op_name or "tf.math.multiply"
               in op_name), "TFOpLambda layer {} not supported!".format(op_name)
       return layer_config["inbound_nodes"][-1][-1]["y"]

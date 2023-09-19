@@ -105,14 +105,17 @@ class QuantizedBits(IQuantizer):
 
   def convert_to_qkeras_quantizer(
       self, symmetric=1, alpha=None, use_stochastic_rounding=False,
-      scale_axis=None, qnoise_factor=1.0):
+      scale_axis=None, qnoise_factor=1.0, elements_per_scale=None,
+      min_po2_exponent=None, max_po2_exponent=None):
     """convert qtools quantizer to qkeras quantizer."""
 
     return quantizers.quantized_bits(
         bits=self.bits, integer=self.int_bits, keep_negative=self.is_signed,
         symmetric=symmetric, alpha=alpha,
         use_stochastic_rounding=use_stochastic_rounding,
-        scale_axis=scale_axis, qnoise_factor=qnoise_factor)
+        scale_axis=scale_axis, qnoise_factor=qnoise_factor,
+        elements_per_scale=elements_per_scale,
+        min_po2_exponent=min_po2_exponent, max_po2_exponent=max_po2_exponent)
 
 
 class QuantizedLinear(QuantizedBits):
