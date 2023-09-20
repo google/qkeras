@@ -308,43 +308,43 @@ class QBatchNormalization(BatchNormalization, PrunableLayer):
         'center': self.center,
         'scale': self.scale,
         'beta_quantizer': constraints.serialize(
-            self.beta_quantizer_internal
+            self.beta_quantizer_internal# Google internal code, commented out by copybara
         ),
         'gamma_quantizer': constraints.serialize(
-            self.gamma_quantizer_internal
+            self.gamma_quantizer_internal# Google internal code, commented out by copybara
         ),
         'mean_quantizer': constraints.serialize(
-            self.mean_quantizer_internal
+            self.mean_quantizer_internal# Google internal code, commented out by copybara
         ),
         'variance_quantizer': constraints.serialize(
-            self.variance_quantizer_internal
+            self.variance_quantizer_internal# Google internal code, commented out by copybara
         ),
         'beta_initializer': initializers.serialize(
-            self.beta_initializer
+            self.beta_initializer# Google internal code, commented out by copybara
         ),
         'gamma_initializer': initializers.serialize(
-            self.gamma_initializer
+            self.gamma_initializer# Google internal code, commented out by copybara
         ),
         'moving_mean_initializer': initializers.serialize(
-            self.moving_mean_initializer
+            self.moving_mean_initializer# Google internal code, commented out by copybara
         ),
         'moving_variance_initializer': initializers.serialize(
-            self.moving_variance_initializer
+            self.moving_variance_initializer# Google internal code, commented out by copybara
         ),
         'inverse_quantizer': initializers.serialize(
-            self.inverse_quantizer_internal
+            self.inverse_quantizer_internal# Google internal code, commented out by copybara
         ),
         'beta_regularizer': regularizers.serialize(
-            self.beta_regularizer
+            self.beta_regularizer# Google internal code, commented out by copybara
         ),
         'gamma_regularizer': regularizers.serialize(
-            self.gamma_regularizer
+            self.gamma_regularizer# Google internal code, commented out by copybara
         ),
         'beta_constraint': constraints.serialize(
-            self.beta_constraint
+            self.beta_constraint# Google internal code, commented out by copybara
         ),
         'gamma_constraint': constraints.serialize(
-            self.gamma_constraint
+            self.gamma_constraint# Google internal code, commented out by copybara
         ),
         'beta_range': self.beta_range,
         'gamma_range': self.gamma_range,

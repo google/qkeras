@@ -125,22 +125,27 @@ class QScaleShift(tf.keras.layers.Layer, PrunableLayer):
   def get_config(self):
     config = {
         "weight_quantizer": constraints.serialize(
-            self.weight_quantizer_internal
-        ),
+            self.weight_quantizer_internal# Google internal code, commented out by copybara
+            ),
         "bias_quantizer": constraints.serialize(
-            self.bias_quantizer_internal
-        ),
+            self.bias_quantizer_internal# Google internal code, commented out by copybara
+            ),
         "weight_initializer": constraints.serialize(
-            self.weight_initializer),
+            self.weight_initializer# Google internal code, commented out by copybara
+            ),
         "bias_initializer": constraints.serialize(
-            self.bias_initializer),
+            self.bias_initializer# Google internal code, commented out by copybara
+            ),
         "activation": constraints.serialize(
-            self.activation),
+            self.activation# Google internal code, commented out by copybara
+            ),
         "use_bias": self.use_bias,
         "weight_regularizer": constraints.serialize(
-            self.weight_regularizer),
+            self.weight_regularizer# Google internal code, commented out by copybara
+            ),
         "bias_regularizer": constraints.serialize(
-            self.bias_regularizer),
+            self.bias_regularizer# Google internal code, commented out by copybara
+            ),
     }
     base_config = super().get_config()
     base_config.update(config)

@@ -33,7 +33,7 @@ from tensorflow.keras.layers import Dropout
 from tensorflow.keras.layers import InputSpec
 from tensorflow.python.eager import context
 from tensorflow.python.ops import array_ops
-
+# Google internal code, commented out by copybara
 from .qlayers import get_auto_range_constraint_initializer
 from .qlayers import QActivation
 from .quantizers import get_quantized_initializer
@@ -217,10 +217,10 @@ class QConv1D(Conv1D, PrunableLayer):
   def get_config(self):
     config = {
         "kernel_quantizer": constraints.serialize(
-            self.kernel_quantizer_internal
+            self.kernel_quantizer_internal# Google internal code, commented out by copybara
         ),
         "bias_quantizer": constraints.serialize(
-            self.bias_quantizer_internal
+            self.bias_quantizer_internal# Google internal code, commented out by copybara
         ),
         "kernel_range": self.kernel_range,
         "bias_range": self.bias_range,
@@ -371,10 +371,10 @@ class QConv2D(Conv2D, PrunableLayer):
   def get_config(self):
     config = {
         "kernel_quantizer": constraints.serialize(
-            self.kernel_quantizer_internal
+            self.kernel_quantizer_internal# Google internal code, commented out by copybara
         ),
         "bias_quantizer": constraints.serialize(
-            self.bias_quantizer_internal
+            self.bias_quantizer_internal# Google internal code, commented out by copybara
         ),
         "kernel_range": self.kernel_range,
         "bias_range": self.bias_range,
@@ -555,10 +555,10 @@ class QConv2DTranspose(Conv2DTranspose, PrunableLayer):
   def get_config(self):
     config = {
         "kernel_quantizer": constraints.serialize(
-            self.kernel_quantizer_internal
+            self.kernel_quantizer_internal# Google internal code, commented out by copybara
         ),
         "bias_quantizer": constraints.serialize(
-            self.bias_quantizer_internal
+            self.bias_quantizer_internal# Google internal code, commented out by copybara
         ),
     }
     base_config = super(QConv2DTranspose, self).get_config()
@@ -730,13 +730,13 @@ class QSeparableConv1D(SeparableConv1D, PrunableLayer):
   def get_config(self):
     config = {
         "depthwise_quantizer": constraints.serialize(
-            self.depthwise_quantizer_internal
+            self.depthwise_quantizer_internal# Google internal code, commented out by copybara
         ),
         "pointwise_quantizer": constraints.serialize(
-            self.pointwise_quantizer_internal
+            self.pointwise_quantizer_internal# Google internal code, commented out by copybara
         ),
         "bias_quantizer": constraints.serialize(
-            self.bias_quantizer_internal
+            self.bias_quantizer_internal# Google internal code, commented out by copybara
         ),
     }
     base_config = super(QSeparableConv1D, self).get_config()
@@ -891,13 +891,13 @@ class QSeparableConv2D(SeparableConv2D, PrunableLayer):
   def get_config(self):
     config = {
         "depthwise_quantizer": constraints.serialize(
-            self.depthwise_quantizer_internal
+            self.depthwise_quantizer_internal# Google internal code, commented out by copybara
         ),
         "pointwise_quantizer": constraints.serialize(
-            self.pointwise_quantizer_internal
+            self.pointwise_quantizer_internal# Google internal code, commented out by copybara
         ),
         "bias_quantizer": constraints.serialize(
-            self.bias_quantizer_internal
+            self.bias_quantizer_internal# Google internal code, commented out by copybara
         ),
     }
     base_config = super(QSeparableConv2D, self).get_config()
@@ -1076,19 +1076,19 @@ class QDepthwiseConv2D(DepthwiseConv2D, PrunableLayer):
     config.pop("kernel_constraint", None)
     config["depth_multiplier"] = self.depth_multiplier
     config["depthwise_initializer"] = initializers.serialize(
-        self.depthwise_initializer
+        self.depthwise_initializer# Google internal code, commented out by copybara
     )
     config["depthwise_regularizer"] = regularizers.serialize(
-        self.depthwise_regularizer
+        self.depthwise_regularizer# Google internal code, commented out by copybara
     )
     config["depthwise_constraint"] = constraints.serialize(
-        self.depthwise_constraint
+        self.depthwise_constraint# Google internal code, commented out by copybara
     )
     config["depthwise_quantizer"] = constraints.serialize(
-        self.depthwise_quantizer_internal
+        self.depthwise_quantizer_internal# Google internal code, commented out by copybara
     )
     config["bias_quantizer"] = constraints.serialize(
-        self.bias_quantizer_internal
+        self.bias_quantizer_internal# Google internal code, commented out by copybara
     )
     config["depthwise_range"] = self.depthwise_range
     config["bias_range"] = self.bias_range

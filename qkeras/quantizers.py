@@ -28,8 +28,8 @@ from tensorflow.keras import initializers
 from tensorflow.keras.utils import deserialize_keras_object
 from tensorflow.python.framework import smart_cond as tf_utils
 from .safe_eval import safe_eval
-
-
+# Google internal code, commented out by copybara
+# Google internal code, commented out by copybara
 
 #
 # Library of auxiliary functions
