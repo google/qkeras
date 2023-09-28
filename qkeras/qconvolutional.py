@@ -33,7 +33,7 @@ from tensorflow.keras.layers import Dropout
 from tensorflow.keras.layers import InputSpec
 from tensorflow.python.eager import context
 from tensorflow.python.ops import array_ops
-# Google internal code, commented out by copybara
+# from tensorflow.python.ops import array_ops
 from .qlayers import get_auto_range_constraint_initializer
 from .qlayers import QActivation
 from .quantizers import get_quantized_initializer
