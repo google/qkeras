@@ -71,8 +71,8 @@ from .quantizers import quantized_relu_po2
 from .quantizers import stochastic_binary
 from .quantizers import stochastic_ternary
 from .quantizers import ternary
-
-
+# from .google_internals.experimental_quantizers import quantized_bits_learnable_scale
+# from .google_internals.experimental_quantizers import parametric_quantizer_d_xmax
 from .safe_eval import safe_eval
 from tensorflow.python.ops import math_ops
 from .qmac import QScaleShift
@@ -1053,7 +1053,7 @@ def _add_supported_quantized_objects(custom_objects):
   custom_objects["quantized_sigmoid"] = quantized_sigmoid
   custom_objects["quantized_po2"] = quantized_po2
   custom_objects["quantized_relu_po2"] = quantized_relu_po2
-  
+  # custom_objects["quantized_bits_learnable_scale"] = quantized_bits_learnable_scale
 
   custom_objects["QConv2DBatchnorm"] = QConv2DBatchnorm
   custom_objects["QDepthwiseConv2DBatchnorm"] = QDepthwiseConv2DBatchnorm

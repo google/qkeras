@@ -355,7 +355,8 @@ def get_layer_info(layer: tf.keras.layers.Layer, attr_name: str):
   supported_layer_types = [
       "QDense", "QConv2D", "QDepthwiseConv2D", "MaxPooling2D",
       "GlobalMaxPooling2D", "QAveragePooling2D", "QGlobalAveragePooling2D",
-      "UpSampling2D", "Concatenate"]
+      "UpSampling2D", "Concatenate", "QBatchNormalization", "QActivation",
+      "Activation", "Dropout", "Reshape", "ZeroPadding2D"]
   assert layer_type in supported_layer_types, (
       f"For now only {supported_layer_types} layers are supported. "
       f"Found {layer_type} instead.")

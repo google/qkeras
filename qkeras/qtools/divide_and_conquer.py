@@ -228,11 +228,13 @@ def get_valid_unrolls(layer: tf.keras.layers.Layer, cout_unroll: int,
   for cin_unroll in cin_unroll_list:
     for kw_unroll in kw_unroll_list:
       for kh_unroll in kh_unroll_list:
+        logging.debug("............cin_unroll: %d kh_unroll: %d kw_unroll: %d",
+                      cin_unroll, kh_unroll, kw_unroll)
         # Caculate computation throughput.
         pe_throughput = get_pe_throughput(
             layer_type, cin_unroll, cout_unroll, kh_unroll, kw_unroll,
             input_channel, output_channel, kernel_height, kernel_width)
-
+        logging.debug("............pe_throughput: %.2f", pe_throughput)
         if pe_throughput >= target_throughput:
           # Save the valid combination of unroll factors to valid_unrolls.
           valid_unrolls.append((cin_unroll, kh_unroll, kw_unroll))
@@ -243,7 +245,8 @@ def get_valid_unrolls(layer: tf.keras.layers.Layer, cout_unroll: int,
 def get_per_layer_cost(layer_quantizer_bitwidth, layer_mac_count, layer_shapes,
                        cin_unroll, cout_unroll, kh_unroll, kw_unroll,
                        InElementPerClk, OutElementPerClk, mode):
-  # Area for a single layer, includes both PE and memory Bandwidth
+  """Area per layer, including both PE and memory Bandwidth."""
+
   # TODO(lishanok@): needs a better cost modeling function. For now we simplify
   # it to the number of multipliers + interface bitwidth.
   assert mode == CostMode.NAIVE, "Only CostMode.NAIVE is supported for now."
@@ -252,10 +255,11 @@ def get_per_layer_cost(layer_quantizer_bitwidth, layer_mac_count, layer_shapes,
              layer_quantizer_bitwidth["weight_bits"] * layer_mac_count *
              cin_unroll * cout_unroll * kh_unroll * kw_unroll)
 
-  memory_area = (InElementPerClk * layer_quantizer_bitwidth["input_bits"]
-               + OutElementPerClk * layer_quantizer_bitwidth["output_bits"] +
-               np.product(layer_shapes["weight_shape"]) *
-               layer_quantizer_bitwidth["weight_bits"])
+  memory_area = (
+      InElementPerClk * layer_quantizer_bitwidth["input_bits"]
+      + OutElementPerClk * layer_quantizer_bitwidth["output_bits"] +
+      np.product(layer_shapes["weight_shape"]) *
+      layer_quantizer_bitwidth["weight_bits"])
 
   return pe_area + memory_area
 
@@ -447,15 +451,15 @@ def get_pe_throughput(layer_type, cin_unroll, cout_unroll, kh_unroll, kw_unroll,
                       kernel_width):
   """Calculate compute throughput for the given unroll factors."""
   if layer_type in ["QConv2D", "QDense"]:
-    return cin_unroll * cout_unroll * kh_unroll * kw_unroll / (
+    return 1.0 * cin_unroll * cout_unroll * kh_unroll * kw_unroll / (
         input_channel * output_channel * kernel_height * kernel_width)
   elif layer_type in ["QDepthwiseConv2D", "QAveragePooling2D", "MaxPooling2D",
                       "UpSampling2D"]:
-    return cout_unroll * kh_unroll * kw_unroll / (
+    return 1.0 * cout_unroll * kh_unroll * kw_unroll / (
         output_channel * kernel_height * kernel_width)
   elif layer_type in ["QGlobalAveragePooling2D", "GlobalMaxPooling2D",
                       "Concatenate"]:
-    return cout_unroll / output_channel
+    return 1.0 * cout_unroll / output_channel
   else:
     raise ValueError(f"Unspported layer type: {layer_type}")
 
@@ -475,7 +479,7 @@ def calc_hw_params(graph, target_OutElementPerClk, target_throughput,
       cycle that the hardware needs to make.
     input_quantizer_bits: Int. Model's input quantizer bits.
     compute_to_memory_max_ratio: Int. Max allowed ratio between
-      ComputOutElement and OutElement
+      ComputeOutElement and OutElement
     memory_to_unroll_max_ratio: Int. Max allowed ratio between
       InElementPerClk and CinUnroll
     mode: CostMode. The mode to calculate per layer cost. Default is NAIVE.
@@ -513,8 +517,9 @@ def calc_hw_params(graph, target_OutElementPerClk, target_throughput,
     # TODO(lishanok@): extend this code to multiple prev layers.
     cur_layer_idx = graph.get_prev_nodes(layer_idx)[0]
     cur_layer = graph.idx_to_layer(cur_layer_idx)
-    logging.debug("processing layer_idx:%d layer:%s",
-                  cur_layer_idx, getattr(cur_layer, "name", None))
+    logging.debug("processing layer_idx:%d name:%s type:%s ***",
+                  cur_layer_idx, getattr(cur_layer, "name", None),
+                  cur_layer.__class__.__name__)
 
     # Previous layer will generate a list of candidates for OutElementPerClk
     # values for the current layer.
@@ -524,13 +529,6 @@ def calc_hw_params(graph, target_OutElementPerClk, target_throughput,
     layer_quantizer_bitwidth = graph.get_layer_quantizer_bitwidth(cur_layer)
     layer_mac_count = graph.get_layer_mac_count(cur_layer)
     layer_shapes = graph.get_layer_shapes(cur_layer)
-
-
-    if cur_layer:
-      print(f"======={cur_layer.name} =========\n")
-      print(layer_quantizer_bitwidth)
-      print("mac count:", layer_mac_count)
-      print("layer shapes:", layer_shapes)
 
     # TODO(lishanok@): need to extend to multiple input layers, i.e., more
     # than 1 layer will reach graph's first node. We should only exit if all
@@ -552,12 +550,32 @@ def calc_hw_params(graph, target_OutElementPerClk, target_throughput,
 
     logging.debug("input_channel: %d, output_channel: %d, kernel_height: %d, "
                   "kernel_width: %d, weight_quantizer_bits: %d",
-                  input_channel, output_channel, kernel_width,
+                  input_channel, output_channel, kernel_height, kernel_width,
                   layer_quantizer_bitwidth["weight_bits"])
 
     cur_best_choices = {}
     for OutElementPerClk in OutElementPerClk_list:
       logging.debug("...OutElementPerClk: %d", OutElementPerClk)
+
+      # Pass through OutElementPerClk and cost for non-essential layers.
+      if layer_type in ["QBatchNormalization", "QActivation", "Dropout",
+                        "Reshape", "Activation", "ZeroPadding2D"]:
+        logging.debug("...... Passing through layer_type: %s with 0 cost",
+                      layer_type)
+
+        # Update the best choices dict with only 1 key-value pair. By
+        # considering current light-computation layer in the graph
+        # as a pass-through node, we set layer cost=0, and set the predecessor
+        # node's OutElementPerClk the same as current node's OutElementPerClk.
+        update_cur_best_choices(
+            cur_best_choices, OutElementPerClk=OutElementPerClk,
+            prev_OutElementPerClk=OutElementPerClk, cur_layer_cost=0,
+            accumulative_cost=paths[layer_idx][OutElementPerClk]["acc_cost"],
+            choice=Choice())
+
+        # Exit current iteration since there is no design param to explore
+        # for these layer types.
+        continue
 
       # For each of the possible OutElementPerClk values provided by the next
       # layer, we derive possible HW params choices of the current layer.
@@ -565,14 +583,19 @@ def calc_hw_params(graph, target_OutElementPerClk, target_throughput,
           OutElementPerClk, compute_to_memory_max_ratio):
         logging.debug("......ComputeOutElementPerClk: %d",
                       ComputeOutElementPerClk)
+
         l = OutElementPerClk / ComputeOutElementPerClk
         cout_unroll = ComputeOutElementPerClk
 
+        logging.debug(
+            ".........OutElementPerClk / ComputeOutElementPerClk = %.2f,"
+            "cout_unroll=%.2f", l, cout_unroll)
         # Find valid unroll values that meet pe throughput requirement.
         valid_unrolls = get_valid_unrolls(cur_layer, cout_unroll,
                                           target_throughput)
         if not valid_unrolls:
           # Skip if no valid unroll values are found.
+          logging.debug(".........No valid unroll values found!")
           continue
 
         for (cin_unroll, kh_unroll, kw_unroll) in valid_unrolls:
@@ -594,6 +617,7 @@ def calc_hw_params(graph, target_OutElementPerClk, target_throughput,
             # possible candidate of InElementPerClk.
             logging.debug("............InElementPerClk: %d", InElementPerClk)
             k = cin_unroll / InElementPerClk
+            # prev_OutElementPerClk is the predecessor node's OutElementPerClk
             prev_OutElementPerClk = InElementPerClk
 
             if is_bufferThru_greater_than_targetThru(
@@ -626,6 +650,11 @@ def calc_hw_params(graph, target_OutElementPerClk, target_throughput,
                                       prev_OutElementPerClk, cur_layer_cost,
                                       accumulative_cost, choice)
 
+    if not cur_best_choices:
+      logging.error("Cannot find any valid HW choice for layer %s! Exit!",
+                    cur_layer.name)
+      return {}, None
+
     logging.debug("=======================")
 
     # Store the best choices of hw params for the current layer. Proceed to
@@ -654,7 +683,7 @@ def estimate_model_cost(
     target_throughput: Target number of inferences per clock
       cycle that the hardware needs to make.
     compute_to_memory_max_ratio: Max allowed ratio between
-      ComputOutElement and OutElement
+      ComputeOutElement and OutElement
     memory_to_unroll_max_ratio: Max allowed ratio between
       InElementPerClk and CinUnroll
     mode: The mode to calculate per layer cost.
@@ -681,6 +710,5 @@ def estimate_model_cost(
   )
 
   logging.info("best_design_params: %s", best_path)
-  logging.info("best_cost: %.2f", best_cost)
 
   return (best_path, best_cost)

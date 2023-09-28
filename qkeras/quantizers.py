@@ -28,8 +28,8 @@ from tensorflow.keras import initializers
 from tensorflow.keras.utils import deserialize_keras_object
 from tensorflow.python.framework import smart_cond as tf_utils
 from .safe_eval import safe_eval
-
-
+# from .google_internals.experimental_quantizers import quantized_bits_learnable_scale
+# from .google_internals.experimental_quantizers import parametric_quantizer_d_xmax
 
 #
 # Library of auxiliary functions

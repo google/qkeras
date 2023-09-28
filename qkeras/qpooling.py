@@ -104,10 +104,10 @@ class QAveragePooling2D(AveragePooling2D):
   def get_config(self):
     config = {
         "average_quantizer": constraints.serialize(
-            self.average_quantizer_internal
+            self.average_quantizer_internal# Google internal code, commented out by copybara
         ),
         "activation": constraints.serialize(
-            self.activation
+            self.activation# Google internal code, commented out by copybara
         ),
     }
     base_config = super(QAveragePooling2D, self).get_config()
@@ -202,10 +202,10 @@ class QGlobalAveragePooling2D(GlobalAveragePooling2D):
   def get_config(self):
     config = {
         "average_quantizer": constraints.serialize(
-            self.average_quantizer_internal
+            self.average_quantizer_internal# Google internal code, commented out by copybara
         ),
         "activation": constraints.serialize(
-            self.activation
+            self.activation# Google internal code, commented out by copybara
         ),
     }
     base_config = super(QGlobalAveragePooling2D, self).get_config()

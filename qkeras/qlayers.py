@@ -671,35 +671,35 @@ class QDense(Dense, PrunableLayer):
     config = {
         "units": self.units,
         "activation": activations.serialize(
-            self.activation
+            self.activation# Google internal code, commented out by copybara
         ),
         "use_bias": self.use_bias,
         "kernel_quantizer": constraints.serialize(
-            self.kernel_quantizer_internal
+            self.kernel_quantizer_internal# Google internal code, commented out by copybara
         ),
         "bias_quantizer": constraints.serialize(
-            self.bias_quantizer_internal
+            self.bias_quantizer_internal# Google internal code, commented out by copybara
         ),
         "kernel_initializer": initializers.serialize(
-            self.kernel_initializer
+            self.kernel_initializer# Google internal code, commented out by copybara
         ),
         "bias_initializer": initializers.serialize(
-            self.bias_initializer
+            self.bias_initializer# Google internal code, commented out by copybara
         ),
         "kernel_regularizer": regularizers.serialize(
-            self.kernel_regularizer
+            self.kernel_regularizer# Google internal code, commented out by copybara
         ),
         "bias_regularizer": regularizers.serialize(
-            self.bias_regularizer
+            self.bias_regularizer# Google internal code, commented out by copybara
         ),
         "activity_regularizer": regularizers.serialize(
-            self.activity_regularizer
+            self.activity_regularizer# Google internal code, commented out by copybara
         ),
         "kernel_constraint": constraints.serialize(
-            self.kernel_constraint
+            self.kernel_constraint# Google internal code, commented out by copybara
         ),
         "bias_constraint": constraints.serialize(
-            self.bias_constraint
+            self.bias_constraint# Google internal code, commented out by copybara
         ),
         "kernel_range": self.kernel_range,
         "bias_range": self.bias_range,

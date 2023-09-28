@@ -20,8 +20,8 @@ from __future__ import print_function
 
 import copy
 from qkeras import quantizers
-
-
+# from qkeras.google_internals import experimental_quantizers
+# from qkeras.google_internals import experimental_quantizer_impl
 from qkeras.qtools.quantized_operators import quantizer_impl
 from qkeras.qtools.settings import cfg
 
@@ -55,10 +55,10 @@ class QuantizerFactory:
             quantizer_impl.QuantizedTanh,
         quantizers.quantized_ulaw:
             quantizer_impl.QuantizedUlaw,
-        
-            
-        
-            
+        # experimental_quantizers.quantized_bits_learnable_scale:
+            # experimental_quantizer_impl.QuantizedBitsLearnableScale,
+        # experimental_quantizers.parametric_quantizer_d_xmax:
+            # experimental_quantizer_impl.ParametricQuantizer,
 
         # add following quantizer types for the use in GraphUpdateEdge
         quantizer_impl.QuantizedBits:
@@ -87,10 +87,10 @@ class QuantizerFactory:
             quantizer_impl.StochasticTernary,
         quantizer_impl.QuantizedUlaw:
             quantizer_impl.StochasticTernary,
-        
-            
-        
-            
+        # experimental_quantizer_impl.QuantizedBitsLearnableScale:
+            # experimental_quantizer_impl.QuantizedBitsLearnableScale,
+        #experimental_quantizer_impl.ParametricQuantizer:
+            # experimental_quantizer_impl.ParametricQuantizer,
     }
 
     self._default_interm_quantizer = cfg.default_interm_quantizer
