@@ -770,7 +770,8 @@ def generate_layer_data_type_map(
         # auto-po2 type of quantizers and store them in fused_accumulator.
         if (
             hasattr(qkeras_weight_quantizer, "__str__") and
-            "quantized_bits" in qkeras_weight_quantizer.__str__() and
+            ("quantized_bits" in qkeras_weight_quantizer.__str__() or
+             "quantized_linear" in qkeras_weight_quantizer.__str__()) and
             qkeras_weight_quantizer.alpha == "auto_po2"):
           fused_accumulator = qtools_util.adjust_accumulator_for_auto_po2(
               layer, multiplier, qkeras_weight_quantizer, bias_quantizer)

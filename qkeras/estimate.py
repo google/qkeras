@@ -234,6 +234,7 @@ def get_quant_mode(quant):
   modes = [
       # depending on the number of bits, quantized_bits may be 2, 2
       ("quantized_bits", 0, -1, 1),
+      ("quantized_linear", 0, -1, 1),
       ("bernoulli", 4, 1, 0),
       ("stochastic_ternary", 2, 2, 1),
       ("ternary", 2, 2, 1),

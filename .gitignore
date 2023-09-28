@@ -1,0 +1,5 @@
+**/__pycache__/
+sandbox*
+logs/
+cifar10.h5
+

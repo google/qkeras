@@ -22,10 +22,16 @@ from numpy.testing import assert_allclose
 
 import pytest
 from tensorflow.keras import backend as K
+import tensorflow as tf
+from keras.models import Sequential
+from keras.callbacks import Callback
+from keras.optimizers import SGD
+
 
 from qkeras import set_internal_sigmoid
 from qkeras import binary
 from qkeras import hard_sigmoid
+from qkeras import quantized_linear
 from qkeras import quantized_bits
 from qkeras import quantized_hswish
 from qkeras import quantized_po2
@@ -38,6 +44,8 @@ from qkeras import stochastic_binary
 from qkeras import stochastic_ternary
 from qkeras import ternary
 from qkeras.quantizers import _default_sigmoid_type
+from qkeras import QDense, QConv2D
+
 
 
 @pytest.mark.parametrize(
@@ -516,6 +524,371 @@ def test_quantized_bits(bits, integer, symmetric, keep_negative, test_values,
                  [quantized_bits(bits, integer, symmetric, keep_negative)(x)])
   result = f([test_values])[0]
   assert_allclose(result, expected_values, rtol=rtol)
+
+class TestQuantizedLinear:
+  """Tests for quantized_linear"""
+
+  def test_sign_function(self):
+    "Test to make sure that sign function is working properly"
+
+    quantizer = quantized_linear(bits=1, keep_negative=True)
+    x = tf.constant([-1.0, 0.0, 1.0, 2.0, 3.0])
+
+    res = quantizer(x)
+    expected_res = quantizer.max() * tf.constant([-1.0, 1.0, 1.0, 1.0, 1.0])
+
+    assert tf.reduce_all(tf.equal(res, expected_res))
+
+  @pytest.mark.parametrize('shape', [(1,), (2, 3), (2, 2, 4)])
+  def test_scale_shape(self, shape):
+    """Test to make sure that scale is the right shape for auto-alphas"""
+
+    auto_quantizer = quantized_linear(alpha='auto')
+    auto_po2_quantizer = quantized_linear(alpha='auto_po2')
+    x = tf.ones(shape)
+    auto_quantizer(x)
+    auto_po2_quantizer(x)
+
+    if len(shape) == 1:
+      expected_shape = (1,)
+    else:
+      ones = [1 for _ in range(len(shape) - 1)]
+      expected_shape = tuple(ones) + shape[-1:]
+
+    assert auto_quantizer.scale.shape == expected_shape
+    assert auto_po2_quantizer.scale.shape == expected_shape
+
+  @pytest.mark.parametrize(
+    'inputs, expected_auto_scale, expected_auto_po2_scale',
+    [
+      ( # rank 1
+        [1.0, 2.0, 3.0, 4.0, 5.0],
+        [2.0, 4.0, 6.0, 8.0, 10.0],
+        [2.0, 4.0, 8.0, 8.0, 8.0]
+      ),
+      ( # rank 2
+        [[-1.0, 0.0, 1.0,  2.5,  4.0],
+         [-1.0, 4.0, 5.0, -2.0, -1.0],
+         [ 1.0, 2.0, 3.0,  0.0, 20.0]],
+        [[ 2.0, 8.0, 10.0, 5.0, 40.0,]],
+        [[ 2.0, 8.0,  8.0, 4.0, 32.0,]],
+      ),
+      ( # rank 3
+        [[[0.0, 1.0], [2.0, 3.0]], 
+         [[4.0, 5.0], [6.0, 7.0]]], 
+        [[[12.0, 14.0]]],
+        [[[16.0, 16.0]]],        
+      )
+    ]
+  )
+  def test_scale_values(
+    self, inputs, expected_auto_scale, expected_auto_po2_scale):
+    """
+    Test to make sure that scale is the right value for auto-alphas
+    
+    Note that since bits=2, the data type scale will be 0.5. This means that
+    the scale values will be 2x the quantization_scale values.
+    """
+
+    auto_quantizer = quantized_linear(alpha='auto', bits=2)
+    auto_po2_quantizer = quantized_linear(alpha='auto_po2', bits=2)
+    
+    auto_quantizer(inputs)
+    auto_po2_quantizer(inputs)
+
+    tf.debugging.assert_equal(auto_quantizer.scale, expected_auto_scale)
+    tf.debugging.assert_equal(auto_po2_quantizer.scale, expected_auto_po2_scale)
+
+  @pytest.mark.parametrize('layer_type', ['QDense', 'QConv2D'])
+  @pytest.mark.parametrize('alpha', ['auto', 'auto_po2'])
+  def test_training_eval_equivalence(self, layer_type, alpha):
+    """Test the behavior of quantizer during training and eval"""
+
+    np.random.seed(42)
+
+    # Define the quantizer
+    quantizer = quantized_linear(alpha=alpha)
+    model = Sequential()
+
+    if layer_type == 'QConv2D':
+      input_shape = (28, 28, 1) # Example shape for a grayscale image
+      weight_shape = (3, 3, 1, 1)
+      conv_layer = QConv2D(
+        1, (3, 3), kernel_quantizer=quantizer, use_bias=False)
+      model.add(conv_layer)
+      # Create fake data with the corresponding shape
+      X = np.random.rand(100, *input_shape)
+    elif layer_type == 'QDense':
+      input_shape = (2,) # Example shape for 2 input features
+      weight_shape = (2, 3)
+      dense_layer = QDense(
+        3, input_shape=input_shape, kernel_quantizer=quantizer, use_bias=False)
+      model.add(dense_layer)
+      # Create fake data with the corresponding shape
+      X = np.random.rand(100, *input_shape)
+
+    # Set learning rate to zero
+    opt = SGD(learning_rate=0.0)
+    model.compile(optimizer=opt, loss='mse')
+
+    # Initialize the weights
+    model.build((None, *input_shape))
+    initial_weights = np.random.rand(*weight_shape)
+    model.layers[0].set_weights([initial_weights])
+
+    # Create fake output data
+    output_shape = model.output_shape[1:]
+    y = np.random.rand(100, *output_shape)
+
+    # Define a callback to capture weights during training
+    class CaptureQuantizedWeightsCallback(Callback):
+      def __init__(self):
+          
+        self.quantized_weights = []
+        self.scales = []
+
+      def on_train_batch_begin(self, batch, logs=None):
+        weights = self.model.layers[0].get_weights()[0]
+        qweights = self.model.layers[0].kernel_quantizer_internal(weights)
+        scale = self.model.layers[0].kernel_quantizer_internal.scale
+        self.quantized_weights.append(qweights)
+        self.scales.append(scale)
+
+    capture_weights_callback = CaptureQuantizedWeightsCallback()
+
+    # Train the model
+    model.fit(X, y, epochs=1, callbacks=[capture_weights_callback])
+
+    # Capture the weights during evaluation (testing phase)
+    weights = model.layers[0].get_weights()[0]
+    eval_quantized_weights = model.layers[0].kernel_quantizer_internal(weights)
+    eval_scale = model.layers[0].kernel_quantizer_internal.scale
+
+    # Compare the weights during training and evaluation
+    for train_quantized_weights in capture_weights_callback.quantized_weights:
+      assert np.allclose(train_quantized_weights, eval_quantized_weights)
+
+    # Compare the scales during training and evaluation
+    for train_scale in capture_weights_callback.scales:
+      assert np.allclose(train_scale, eval_scale)
+
+  @pytest.mark.parametrize('alpha', [None, 2.0])
+  @pytest.mark.parametrize('symmetric,keep_negative', 
+                          [(True, True), (False, True), (False, False)])
+  @pytest.mark.parametrize('bits', [1, 8])
+  def test_gradient_formula(self, bits, symmetric, keep_negative, alpha):
+    """Test to make sure that the gradient formula is correct"""
+
+    quantizer = quantized_linear(bits=bits, symmetric=symmetric,
+                                 keep_negative=keep_negative, alpha=alpha)
+    x = tf.Variable([-1.0, 0.0, 1.0, 2.0, 3.0])
+
+    with tf.GradientTape() as tape:
+      res = quantizer(x)
+
+    grad = tape.gradient(res, x)
+    expected_grad = ((x >= quantizer.min()) & (x <= quantizer.max()))
+    expected_grad = K.cast_to_floatx(expected_grad)
+    assert grad is not None
+    tf.debugging.assert_equal(grad, expected_grad)
+
+  @pytest.mark.parametrize(
+    'keep_negative, bits, expected_gradient',
+    [(True, 1, [0, 1, 1, 1, 0]),
+    (True, 8, [0, 1, 1, 1, 0]),
+    (False, 1, [0, 0, 1, 1, 0]),
+    (False, 8, [0, 0, 1, 1, 0])]
+  )
+  def test_gradients_explicit(self, keep_negative, bits, expected_gradient):
+    """Tests on specific gradient values"""
+
+    inputs = tf.Variable([-1.1, -0.1, 0.0, 0.1, 1.1])
+    expected_gradient = tf.Variable(expected_gradient)
+
+    q = quantized_linear(bits=bits, keep_negative=keep_negative)
+    with tf.GradientTape() as tape:
+      tape.watch(inputs)
+      outputs = q(inputs)
+
+    gradients = tape.gradient(outputs, inputs)
+    assert_allclose(gradients, expected_gradient)
+
+class TestBackwardsCompatibilityForQuantizedLinear:
+  """Regression tests for quantized_linear, comparing to quantized_bits"""
+
+  QUANTIZED_BITS_PARAMS = {
+    "alpha": (None, "auto", "auto_po2"),
+    "bits": (1, 4, 8),
+    "integer": (0, 1),
+    "symmetric": (True, False),
+    "keep_negative": (True, False),
+    "qnoise_factor": (1.0, 0.5, 0.0),
+    "use_stochastic_rounding": (True, False),
+    "scale_axis": (None, 0, 1),
+  }
+
+  TEST_X_VALUES = (
+    0,
+    *np.linspace(-2, 2, 10).tolist(),
+    tf.random.uniform((2, )),
+    tf.random.normal((2, 2)),
+    tf.random.normal((2, 2, 2)),
+  )
+
+  # get list of kwargs for test iteration
+  kwargs_list = []
+
+  for param_name, param_values in QUANTIZED_BITS_PARAMS.items():
+    for param_value in param_values:
+      kwargs = {param_name: param_value}
+      kwargs_list.append(kwargs)
+
+  # extra kwargs for special cases
+  extra_kwargs_list = [
+      {
+          "alpha": "auto",
+          "symmetric": True,
+          "keep_negative": True
+      },
+      {
+          "alpha": "auto_po2",
+          "symmetric": True,
+          "keep_negative": True
+      },
+      {
+          "alpha": "auto",
+          "symmetric": True,
+          "keep_negative": True,
+          "integer": 2
+      },
+      {
+          "alpha": "auto_po2",
+          "symmetric": True,
+          "keep_negative": True,
+          "integer": 2
+      },
+  ]
+
+  kwargs_list = extra_kwargs_list + kwargs_list
+
+  @pytest.mark.parametrize('kwargs', kwargs_list)
+  def test_regression(self, kwargs):
+    """Check that the alt_quantized_bits and qkeras.quantized_bits
+        return the same result for all test values"""
+
+    bits = kwargs.get("bits", 8)
+    integer = kwargs.get("integer", 0)
+    keep_negative = kwargs.get("keep_negative", True)
+    alpha = kwargs.get("alpha", None)
+    symmetric = kwargs.get("symmetric", True)
+    # defaults for quantized_bits and quantized_linear are different, need to 
+    # specify in kwargs
+    kwargs["symmetric"] = symmetric
+    # variable to determine if checking for errors only, not correctness
+    check_errors_only = False
+
+    # decidedly raises an error
+    if bits < integer + keep_negative:
+      return
+    # Not implemented in quantized_bits
+    if alpha in ("auto", "auto_po2") and (not symmetric or not keep_negative):
+      check_errors_only = True
+    # bug in quantized_bits
+    if bits - keep_negative == 0 and alpha in ("auto", "auto_po2"):
+      check_errors_only = True
+    # new implementation in quantized_linear
+    if bits == 1 and keep_negative:
+      check_errors_only = True
+
+    old = quantized_bits(**kwargs)
+    new = quantized_linear(**kwargs)
+
+    for x in self.TEST_X_VALUES:
+      # reset variable in loop
+      check_errors_only_ = check_errors_only
+      # bug in quantized_bits
+      if tf.rank(x) == 0 and alpha in ("auto", "auto_po2"):
+        continue
+      # Changed default scale axis for rank-1 tensors
+      if tf.rank(x) == 1 and alpha in ("auto", "auto_po2"):
+        check_errors_only_ = True
+      self._check_correctness(new, old, x, kwargs, 
+                              check_errors_only=check_errors_only_)
+
+  @pytest.mark.parametrize('kwargs', kwargs_list)
+  def test_config(self, kwargs):
+
+    symmetric = kwargs.get("symmetric", True)
+    # defaults for quantized_bits and quantized_linear are different, need to 
+    # specify in kwargs
+    kwargs["symmetric"] = symmetric
+
+    old = quantized_bits(**kwargs)
+    new = quantized_linear(**kwargs)
+
+    assert old.get_config() == new.get_config()
+
+  @pytest.mark.parametrize('kwargs', kwargs_list)
+  def test_string(self, kwargs):
+
+    symmetric = kwargs.get("symmetric", True)
+    # defaults for quantized_bits and quantized_linear are different, need to 
+    # specify in kwargs
+    kwargs["symmetric"] = symmetric
+
+    old = quantized_bits(**kwargs)
+    new = quantized_linear(**kwargs)
+
+    old_str = str(old)
+    new_str = str(new)
+
+    old_str = old_str.replace("quantized_bits", "quantized_linear")
+
+    assert old_str == new_str
+
+  @pytest.mark.parametrize('qnoise_factor', [0.0, 0.5, 1.0])
+  def test_qnoise_and_gradient(self, qnoise_factor):
+    """Make sure that gradient calculations vary w.r.t. qnoise correctly"""
+
+    qlinear = quantized_linear(qnoise_factor=qnoise_factor)
+    qbits = quantized_bits(qnoise_factor=qnoise_factor)
+
+    x = np.linspace(
+      qlinear.min() + K.epsilon(), 
+      qlinear.max() - K.epsilon(), 
+      10)
+    x = tf.Variable(x)
+
+    with tf.GradientTape() as tape:
+      res_linear = qlinear(x)
+
+    grad_linear = tape.gradient(res_linear, x)
+
+    with tf.GradientTape() as tape:
+      res_bits = qbits(x)
+
+    grad_bits = tape.gradient(res_bits, x)
+    tf.debugging.assert_equal(grad_linear, grad_bits)
+
+  def _check_correctness(self, new_func, old_func, x, kwargs, 
+                         check_errors_only=False):
+    """Check that the new_func and old_func return the same result for x"""
+
+    old_res = old_func(x).numpy()
+    new_res = new_func(x).numpy()
+    old_scale = np.array(old_func.scale)
+    new_scale = np.array(new_func.scale)
+
+    # not checking if new matches old
+    if check_errors_only:
+      return
+    err_msg = (f"Failed for {kwargs} with x = {x}. \n"
+              f"old_res = {old_res}, alt_res = {new_res}. \n"
+              f"old_scale = {old_scale}, new_scale = {new_scale}")
+    if not np.allclose(old_res, new_res):
+      assert False, err_msg
+    if not np.allclose(old_scale, new_scale) and K.max(x) > 0:
+      assert False, err_msg
 
 
 @pytest.mark.parametrize('alpha, threshold, test_values, expected_values', [
