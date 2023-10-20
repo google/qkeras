@@ -201,7 +201,7 @@ class Choice:
 
 
 def get_valid_unrolls(layer: tf.keras.layers.Layer, cout_unroll: int,
-                      target_throughput: int):
+                      target_pe_throughput: float):
   """Get valid unroll values where resulting throughput>=Target throughput."""
 
   input_channel = qtools_util.get_layer_info(layer, "input_channel")
@@ -235,7 +235,7 @@ def get_valid_unrolls(layer: tf.keras.layers.Layer, cout_unroll: int,
             layer_type, cin_unroll, cout_unroll, kh_unroll, kw_unroll,
             input_channel, output_channel, kernel_height, kernel_width)
         logging.debug("............pe_throughput: %.2f", pe_throughput)
-        if pe_throughput >= target_throughput:
+        if pe_throughput >= target_pe_throughput:
           # Save the valid combination of unroll factors to valid_unrolls.
           valid_unrolls.append((cin_unroll, kh_unroll, kw_unroll))
 
@@ -261,7 +261,7 @@ def get_per_layer_cost(layer_quantizer_bitwidth, layer_mac_count, layer_shapes,
       np.product(layer_shapes["weight_shape"]) *
       layer_quantizer_bitwidth["weight_bits"])
 
-  return pe_area + memory_area
+  return (pe_area + memory_area)
 
 
 def get_valid_candidates(input_value, output_to_input_ratio_max):
@@ -291,7 +291,8 @@ def get_OutBufferThru(OutElementPerClk, output_channel, kernel_height,
 def is_bufferThru_greater_than_targetThru(
     layer_type: str, InElementPerClk: int, OutElementPerClk: int,
     input_channel: int, output_channel: int, kernel_height: int,
-    kernel_width: int, target_throughput: float):
+    kernel_width: int, target_out_throughput: float,
+    target_in_throughput: float):
   """Verify whether the resulting buffer throughput > target throughput."""
 
   # Calculate throughput of input buffer.
@@ -307,8 +308,8 @@ def is_bufferThru_greater_than_targetThru(
       InBuf_throughput, OutBuf_throughput)
 
   # Valid unroll values must meet buffer throughput requirements.
-  return (InBuf_throughput >= target_throughput and
-          OutBuf_throughput >= target_throughput)
+  return (InBuf_throughput >= target_out_throughput and
+          OutBuf_throughput >= target_in_throughput)
 
 
 def set_best_global_cost_in_paths(
@@ -375,6 +376,9 @@ def backtrack(graph, paths):
   # multiple input layers
   best_OutElementPerClk = list(paths[layer_idx].keys())[0]
   best_entry = paths[layer_idx][best_OutElementPerClk]
+  # Add layer name to improve readability.
+  layer = graph.idx_to_layer(layer_idx)
+  best_entry["layer_name"] = layer.name if layer else "None"
   best_path[layer_idx] = best_entry
   best_OutElementPerClk = best_entry["OutElementPerClk"]
   best_accumlative_cost = best_entry["acc_cost"]
@@ -386,6 +390,8 @@ def backtrack(graph, paths):
     # Find current layer's best choice from the ptr (ie. best_OutElementPerClk)
     # stored in the best choice of the previous layer.
     best_entry = paths[layer_idx][best_OutElementPerClk]
+    layer = graph.idx_to_layer(layer_idx)
+    best_entry["layer_name"] = layer.name if layer else "None"
     best_path[layer_idx] = best_entry
     # Update the ptr to the next layer.
     best_OutElementPerClk = best_entry["OutElementPerClk"]
@@ -464,7 +470,31 @@ def get_pe_throughput(layer_type, cin_unroll, cout_unroll, kh_unroll, kw_unroll,
     raise ValueError(f"Unspported layer type: {layer_type}")
 
 
-def calc_hw_params(graph, target_OutElementPerClk, target_throughput,
+def get_target_throughputs(layer, target_out_throughput):
+  """Update throughput for a given layer."""
+
+  # For layer that do not change the number of inference pixels,
+  # throughput remains the same. For layers that decrease or increase the
+  # number of inference pixels, the target throughput needs to update
+  # accordingly.
+
+  def multiply_elements_except_none(my_tuple):
+    # Convert None values to np.nan and then use np.nanprod to calculate
+    # the product
+    return np.nanprod([x if x is not None else np.nan for x in my_tuple])
+
+  if layer:
+    input_size = multiply_elements_except_none(layer.input_shape[:-1])
+    output_size = multiply_elements_except_none(layer.output_shape[:-1])
+    target_in_throughput = target_out_throughput * input_size / output_size
+    target_pe_throughput = max(target_out_throughput, target_in_throughput)
+  else:
+    target_in_throughput = target_pe_throughput = target_out_throughput
+
+  return target_in_throughput, target_pe_throughput
+
+
+def calc_hw_params(graph, target_OutElementPerClk, target_out_throughput,
                    input_quantizer_bits,
                    compute_to_memory_max_ratio=4,
                    memory_to_unroll_max_ratio=4,
@@ -475,7 +505,7 @@ def calc_hw_params(graph, target_OutElementPerClk, target_throughput,
     graph: DivideConquerGraph Object. Model graph.
     target_OutElementPerClk: Int. Target number of elements per clock
       cycle that the hardware needs to output.
-    target_throughput: Float. Target number of inferences per clock
+    target_out_throughput: Float. Target number of inferences per clock
       cycle that the hardware needs to make.
     input_quantizer_bits: Int. Model's input quantizer bits.
     compute_to_memory_max_ratio: Int. Max allowed ratio between
@@ -500,14 +530,14 @@ def calc_hw_params(graph, target_OutElementPerClk, target_throughput,
   # We start the computation from the last node.
   layer_idx = graph.get_last_node()
 
-  # Store the hw choices for the last node (a fake node) for the sake
+  # Store the hw choices for the last node (a dummy node) for the sake
   # of completion.
-  paths[layer_idx] = {target_OutElementPerClk: {
-      "choice": Choice().__str__(),
-      "cur_cost": 0,
-      "acc_cost": 0,
-      "OutElementPerClk": -1
-      }}
+  paths[layer_idx] = {
+      target_OutElementPerClk: {
+          "choice": Choice().__str__(),
+          "cur_cost": 0,
+          "acc_cost": 0,
+          "OutElementPerClk": -1}}
 
   logging.debug("====== Extracting HW params combinations per layer =====")
 
@@ -520,6 +550,9 @@ def calc_hw_params(graph, target_OutElementPerClk, target_throughput,
     logging.debug("processing layer_idx:%d name:%s type:%s ***",
                   cur_layer_idx, getattr(cur_layer, "name", None),
                   cur_layer.__class__.__name__)
+
+    target_in_throughput, target_pe_throughput = get_target_throughputs(
+        cur_layer, target_out_throughput)
 
     # Previous layer will generate a list of candidates for OutElementPerClk
     # values for the current layer.
@@ -592,7 +625,7 @@ def calc_hw_params(graph, target_OutElementPerClk, target_throughput,
             "cout_unroll=%.2f", l, cout_unroll)
         # Find valid unroll values that meet pe throughput requirement.
         valid_unrolls = get_valid_unrolls(cur_layer, cout_unroll,
-                                          target_throughput)
+                                          target_pe_throughput)
         if not valid_unrolls:
           # Skip if no valid unroll values are found.
           logging.debug(".........No valid unroll values found!")
@@ -625,7 +658,8 @@ def calc_hw_params(graph, target_OutElementPerClk, target_throughput,
                 OutElementPerClk=OutElementPerClk, input_channel=input_channel,
                 output_channel=output_channel, kernel_height=kernel_height,
                 kernel_width=kernel_width,
-                target_throughput=target_throughput):
+                target_out_throughput=target_out_throughput,
+                target_in_throughput=target_in_throughput):
               # If valid unroll values meet buffer throughput requirements,
               # comput cost.
               # cost = current layer's cost + total of downstream layers' cost.
@@ -661,6 +695,8 @@ def calc_hw_params(graph, target_OutElementPerClk, target_throughput,
     # the previous layer.
     paths[cur_layer_idx] = cur_best_choices
     layer_idx = cur_layer_idx
+    # Predicessor node's OutBuf throughput is sucessor node's InBuf throughput.
+    target_out_throughput = target_in_throughput
 
   return backtrack(graph, paths)
 
@@ -669,7 +705,7 @@ def estimate_model_cost(
     model: tf.keras.Model,
     input_quantizer_bits: int = 8,
     target_OutElementPerClk: int = 10,
-    target_throughput: float = 1.0,
+    target_out_throughput: float = 1.0,
     compute_to_memory_max_ratio: int = 4,
     memory_to_unroll_max_ratio: int = 4,
     mode: CostMode = CostMode.NAIVE):
@@ -680,7 +716,7 @@ def estimate_model_cost(
     input_quantizer_bits: Model's input quantizer bits.
     target_OutElementPerClk: Target number of elements per clock
       cycle that the hardware needs to output.
-    target_throughput: Target number of inferences per clock
+    target_out_throughput: Target number of inferences per clock
       cycle that the hardware needs to make.
     compute_to_memory_max_ratio: Max allowed ratio between
       ComputeOutElement and OutElement
@@ -700,7 +736,7 @@ def estimate_model_cost(
   # Call the main function to generate optimal HW configs for all layers
   best_path, best_cost = calc_hw_params(
       graph=graph, target_OutElementPerClk=target_OutElementPerClk,
-      target_throughput=target_throughput,
+      target_out_throughput=target_out_throughput,
       input_quantizer_bits=input_quantizer_bits,
       compute_to_memory_max_ratio=(
           compute_to_memory_max_ratio),

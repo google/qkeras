@@ -982,7 +982,7 @@ def test_divide_and_conquer_sequential_conv2d():
       model,
       input_quantizer_bits=8,
       target_OutElementPerClk=10,
-      target_throughput=1.0,
+      target_out_throughput=1.0,
       compute_to_memory_max_ratio=1,
       memory_to_unroll_max_ratio=1,
       mode=divide_and_conquer.CostMode.NAIVE,
