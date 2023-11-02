@@ -1,6 +1,8 @@
 tensorflow>=2.5.0rc0
 numpy>=1.16.5
 pyparser
+pandas>=1.1.0
+matplotlib>=3.3.0
 scipy>=1.4.1
 setuptools>=41.0.0
 argparse>=1.4.0

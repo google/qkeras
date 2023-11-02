@@ -36,10 +36,11 @@ from qkeras import quantizers
 from qkeras.qtools import qgraph
 from qkeras.qtools import qtools_util
 from qkeras.qtools import generate_layer_data_type_map
+from qkeras.qtools import dnc_layer_cost_ace
 
 
 class CostMode(enum.Enum):
-  NAIVE = 1  # cost is computed from theoretical equations.
+  ACE = 1  # cost is computed from theoretical equations.
   PE_AREA = 2  # cost is computed from compute area only.
   PE_BW_AREA = 3  # cost is computed from both compute and memory bandwidth.
 
@@ -118,6 +119,7 @@ class DivideConquerGraph:
       layer_item = self._layer_map[layer]
       weight_quantizer = qtools_util.get_val(layer_item, "weight_quantizer")
       mac_quantizer = qtools_util.get_val(layer_item, "multiplier")
+      acc_quantizer = qtools_util.get_val(layer_item, "accumulator")
       input_quantizer_list = qtools_util.get_val(
           layer_item, "input_quantizer_list")
       output_quantizer = qtools_util.get_val(layer_item, "output_quantizer")
@@ -134,6 +136,9 @@ class DivideConquerGraph:
           "mac_bits": (
               mac_quantizer.output.bits if mac_quantizer else
               input_quantizer_list[0].bits),
+          "acc_bits": (
+              acc_quantizer.output.bits if acc_quantizer else
+              input_quantizer_list[0].bits),
           "output_bits": output_quantizer.bits}
     else:
       # For the "dummy" head and tail nodes in the graph that we inserted at
@@ -142,6 +147,7 @@ class DivideConquerGraph:
           "input_bits": 0,
           "weight_bits": 0,
           "mac_bits": 0,
+          "acc_bits": 0,
           "output_bits": 0
       }
 
@@ -247,19 +253,27 @@ def get_per_layer_cost(layer_quantizer_bitwidth, layer_mac_count, layer_shapes,
                        InElementPerClk, OutElementPerClk, mode):
   """Area per layer, including both PE and memory Bandwidth."""
 
-  # TODO(lishanok@): needs a better cost modeling function. For now we simplify
-  # it to the number of multipliers + interface bitwidth.
-  assert mode == CostMode.NAIVE, "Only CostMode.NAIVE is supported for now."
+  # TODO(lishanok@): needs to add modes that support data-driven cost modeling.
+  assert mode == CostMode.ACE, "Only CostMode.ACE is supported for now."
 
-  pe_area = (layer_quantizer_bitwidth["input_bits"] *
-             layer_quantizer_bitwidth["weight_bits"] * layer_mac_count *
-             cin_unroll * cout_unroll * kh_unroll * kw_unroll)
+  # Compute memory is calculated according to ACE metric, translated to gates.
+  mac_gates = dnc_layer_cost_ace.get_ace_mac_gates(
+      xbit=layer_quantizer_bitwidth["input_bits"],
+      wbit=layer_quantizer_bitwidth["weight_bits"],
+      abit=layer_quantizer_bitwidth["acc_bits"],
+      regen_params=False)
+  pe_area = (mac_gates * layer_mac_count * cin_unroll * cout_unroll *
+             kh_unroll * kw_unroll)
 
+  # Memory includes input, output and weight memory, translated to gates.
   memory_area = (
-      InElementPerClk * layer_quantizer_bitwidth["input_bits"]
-      + OutElementPerClk * layer_quantizer_bitwidth["output_bits"] +
+      InElementPerClk * layer_quantizer_bitwidth["input_bits"] *
+      dnc_layer_cost_ace.MemoryGatesPerBit["Register"] +
+      OutElementPerClk * layer_quantizer_bitwidth["output_bits"] *
+      dnc_layer_cost_ace.MemoryGatesPerBit["Register"] +
       np.product(layer_shapes["weight_shape"]) *
-      layer_quantizer_bitwidth["weight_bits"])
+      layer_quantizer_bitwidth["weight_bits"] *
+      dnc_layer_cost_ace.MemoryGatesPerBit["ROM"])
 
   return (pe_area + memory_area)
 
@@ -323,7 +337,7 @@ def set_best_global_cost_in_paths(
     layer_idx: Int. The index value of the current layer's predecessor.
     cur_layer_idx: current layer's index value.
     layer_quantizer_bitwidth: Dict that contains layer-related quantizer
-      bitwidth, including mac_bits, input_bits and output_bits.
+      bitwidth, including acc_bits, mac_bits, input_bits and output_bits.
     layer_mac_count: Int. Use the number of multiplication as the operation
       count. To include the number of accumulations, we should multiply the
       value by 2, assuming accumulation count ~= multiplication count.
@@ -487,10 +501,11 @@ def get_target_throughputs(layer, target_out_throughput):
     input_size = multiply_elements_except_none(layer.input_shape[:-1])
     output_size = multiply_elements_except_none(layer.output_shape[:-1])
     target_in_throughput = target_out_throughput * input_size / output_size
-    target_pe_throughput = max(target_out_throughput, target_in_throughput)
   else:
-    target_in_throughput = target_pe_throughput = target_out_throughput
+    target_in_throughput = target_out_throughput
 
+  # Per new design, target_pe_throughput equals to target_out_throughput.
+  target_pe_throughput = target_out_throughput
   return target_in_throughput, target_pe_throughput
 
 
@@ -498,7 +513,7 @@ def calc_hw_params(graph, target_OutElementPerClk, target_out_throughput,
                    input_quantizer_bits,
                    compute_to_memory_max_ratio=4,
                    memory_to_unroll_max_ratio=4,
-                   mode=CostMode.NAIVE):
+                   mode=CostMode.ACE):
   """Calculate HW params that minimizes total cost.
 
   Args:
@@ -512,7 +527,7 @@ def calc_hw_params(graph, target_OutElementPerClk, target_out_throughput,
       ComputeOutElement and OutElement
     memory_to_unroll_max_ratio: Int. Max allowed ratio between
       InElementPerClk and CinUnroll
-    mode: CostMode. The mode to calculate per layer cost. Default is NAIVE.
+    mode: CostMode. The mode to calculate per layer cost. Default is ACE.
 
   Returns:
     best_path: Dict. Stores the best hw param value at each layer and their
@@ -580,6 +595,7 @@ def calc_hw_params(graph, target_OutElementPerClk, target_out_throughput,
     kernel_height = qtools_util.get_layer_info(cur_layer, "kernel_height")
     kernel_width = qtools_util.get_layer_info(cur_layer, "kernel_width")
     layer_type = qtools_util.get_layer_info(cur_layer, "layer_type")
+    output_channel_divisors = qtools_util.find_divisors(output_channel)
 
     logging.debug("input_channel: %d, output_channel: %d, kernel_height: %d, "
                   "kernel_width: %d, weight_quantizer_bits: %d",
@@ -619,6 +635,10 @@ def calc_hw_params(graph, target_OutElementPerClk, target_out_throughput,
 
         l = OutElementPerClk / ComputeOutElementPerClk
         cout_unroll = ComputeOutElementPerClk
+
+        # cout_unroll needs to be a divisor of output_channels
+        if cout_unroll not in output_channel_divisors:
+          continue
 
         logging.debug(
             ".........OutElementPerClk / ComputeOutElementPerClk = %.2f,"
@@ -708,7 +728,7 @@ def estimate_model_cost(
     target_out_throughput: float = 1.0,
     compute_to_memory_max_ratio: int = 4,
     memory_to_unroll_max_ratio: int = 4,
-    mode: CostMode = CostMode.NAIVE):
+    mode: CostMode = CostMode.ACE):
   """Main function to divide and conquer cost modeling.
 
   Args:
