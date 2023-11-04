@@ -36,7 +36,7 @@ from qkeras import quantizers
 from qkeras.qtools import qgraph
 from qkeras.qtools import qtools_util
 from qkeras.qtools import generate_layer_data_type_map
-from qkeras.qtools import dnc_layer_cost_ace
+from qkeras.qtools.DnC import dnc_layer_cost_ace
 
 
 class CostMode(enum.Enum):
@@ -262,10 +262,13 @@ def get_per_layer_cost(layer_quantizer_bitwidth, layer_mac_count, layer_shapes,
       wbit=layer_quantizer_bitwidth["weight_bits"],
       abit=layer_quantizer_bitwidth["acc_bits"],
       regen_params=False)
-  pe_area = (mac_gates * layer_mac_count * cin_unroll * cout_unroll *
-             kh_unroll * kw_unroll)
+
+  # pe_area is not dependent on total num of MACs in the layer.
+  pe_area = (mac_gates * cin_unroll * cout_unroll * kh_unroll * kw_unroll)
 
   # Memory includes input, output and weight memory, translated to gates.
+  # TODO(lishanok@): weights could be stored in either SRAM or ROM, dependent
+  # on user specification.
   memory_area = (
       InElementPerClk * layer_quantizer_bitwidth["input_bits"] *
       dnc_layer_cost_ace.MemoryGatesPerBit["Register"] +

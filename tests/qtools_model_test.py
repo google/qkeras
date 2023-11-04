@@ -38,7 +38,7 @@ from qkeras.qtools import generate_layer_data_type_map
 from qkeras.utils import model_save_quantized_weights
 from qkeras.qtools.quantized_operators import adder_impl
 from qkeras.qtools.quantized_operators import quantizer_impl
-from qkeras.qtools import divide_and_conquer
+from qkeras.qtools.DnC import divide_and_conquer
 
 
 def qdense_model_fork():
