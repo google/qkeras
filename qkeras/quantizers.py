@@ -1409,8 +1409,6 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
       else:
         axis = [0]
 
-      x = x / m_i
-
       # Using 2's complement, we can represent 2**(bits-1)-1 positive values
       # If we wish to maintain symmetry, we can double 2**(bits-1)-1 to get
       # the total number of possible values we can represent.
@@ -1444,7 +1442,6 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
         raise ValueError(f"Invalid alpha '{self.alpha}'")
 
       # z is an integer number, so we must make the scale * m and z / m
-      scale = scale * m
 
       # we will not use "z" right now because of stochastic_rounding
       # this is still under test.
@@ -1453,8 +1450,7 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
       #  z = z / m
       #  self.scale = scale
       #  return x + tf.stop_gradient(-x + scale * z)
-      x = m_i * x
-      xq = m_i * z / m
+      xq = z
       self.scale = scale
       xq = scale * xq
 
