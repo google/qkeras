@@ -57,6 +57,8 @@ QKERAS_LAYERS = [
     "QConv1D",
     "QConv2D",
     "QDepthwiseConv2D",
+    "QConv2D",
+    "QConv2DTranspose",
 ]
 
 KERAS_LAYERS = [
@@ -64,6 +66,7 @@ KERAS_LAYERS = [
     "Conv1D",
     "Conv2D",
     "DepthwiseConv2D",
+    "Conv2DTranspose",
 ]
 
 
@@ -507,10 +510,10 @@ def generate_layer_data_type_map(
         output_quantizer = update_output_quantizer_in_graph(
             graph, node_id, quantizer_factory, input_quantizer, for_reference)
         layer_data_type_map[layer] = {
-          "input_quantizer_list": input_quantizer_list,
-          "output_quantizer": output_quantizer,
-          "output_shapes": input_shape,
-          "operation_count": operation_count
+            "input_quantizer_list": input_quantizer_list,
+            "output_quantizer": output_quantizer,
+            "output_shapes": input_shape,
+            "operation_count": operation_count
         }
       else:
         (gamma_quantizer, beta_quantizer, mean_quantizer, variance_quantizer,
@@ -552,19 +555,23 @@ def generate_layer_data_type_map(
           if keras_accumulator:
             set_output(
                 qbn.internal_divide_quantizer,
-                quantizer_factory.make_default_quantizer(mode=keras_accumulator))
+                quantizer_factory.make_default_quantizer(
+                    mode=keras_accumulator))
 
             set_output(
                 qbn.internal_multiplier,
-                quantizer_factory.make_default_quantizer(mode=keras_accumulator))
+                quantizer_factory.make_default_quantizer(
+                    mode=keras_accumulator))
 
             set_output(
                 qbn.internal_accumulator,
-                quantizer_factory.make_default_quantizer(mode=keras_accumulator))
+                quantizer_factory.make_default_quantizer(
+                    mode=keras_accumulator))
 
             set_output(
                 qbn.internal_output.output,
-                quantizer_factory.make_default_quantizer(mode=keras_accumulator))
+                quantizer_factory.make_default_quantizer(
+                    mode=keras_accumulator))
 
         gamma_range = None
         if hasattr(layer, "gamma_range"):
