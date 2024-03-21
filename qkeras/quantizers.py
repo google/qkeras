@@ -1428,7 +1428,6 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
           v = tf.floor(tf.abs(x) / scale + 0.5)
           mask = v < levels / 2
           z = tf.sign(x) * tf.where(mask, v, tf.ones_like(v) * levels / 2)
-          print(idx, self.min_po2_exponent, self.max_po2_exponent, m)
           scale = _get_least_squares_scale(alpha="auto_po2", x=x, q=z,
                              scale_axis=self.scale_axis,
                              elements_per_scale=self.elements_per_scale,
