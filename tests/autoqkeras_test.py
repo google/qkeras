@@ -18,6 +18,7 @@
 import tempfile
 import numpy as np
 import pytest
+import random
 from sklearn.datasets import load_iris
 from sklearn.preprocessing import MinMaxScaler
 import tensorflow.compat.v2 as tf
@@ -33,6 +34,13 @@ from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.utils import to_categorical
 
 from qkeras.autoqkeras import AutoQKerasScheduler
+
+
+def get_adam_optimizer(learning_rate):
+  if hasattr(tf.keras.optimizers, "legacy"):
+    return tf.keras.optimizers.legacy.Adam(learning_rate)
+  else:
+    return tf.keras.optimizers.Adam(learning_rate)
 
 
 def dense_model():
@@ -57,8 +65,10 @@ def dense_model():
 
 def test_autoqkeras():
   """Tests AutoQKeras scheduler."""
-  np.random.seed(42)
-  tf.random.set_seed(42)
+  seed = 42
+  random.seed(seed)
+  np.random.seed(seed)
+  tf.random.set_seed(seed)
 
   x_train, y_train = load_iris(return_X_y=True)
 
@@ -104,7 +114,7 @@ def test_autoqkeras():
 
   model = dense_model()
   model.summary()
-  optimizer = Adam(lr=0.01)
+  optimizer = get_adam_optimizer(learning_rate=0.01)
   model.compile(optimizer=optimizer, loss="categorical_crossentropy",
                 metrics=["acc"])
 
@@ -136,14 +146,14 @@ def test_autoqkeras():
   }
 
   autoqk = AutoQKerasScheduler(model, metrics=["acc"], **run_config)
-  autoqk.fit(x_train, y_train, validation_split=0.1, batch_size=150, epochs=4)
+  autoqk.fit(x_train, y_train, validation_split=0.1, batch_size=150, epochs=8)
 
   qmodel = autoqk.get_best_model()
 
-  optimizer = Adam(lr=0.01)
+  optimizer = get_adam_optimizer(learning_rate=0.01)
   qmodel.compile(optimizer=optimizer, loss="categorical_crossentropy",
                  metrics=["acc"])
-  history = qmodel.fit(x_train, y_train, epochs=5, batch_size=150,
+  history = qmodel.fit(x_train, y_train, epochs=10, batch_size=150,
                        validation_split=0.1)
 
   quantized_acc = history.history["acc"][-1]
