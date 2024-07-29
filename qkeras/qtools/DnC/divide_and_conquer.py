@@ -274,7 +274,7 @@ def get_per_layer_cost(layer_quantizer_bitwidth, layer_mac_count, layer_shapes,
       dnc_layer_cost_ace.MemoryGatesPerBit["Register"] +
       OutElementPerClk * layer_quantizer_bitwidth["output_bits"] *
       dnc_layer_cost_ace.MemoryGatesPerBit["Register"] +
-      np.product(layer_shapes["weight_shape"]) *
+      np.prod(layer_shapes["weight_shape"]) *
       layer_quantizer_bitwidth["weight_bits"] *
       dnc_layer_cost_ace.MemoryGatesPerBit["ROM"])
 
