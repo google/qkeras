@@ -36,6 +36,7 @@ from tensorflow_model_optimization.python.core.sparsity.keras import prunable_la
 from .qlayers import Clip
 from .qconv2d_batchnorm import QConv2DBatchnorm
 from .qdepthwiseconv2d_batchnorm import QDepthwiseConv2DBatchnorm
+from .qdense_batchnorm import QDenseBatchnorm
 from .qlayers import QActivation
 from .qlayers import QAdaptiveActivation
 from .qpooling import QAveragePooling2D
@@ -96,6 +97,7 @@ REGISTERED_LAYERS = [
     "QDepthwiseConv2DBatchnorm",
     "QAveragePooling2D",
     "QGlobalAveragePooling2D",
+    "QDenseBatchnorm",
 ]
 
 
@@ -264,7 +266,7 @@ def model_save_quantized_weights(model, filename=None):
       hw_weights = []
 
       if any(isinstance(layer, t) for t in [
-          QConv2DBatchnorm, QDepthwiseConv2DBatchnorm]):
+          QConv2DBatchnorm, QDenseBatchnorm, QDepthwiseConv2DBatchnorm]):
         qs = layer.get_quantizers()
         ws = layer.get_folded_weights()
       elif any(isinstance(layer, t) for t in [QSimpleRNN, QLSTM, QGRU]):
@@ -380,7 +382,7 @@ def model_save_quantized_weights(model, filename=None):
       if has_scale:
         saved_weights[layer.name]["scales"] = scales
       if not any(isinstance(layer, t) for t in [
-          QConv2DBatchnorm, QDepthwiseConv2DBatchnorm]):
+          QConv2DBatchnorm, QDenseBatchnorm, QDepthwiseConv2DBatchnorm]):
         # Set layer weights in the format that software inference uses
         layer.set_weights(weights)
       else:
@@ -1055,6 +1057,8 @@ def _add_supported_quantized_objects(custom_objects):
 
   custom_objects["QConv2DBatchnorm"] = QConv2DBatchnorm
   custom_objects["QDepthwiseConv2DBatchnorm"] = QDepthwiseConv2DBatchnorm
+
+  custom_objects["QDenseBatchnorm"] = QDenseBatchnorm
 
   custom_objects["QAveragePooling2D"] = QAveragePooling2D
   custom_objects["QGlobalAveragePooling2D"] = QGlobalAveragePooling2D
