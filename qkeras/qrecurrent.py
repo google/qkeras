@@ -1125,7 +1125,7 @@ class QGRUCell(GRUCell):
       if not self.reset_after:
         input_bias, recurrent_bias = quantized_bias, None
       else:
-        input_bias, recurrent_bias = array_ops.unstack(quantized_bias)
+        input_bias, recurrent_bias = array_ops.array_ops_stack.unstack(quantized_bias)
 
     if self.implementation == 1:
       if 0. < self.dropout < 1.:
