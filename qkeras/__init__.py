@@ -21,21 +21,20 @@ import tensorflow as tf
 
 from .b2t import *  # pylint: disable=wildcard-import
 from .estimate import *  # pylint: disable=wildcard-import
-from .qlayers import *  # pylint: disable=wildcard-import
-from .quantizers import *  # pylint: disable=wildcard-import
+from .qconv2d_batchnorm import QConv2DBatchnorm
 from .qconvolutional import *  # pylint: disable=wildcard-import
+from .qdepthwiseconv2d_batchnorm import QDepthwiseConv2DBatchnorm
+from .qlayers import *  # pylint: disable=wildcard-import
 from .qmac import *  # pylint: disable=wildcard-import
-from .qrecurrent import *  # pylint: disable=wildcard-import
 from .qnormalization import * # pylint: disable=wildcard-import
 from .qoctave import *  # pylint: disable=wildcard-import
 from .qpooling import *  # pylint: disable=wildcard-import
-from .safe_eval import *  # pylint: disable=wildcard-import
+from .qrecurrent import *  # pylint: disable=wildcard-import
+from .qseparable_conv2d_transpose import QSeparableConv2DTranspose
 #from .qtools.run_qtools import QTools
 #from .qtools.settings import cfg
-from .qconv2d_batchnorm import QConv2DBatchnorm
-from .qdepthwiseconv2d_batchnorm import QDepthwiseConv2DBatchnorm
-from .qseparable_conv2d_transpose import QSeparableConv2DTransposeTPU
-from .qseparable_conv2d_transpose import QSeparableConv2DTransposeCPU
+from .quantizers import *  # pylint: disable=wildcard-import
+from .safe_eval import *  # pylint: disable=wildcard-import
 
 
 assert tf.executing_eagerly(), "QKeras requires TF with eager execution mode on"

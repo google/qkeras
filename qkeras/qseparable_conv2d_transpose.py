@@ -27,8 +27,8 @@ from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import array_ops
 
 
-class QSeparableConv2DTransposeTPU(Conv2DTranspose):
-  """Quantized Separable Conv2DTranspose layer for TPU and GPU."""
+class QSeparableConv2DTranspose(Conv2DTranspose):
+  """Quantized Separable Conv2DTranspose layer."""
 
   # Most of these parameters follow the implementation of Conv2DTranspose
   # in Keras, with the exception of following parameters.
@@ -41,17 +41,6 @@ class QSeparableConv2DTransposeTPU(Conv2DTranspose):
   #
   # we refer the reader to the documentation of Conv2DTranspose in Keras for
   # the other parameters.
-
-  # Important Notes:
-  # This implementation requies the use of grouped convolution, which is only
-  # supported in TPU/GPU, not in CPU.
-  # When running in CPU, it gives the following error:
-  # "Gradients for grouped convolutions are not supported on CPU.
-  # Please file a feature request if you run into this issue."
-  # For now we can train with this implmentation in TPU/GPU,
-  # for inference in CPU, we will convert the layer to an equivalent
-  # QSeparableConv2DTransposeCPU layer, which is slow in training,
-  # but should suffice in inference.
 
   def __init__(self,
                filters,
@@ -268,21 +257,48 @@ class QSeparableConv2DTransposeTPU(Conv2DTranspose):
     else:
       quantized_kernel = kernel_weights
 
+    output_filters = 1 if is_depthwise else filters
+
     if self.data_format == "channels_first":
-      output_shape = (batch_size, filters, out_height, out_width)
+      output_shape = (batch_size, output_filters, out_height, out_width)
     else:
-      output_shape = (batch_size, out_height, out_width, filters)
+      output_shape = (batch_size, out_height, out_width, output_filters)
 
     output_shape_tensor = array_ops.stack(output_shape)
 
-    outputs = tf.keras.backend.conv2d_transpose(
-        inputs,
-        quantized_kernel,
-        output_shape_tensor,
-        strides=strides,
-        padding=padding,
-        data_format=self.data_format,
-        dilation_rate=dilation_rate)
+    # Split the input channels into groups.
+    x = tf.split(inputs, self._input_shape[-1], axis=-1)
+
+    if is_depthwise:
+      # For depthwise convolution, since CPU doesn't support grouped
+      # convolution, we run convolution on each slice of inputs and concat
+      # the results.
+      outputs = [
+          tf.keras.backend.conv2d_transpose(
+              x=x[i],
+              kernel=quantized_kernel[:, :, :, i : i + 1],
+              output_shape=output_shape_tensor,
+              strides=strides,
+              padding=padding,
+              data_format=self.data_format,
+              dilation_rate=dilation_rate,
+          )
+          for i in range(len(x))
+      ]
+
+      # Concat the channels.
+      outputs = tf.concat(outputs, axis=-1)
+
+    else:
+      outputs = tf.keras.backend.conv2d_transpose(
+          inputs,
+          quantized_kernel,
+          output_shape_tensor,
+          strides=strides,
+          padding=padding,
+          data_format=self.data_format,
+          dilation_rate=dilation_rate,
+      )
 
     if not context.executing_eagerly():
       # Infer the static output shape:
@@ -386,92 +402,3 @@ class QSeparableConv2DTransposeTPU(Conv2DTranspose):
       w.append(self.bias)
 
     return w
-
-
-class QSeparableConv2DTransposeCPU(QSeparableConv2DTransposeTPU):
-  """CPU version of Quantized Separable Conv2DTranspose layer.
-
-  Important Notes:
-  * This implementation can run on TPU, GPU and CPU. But the training speed can
-  be significantly slower than the TPU/GPU version.
-
-  * QSeparableConv2DTransposeCPU and QSeparableConv2DTransposeTPU layer have
-  the same shape on kernel and bias variables. With the same input and the same
-  weights, the output of the two layers are the same.
-
-  """
-
-  def conv_transpose_op(self, inputs, filters, strides, padding,
-                        output_padding, dilation_rate,
-                        kernel_quantizer, kernel_weights, use_bias,
-                        bias_quantizer, bias, activation, is_depthwise):
-    """Transpose convolution op that shared by both depthwise and pointwise."""
-
-    batch_size, out_height, out_width, kernel_h, kernel_w = (
-        self._get_output_size(inputs, output_padding, padding, strides,
-                              dilation_rate, kernel_weights))
-
-    if kernel_quantizer:
-      quantized_kernel = kernel_quantizer(kernel_weights)
-    else:
-      quantized_kernel = kernel_weights
-
-    output_filters = 1 if is_depthwise else filters
-
-    if self.data_format == "channels_first":
-      output_shape = (batch_size, output_filters, out_height, out_width)
-    else:
-      output_shape = (batch_size, out_height, out_width, output_filters)
-
-    output_shape_tensor = array_ops.stack(output_shape)
-
-    # Split the input channels into groups.
-    x = tf.split(inputs, self._input_shape[-1], axis=-1)
-
-    if is_depthwise:
-      # For depthwise convolution, since CPU doesn't support grouped
-      # convolution, we run convolution on each slice of inputs and concat
-      # the results.
-      outputs = [
-          tf.keras.backend.conv2d_transpose(
-              x=x[i],
-              kernel=quantized_kernel[:, :, :, i : i + 1],
-              output_shape=output_shape_tensor,
-              strides=strides,
-              padding=padding,
-              data_format=self.data_format,
-              dilation_rate=dilation_rate) for i in range(len(x))]
-
-      # Concat the channels.
-      outputs = tf.concat(outputs, axis=-1)
-
-    else:
-      outputs = tf.keras.backend.conv2d_transpose(
-          inputs,
-          quantized_kernel,
-          output_shape_tensor,
-          strides=strides,
-          padding=padding,
-          data_format=self.data_format,
-          dilation_rate=dilation_rate)
-
-    if not context.executing_eagerly():
-      # Infer the static output shape:
-      out_shape = self.compute_final_output_shape(
-          input_shape=inputs.shape,
-          kernel_size=(kernel_h, kernel_w),
-          strides=strides,
-          is_depthwise=is_depthwise)
-      outputs.set_shape(out_shape)
-
-    if use_bias:
-      quantized_bias = bias_quantizer(bias) if bias_quantizer else bias
-      outputs = tf.keras.backend.bias_add(
-          outputs,
-          quantized_bias,
-          data_format=self.data_format)
-
-    if activation is not None:
-      return activation(outputs)
-
-    return outputs

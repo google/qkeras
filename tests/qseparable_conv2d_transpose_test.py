@@ -17,75 +17,53 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+import os
+import tempfile
+
 import numpy as np
 from numpy.testing import assert_allclose, assert_equal
 import pytest
-import tempfile
-import os
-
 import tensorflow as tf
 
+from qkeras import QSeparableConv2DTranspose
 from qkeras import quantized_bits
-from qkeras import QSeparableConv2DTransposeTPU
-from qkeras import QSeparableConv2DTransposeCPU
 
 
-def create_model(for_tpu=True):
+def create_model():
   x = img_input = tf.keras.layers.Input(shape=(4, 4, 3))
-
-  if for_tpu:
-    x = QSeparableConv2DTransposeTPU(
-        filters=2, kernel_size=(2, 2),
-        strides=(2, 2),
-        padding="same", name="conv2d_tran",
-        depthwise_activation=None,
-        pointwise_activation=None,
-        depthwise_kernel_quantizer=None,
-        pointwise_kernel_quantizer=None,
-        bias_quantizer=None,
-        )(x)
-  else:
-    x = QSeparableConv2DTransposeCPU(
-        filters=2, kernel_size=(2, 2),
-        strides=(2, 2),
-        padding="same", name="conv2d_tran",
-        depthwise_activation=None,
-        pointwise_activation=None,
-        depthwise_kernel_quantizer=None,
-        pointwise_kernel_quantizer=None,
-        bias_quantizer=None,
-        )(x)
+  x = QSeparableConv2DTranspose(
+      filters=2,
+      kernel_size=(2, 2),
+      strides=(2, 2),
+      padding="same",
+      name="conv2d_tran",
+      depthwise_activation=None,
+      pointwise_activation=None,
+      depthwise_kernel_quantizer=None,
+      pointwise_kernel_quantizer=None,
+      bias_quantizer=None,
+  )(x)
 
   model = tf.keras.Model(inputs=img_input, outputs=x)
 
   return model
 
 
-def create_quantized_model(for_tpu=True):
+def create_quantized_model():
   x = img_input = tf.keras.layers.Input(shape=(4, 4, 3))
-
-  if for_tpu:
-    x = QSeparableConv2DTransposeTPU(
-        filters=2, kernel_size=(2, 2),
-        strides=(1, 1),
-        padding="same", name="conv2d_tran",
-        depthwise_activation="quantized_bits(10, 6, 1)",
-        pointwise_activation="quantized_bits(5, 3, 1)",
-        depthwise_kernel_quantizer=quantized_bits(1, 0, 1, alpha=1.0),
-        pointwise_kernel_quantizer=quantized_bits(1, 0, 1, alpha=1.0),
-        bias_quantizer=quantized_bits(2, 2, 1, alpha=1.0)
-        )(x)
-  else:
-    x = QSeparableConv2DTransposeCPU(
-        filters=2, kernel_size=(2, 2),
-        strides=(1, 1),
-        padding="same", name="conv2d_tran",
-        depthwise_activation="quantized_bits(10, 6, 1)",
-        pointwise_activation="quantized_bits(5, 3, 1)",
-        depthwise_kernel_quantizer=quantized_bits(1, 0, 1, alpha=1.0),
-        pointwise_kernel_quantizer=quantized_bits(1, 0, 1, alpha=1.0),
-        bias_quantizer=quantized_bits(2, 2, 1, alpha=1.0)
-        )(x)
+  x = QSeparableConv2DTranspose(
+      filters=2,
+      kernel_size=(2, 2),
+      strides=(1, 1),
+      padding="same",
+      name="conv2d_tran",
+      depthwise_activation="quantized_bits(10, 6, 1)",
+      pointwise_activation="quantized_bits(5, 3, 1)",
+      depthwise_kernel_quantizer=quantized_bits(1, 0, 1, alpha=1.0),
+      pointwise_kernel_quantizer=quantized_bits(1, 0, 1, alpha=1.0),
+      bias_quantizer=quantized_bits(2, 2, 1, alpha=1.0),
+  )(x)
 
   model = tf.keras.Model(inputs=img_input, outputs=x)
 
@@ -102,8 +80,8 @@ def test_qseparable_conv2d_transpose():
   # mapped from input channel(3) to output channel (2) by pointwise conv.
   # Pointwise conv output is (1, 8, 8, 2).
 
-  # Create model using CPU version: QSeparableConv2DTransposeCPU.
-  model = create_model(for_tpu=False)
+  # Create model.
+  model = create_model()
 
   output_shape = model.output_shape
   ws = model.layers[1].weights
@@ -161,9 +139,8 @@ def test_qseparable_conv2d_transpose():
 def test_quantization_in_separable_conv2d_transpose():
   # Test if quantization is applied correctly.
 
-  # Create model using CPU version: QSeparableConv2DTransposeCPU
-  # with quantization.
-  model = create_quantized_model(for_tpu=False)
+  # Create model with quantization.
+  model = create_quantized_model()
 
   x = np.array([[0, 0, 0, 0], [1, 1, 1, 1], [2, 2, 2, 2], [3, 3, 3, 3]])
   inputs = np.concatenate([x, x, x], axis=-1)
@@ -201,14 +178,13 @@ def test_quantization_in_separable_conv2d_transpose():
 
 def test_save_and_load_model():
   # Test if the model can be loaded from a saved model.
-  model = create_quantized_model(for_tpu=True)
+  model = create_quantized_model()
 
   fd, fname = tempfile.mkstemp(".hdf5")
   model.save(fname)
 
   custom_object = {
-      "QSeparableConv2DTransposeTPU": QSeparableConv2DTransposeTPU,
-      "QSeparableConv2DTransposeCPU": QSeparableConv2DTransposeCPU,
+      "QSeparableConv2DTranspose": QSeparableConv2DTranspose,
   }
 
   model_loaded = tf.keras.models.load_model(
