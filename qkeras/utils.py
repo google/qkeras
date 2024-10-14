@@ -303,8 +303,6 @@ def model_save_quantized_weights(model, filename=None):
         # Weights store the weight in the format that software inference uses.
         weights.append(weight)
 
-        has_sign = False
-        has_scale = False
         if quantizer:
           if isinstance(quantizer, six.string_types):
             q_name = quantizer
