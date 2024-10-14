@@ -18,8 +18,8 @@
 import tensorflow as tf
 from tensorflow.keras.layers import Conv2DTranspose
 from tensorflow.keras.layers import InputSpec
-from tf_keras.utils import conv_utils
 
+from .qconvolutional import deconv_output_length
 from .quantizers import get_quantizer
 from tensorflow.python.eager import context
 from tensorflow.python.keras import constraints
@@ -138,21 +138,23 @@ class QSeparableConv2DTransposeTPU(Conv2DTranspose):
       out_pad_h, out_pad_w = output_padding
 
     # Infer the dynamic output shape:
-    out_height = conv_utils.deconv_output_length(
+    out_height = deconv_output_length(
         height,
         kernel_h,
         padding=padding,
         output_padding=out_pad_h,
         stride=stride_h,
-        dilation=dilation_h)
+        dilation=dilation_h,
+    )
 
-    out_width = conv_utils.deconv_output_length(
+    out_width = deconv_output_length(
         width,
         kernel_w,
         padding=padding,
         output_padding=out_pad_w,
         stride=stride_w,
-        dilation=dilation_w)
+        dilation=dilation_w,
+    )
 
     return (batch_size, out_height, out_width, kernel_h, kernel_w)
 
@@ -233,7 +235,7 @@ class QSeparableConv2DTransposeTPU(Conv2DTranspose):
       # Pointwise convolution maps input channels to output filters.
       output_shape[c_axis] = self.filters
 
-    output_shape[h_axis] = conv_utils.deconv_output_length(
+    output_shape[h_axis] = deconv_output_length(
         output_shape[h_axis],
         kernel_h,
         padding=self.padding,
@@ -241,7 +243,7 @@ class QSeparableConv2DTransposeTPU(Conv2DTranspose):
         stride=stride_h,
         dilation=self.dilation_rate[0],
     )
-    output_shape[w_axis] = conv_utils.deconv_output_length(
+    output_shape[w_axis] = deconv_output_length(
         output_shape[w_axis],
         kernel_w,
         padding=self.padding,
