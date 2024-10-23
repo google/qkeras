@@ -76,7 +76,7 @@ def test_qseparable_conv2d_transpose():
 
   # Input is (1, 4, 4, 3), with 3 output channels. For i-th channel,
   # with shape (1, 4, 4, 1), it will convolve with the depthwise kernel at
-  # i-th channel. Depthwise outputs are (1, 4, 4, 3). DW output is then
+  # i-th channel. Depthwise outputs are (1, 8, 8, 3). DW output is then
   # mapped from input channel(3) to output channel (2) by pointwise conv.
   # Pointwise conv output is (1, 8, 8, 2).
 
