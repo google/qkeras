@@ -35,6 +35,7 @@ from .qseparable_conv2d_transpose import QSeparableConv2DTranspose
 #from .qtools.run_qtools import QTools
 #from .qtools.settings import cfg
 from .quantizers import *  # pylint: disable=wildcard-import
+from .registry import *  # pylint: disable=wildcard-import
 from .safe_eval import *  # pylint: disable=wildcard-import
 
 

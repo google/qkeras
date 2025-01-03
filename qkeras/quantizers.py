@@ -17,19 +17,22 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import six
 import re
-from typing import List, Any, Tuple
+from typing import Any, List, Tuple
+
 import numpy as np
-import tensorflow.compat.v2 as tf
-import tensorflow.keras.backend as K
+import six
 from six.moves import range
+import tensorflow.compat.v2 as tf
 from tensorflow.keras import initializers
+import tensorflow.keras.backend as K
 from tensorflow.keras.utils import deserialize_keras_object
-from tensorflow.python.framework import smart_cond as tf_utils
-from .safe_eval import safe_eval
-# from .google_internals.experimental_quantizers import quantized_bits_learnable_scale
+
+from . import quantizer_registry
 # from .google_internals.experimental_quantizers import parametric_quantizer_d_xmax
+# from .google_internals.experimental_quantizers import quantized_bits_learnable_scale
+from .safe_eval import safe_eval
+from tensorflow.python.framework import smart_cond as tf_utils
 
 #
 # Library of auxiliary functions
@@ -747,6 +750,8 @@ class BaseQuantizer(tf.Module):
   def non_trainable_variables(self):
     return ()
 
+
+@quantizer_registry.register_quantizer
 class quantized_linear(BaseQuantizer):
   """Linear quantization with fixed number of bits.
 
@@ -981,7 +986,7 @@ class quantized_linear(BaseQuantizer):
   @property
   def scale_axis(self):
     return self._scale_axis
-  
+
   @property
   def use_variables(self):
     return self._use_variables
@@ -989,7 +994,7 @@ class quantized_linear(BaseQuantizer):
   @property
   def scale(self):
     return self.quantization_scale / self.data_type_scale
-    
+
   @property
   def data_type_scale(self):
     """Quantization scale for the data type"""
@@ -1008,7 +1013,7 @@ class quantized_linear(BaseQuantizer):
     """Return true if using sign function for quantization"""
 
     return (self.bits == 1.0) and self.keep_negative
-  
+
   @property
   def default_quantization_scale(self):
     """Calculate and set quantization_scale default"""
@@ -1018,7 +1023,7 @@ class quantized_linear(BaseQuantizer):
 
     # Quantization scale given by alpha
     if self.alpha is not None and not self.auto_alpha:
-        quantization_scale = self.alpha * self.data_type_scale
+      quantization_scale = self.alpha * self.data_type_scale
 
     return quantization_scale
 
@@ -1046,7 +1051,7 @@ class quantized_linear(BaseQuantizer):
     # Data type conversion
     x = K.cast_to_floatx(x)
     shape = x.shape
-    
+
     if self.auto_alpha:
       # get data-dependent quantization scale
       quantization_scale = self._get_auto_quantization_scale(x)
@@ -1062,7 +1067,7 @@ class quantized_linear(BaseQuantizer):
     res.set_shape(shape)
 
     return res
-  
+
   def _scale_clip_and_round(self, x, quantization_scale):
     """Scale, clip, and round x to an integer value in a limited range
     Note that the internal shift is needed for 1-bit quantization to ensure 
@@ -1076,8 +1081,8 @@ class quantized_linear(BaseQuantizer):
 
     scaled_x = x / quantization_scale
     clipped_scaled_x = K.clip(scaled_x, clip_min, clip_max)
-    # Round through to nearest integer, using straight-through estimator 
-    # for gradient computations. 
+    # Round through to nearest integer, using straight-through estimator
+    # for gradient computations.
     scaled_xq = _round_through(
       clipped_scaled_x - shift,
       use_stochastic_rounding=self.use_stochastic_rounding,
@@ -1085,7 +1090,7 @@ class quantized_linear(BaseQuantizer):
     )
 
     return scaled_xq + shift
-    
+
   def _get_auto_quantization_scale(self, x):
     """Get quantization_scale, either from self or from input x"""
 
@@ -1111,7 +1116,7 @@ class quantized_linear(BaseQuantizer):
 
     clip_min, clip_max = self.get_clip_bounds()
     clip_range = clip_max - clip_min
-    
+
     # get quantization scale- depends on whether we are keeping negative
     # divide by clip range to ensure that we clip right at the max of x
     if self.keep_negative:
@@ -1151,12 +1156,12 @@ class quantized_linear(BaseQuantizer):
           tf.not_equal(last_quantization_scale, quantization_scale))
       return tensors_not_equal
 
-    # Need a tensor of the same shape as quantization_scale that 
+    # Need a tensor of the same shape as quantization_scale that
     # does not equal quantization_scale
     dummy_quantization_scale = -tf.ones_like(quantization_scale)
 
     # For 1-bit quantization, po2 autoscale loop is guaranteed to converge
-    # after 1 iteration 
+    # after 1 iteration
     max_iterations = 1 if self.use_sign_function else 5
 
     _, quantization_scale = tf.while_loop(
@@ -1198,7 +1203,7 @@ class quantized_linear(BaseQuantizer):
       neg_array = K.cast_to_floatx(tf.range(clip_min, 0))
 
       return self.quantization_scale * tf.concat([pos_array, neg_array], axis=0)
-    
+
   def __str__(self):
 
     # Main parameters always printed in string
@@ -1242,6 +1247,8 @@ class quantized_linear(BaseQuantizer):
     }
     return config
 
+
+@quantizer_registry.register_quantizer
 class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
   """Legacy quantizer: Quantizes the number to a number of bits.
 
@@ -1557,6 +1564,7 @@ class quantized_bits(BaseQuantizer):  # pylint: disable=invalid-name
     return config
 
 
+@quantizer_registry.register_quantizer
 class bernoulli(BaseQuantizer):  # pylint: disable=invalid-name
   """Computes a Bernoulli sample with probability sigmoid(x).
 
@@ -1671,6 +1679,7 @@ class bernoulli(BaseQuantizer):  # pylint: disable=invalid-name
     return config
 
 
+@quantizer_registry.register_quantizer
 class ternary(BaseQuantizer):  # pylint: disable=invalid-name
   """Computes an activation function returning -alpha, 0 or +alpha.
 
@@ -1820,6 +1829,7 @@ class ternary(BaseQuantizer):  # pylint: disable=invalid-name
     return config
 
 
+@quantizer_registry.register_quantizer
 class stochastic_ternary(ternary):  # pylint: disable=invalid-name
   """Computes a stochastic activation function returning -alpha, 0 or +alpha.
 
@@ -1831,8 +1841,8 @@ class stochastic_ternary(ternary):  # pylint: disable=invalid-name
     bits: number of bits to perform quantization.
     alpha: ternary is -alpha or +alpha, or "auto" or "auto_po2".
     threshold: (1-threshold) specifies the spread of the +1 and -1 values.
-    temperature: amplifier factor for sigmoid function, making stochastic
-      less stochastic as it moves away from 0.
+    temperature: amplifier factor for sigmoid function, making stochastic less
+      stochastic as it moves away from 0.
     use_real_sigmoid: use real sigmoid for probability.
     number_of_unrolls: number of times we iterate between scale and threshold.
 
@@ -1840,12 +1850,17 @@ class stochastic_ternary(ternary):  # pylint: disable=invalid-name
     Computation of sign with stochastic sampling with straight through gradient.
   """
 
-  def __init__(self, alpha=None, threshold=None, temperature=8.0,
-               use_real_sigmoid=True, number_of_unrolls=5):
-    super(stochastic_ternary, self).__init__(
-      alpha=alpha,
-      threshold=threshold,
-      number_of_unrolls=number_of_unrolls)
+  def __init__(
+      self,
+      alpha=None,
+      threshold=None,
+      temperature=8.0,
+      use_real_sigmoid=True,
+      number_of_unrolls=5,
+  ):
+    super().__init__(
+        alpha=alpha, threshold=threshold, number_of_unrolls=number_of_unrolls
+    )
 
     self.bits = 2
     self.alpha = alpha
@@ -1903,10 +1918,11 @@ class stochastic_ternary(ternary):  # pylint: disable=invalid-name
       x_std = K.std(x, axis=axis, keepdims=True)
 
       m = K.max(tf.abs(x), axis=axis, keepdims=True)
-      scale = 2.*m/3.
+      scale = 2.0 * m / 3.0
       if self.alpha == "auto_po2":
-        scale = K.pow(2.0,
-                      tf.math.round(K.log(scale + K.epsilon()) / np.log(2.0)))
+        scale = K.pow(
+            2.0, tf.math.round(K.log(scale + K.epsilon()) / np.log(2.0))
+        )
       for _ in range(self.number_of_unrolls):
         T = scale / 2.0
         q_ns = K.cast(tf.abs(x) >= T, K.floatx()) * K.sign(x)
@@ -1924,18 +1940,17 @@ class stochastic_ternary(ternary):  # pylint: disable=invalid-name
       r0 = tf.random.uniform(tf.shape(p0))
       r1 = tf.random.uniform(tf.shape(p1))
       q0 = tf.sign(p0 - r0)
-      q0 += (1.0 - tf.abs(q0))
+      q0 += 1.0 - tf.abs(q0)
       q1 = tf.sign(p1 - r1)
-      q1 += (1.0 - tf.abs(q1))
+      q1 += 1.0 - tf.abs(q1)
 
       q = (q0 + q1) / 2.0
       self.scale = scale
       return x + tf.stop_gradient(-x + scale * q)
 
     output = tf_utils.smart_cond(
-        K.learning_phase(),
-        stochastic_output,
-        lambda: ternary.__call__(self, x))
+        K.learning_phase(), stochastic_output, lambda: ternary.__call__(self, x)
+    )
     return output
 
   def _set_trainable_parameter(self):
@@ -1966,11 +1981,12 @@ class stochastic_ternary(ternary):  # pylint: disable=invalid-name
         "threshold": self.threshold,
         "temperature": self.temperature,
         "use_real_sigmoid": self.use_real_sigmoid,
-        "number_of_unrolls": self.number_of_unrolls
+        "number_of_unrolls": self.number_of_unrolls,
     }
     return config
 
 
+@quantizer_registry.register_quantizer
 class binary(BaseQuantizer):  # pylint: disable=invalid-name
   """Computes the sign(x) returning a value between -alpha and alpha.
 
@@ -2170,6 +2186,7 @@ class binary(BaseQuantizer):  # pylint: disable=invalid-name
     return config
 
 
+@quantizer_registry.register_quantizer
 class stochastic_binary(binary):  # pylint: disable=invalid-name
   """Computes a stochastic activation function returning -alpha or +alpha.
 
@@ -2181,7 +2198,7 @@ class stochastic_binary(binary):  # pylint: disable=invalid-name
     alpha: binary is -alpha or +alpha, or "auto" or "auto_po2".
     bits: number of bits to perform quantization.
     temperature: amplifier factor for sigmoid function, making stochastic
-        behavior less stochastic as it moves away from 0.
+      behavior less stochastic as it moves away from 0.
     use_real_sigmoid: use real sigmoid from tensorflow for probablity.
 
   Returns:
@@ -2233,15 +2250,16 @@ class stochastic_binary(binary):  # pylint: disable=invalid-name
 
       r = tf.random.uniform(tf.shape(x))
       q = tf.sign(p - r)
-      q += (1.0 - tf.abs(q))
+      q += 1.0 - tf.abs(q)
       q_non_stochastic = tf.sign(x)
-      q_non_stochastic += (1.0 - tf.abs(q_non_stochastic))
+      q_non_stochastic += 1.0 - tf.abs(q_non_stochastic)
       scale = _get_least_squares_scale(self.alpha, x, q_non_stochastic)
       self.scale = scale
       return x + tf.stop_gradient(-x + scale * q)
 
     output = tf_utils.smart_cond(
-        K.learning_phase(), stochastic_output, lambda: binary.__call__(self, x))
+        K.learning_phase(), stochastic_output, lambda: binary.__call__(self, x)
+    )
     return output
 
   def _set_trainable_parameter(self):
@@ -2275,6 +2293,7 @@ class stochastic_binary(binary):  # pylint: disable=invalid-name
     return config
 
 
+@quantizer_registry.register_quantizer
 class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
   """Computes a quantized relu to a number of bits.
 
@@ -2496,8 +2515,7 @@ class quantized_relu(BaseQuantizer):  # pylint: disable=invalid-name
     return config
 
 
-
-
+@quantizer_registry.register_quantizer
 class quantized_ulaw(BaseQuantizer):  # pylint: disable=invalid-name
   """Computes a u-law quantization.
 
@@ -2571,6 +2589,7 @@ class quantized_ulaw(BaseQuantizer):  # pylint: disable=invalid-name
     return config
 
 
+@quantizer_registry.register_quantizer
 class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
   """Computes a quantized tanh to a number of bits.
 
@@ -2640,6 +2659,7 @@ class quantized_tanh(BaseQuantizer):  # pylint: disable=invalid-name
     return config
 
 
+@quantizer_registry.register_quantizer
 class quantized_sigmoid(BaseQuantizer):  # pylint: disable=invalid-name
   """Computes a quantized sigmoid to a number of bits.
 
@@ -2828,6 +2848,7 @@ def _get_min_max_exponents(non_sign_bits, need_exponent_sign_bit,
   return min_exp, max_exp
 
 
+@quantizer_registry.register_quantizer
 class quantized_po2(BaseQuantizer):  # pylint: disable=invalid-name
   """Quantizes to the closest power of 2.
 
@@ -2964,6 +2985,7 @@ class quantized_po2(BaseQuantizer):  # pylint: disable=invalid-name
     return config
 
 
+@quantizer_registry.register_quantizer
 class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
   """Quantizes x to the closest power of 2 when x > 0
 
@@ -3137,8 +3159,10 @@ class quantized_relu_po2(BaseQuantizer):  # pylint: disable=invalid-name
     return config
 
 
+@quantizer_registry.register_quantizer
 class quantized_hswish(quantized_bits):  # pylint: disable=invalid-name
   """Computes a quantized hard swish to a number of bits.
+
   # TODO(mschoenb97): Update to inherit from quantized_linear.
 
   Equation of h-swisth function in mobilenet v3:
@@ -3151,47 +3175,48 @@ class quantized_hswish(quantized_bits):  # pylint: disable=invalid-name
     symmetric: if True,  the quantization is in symmetric mode, which puts
       restricted range for the quantizer. Otherwise, it is in asymmetric mode,
       which uses the full range.
-    alpha: a tensor or None, the scaling factor per channel.
-      If None, the scaling factor is 1 for all channels.
+    alpha: a tensor or None, the scaling factor per channel. If None, the
+      scaling factor is 1 for all channels.
     use_stochastic_rounding: if true, we perform stochastic rounding. This
-      parameter is passed on to the underlying quantizer quantized_bits which
-      is used to quantize h_swish.
+      parameter is passed on to the underlying quantizer quantized_bits which is
+      used to quantize h_swish.
     scale_axis: which axis to calculate scale from
     qnoise_factor: float. a scalar from 0 to 1 that represents the level of
       quantization noise to add. This controls the amount of the quantization
-      noise to add to the outputs by changing the weighted sum of
-      (1 - qnoise_factor)*unquantized_x + qnoise_factor*quantized_x.
+      noise to add to the outputs by changing the weighted sum of (1 -
+      qnoise_factor)*unquantized_x + qnoise_factor*quantized_x.
     var_name: String or None. A variable name shared between the tf.Variables
       created in the build function. If None, it is generated automatically.
     use_ste: Bool. Whether to use "straight-through estimator" (STE) method or
-        not.
+      not.
     use_variables: Bool. Whether to make the quantizer variables to be dynamic
       tf.Variables or not.
-    relu_shift: integer type, representing the shift amount
-      of the unquantized relu.
+    relu_shift: integer type, representing the shift amount of the unquantized
+      relu.
     relu_upper_bound: integer type, representing an upper bound of the
       unquantized relu. If None, we apply relu without the upper bound when
       "is_quantized_clip" is set to false (true by default).
       Note: The quantized relu uses the quantization parameters (bits and
-      integer) to upper bound. So it is important to set relu_upper_bound
-      appropriately to the quantization parameters. "is_quantized_clip"
-      has precedence over "relu_upper_bound" for backward compatibility.
-
+        integer) to upper bound. So it is important to set relu_upper_bound
+        appropriately to the quantization parameters. "is_quantized_clip" has
+        precedence over "relu_upper_bound" for backward compatibility.
   """
 
-  def __init__(self,
-               bits=8,
-               integer=0,
-               symmetric=0,
-               alpha=None,
-               use_stochastic_rounding=False,
-               scale_axis=None,
-               qnoise_factor=1.0,
-               var_name=None,
-               use_variables=False,
-               relu_shift: int = 3,
-               relu_upper_bound: int = 6):
-    super(quantized_hswish, self).__init__(
+  def __init__(
+      self,
+      bits=8,
+      integer=0,
+      symmetric=0,
+      alpha=None,
+      use_stochastic_rounding=False,
+      scale_axis=None,
+      qnoise_factor=1.0,
+      var_name=None,
+      use_variables=False,
+      relu_shift: int = 3,
+      relu_upper_bound: int = 6,
+  ):
+    super().__init__(
         bits=bits,
         integer=integer,
         symmetric=symmetric,
@@ -3201,26 +3226,33 @@ class quantized_hswish(quantized_bits):  # pylint: disable=invalid-name
         scale_axis=scale_axis,
         qnoise_factor=qnoise_factor,
         var_name=var_name,
-        use_variables=use_variables)
+        use_variables=use_variables,
+    )
 
     self.relu_shift = relu_shift
     self.relu_upper_bound = relu_upper_bound
 
   def __str__(self):
-    """ Converts Tensors to printable strings."""
+    """Converts Tensors to printable strings."""
 
-    integer_bits = (
-        re.sub(r"\[(\d)\]", r"\g<1>",
-               str(self.integer.numpy() if isinstance(self.integer, tf.Variable)
-                   else self.integer)))
+    integer_bits = re.sub(
+        r"\[(\d)\]",
+        r"\g<1>",
+        str(
+            self.integer.numpy()
+            if isinstance(self.integer, tf.Variable)
+            else self.integer
+        ),
+    )
     assert isinstance(integer_bits, int)
 
-    flags = [str(self.bits),
-             integer_bits,
-             str(int(self.symmetric)),
-             "relu_shift=" + str(self.relu_shift),
-             "relu_upper_bound=" + str(self.relu_upper_bound)
-             ]
+    flags = [
+        str(self.bits),
+        integer_bits,
+        str(int(self.symmetric)),
+        "relu_shift=" + str(self.relu_shift),
+        "relu_upper_bound=" + str(self.relu_upper_bound),
+    ]
 
     if not self.keep_negative:
       flags.append("keep_negative=False")
@@ -3230,22 +3262,26 @@ class quantized_hswish(quantized_bits):  # pylint: disable=invalid-name
         alpha = "'" + alpha + "'"
       flags.append("alpha=" + alpha)
     if self.use_stochastic_rounding:
-      flags.append("use_stochastic_rounding=" +
-                   str(int(self.use_stochastic_rounding)))
+      flags.append(
+          "use_stochastic_rounding=" + str(int(self.use_stochastic_rounding))
+      )
     return "quantized_hswish(" + ",".join(flags) + ")"
 
   def __call__(self, x):
     assert self.relu_upper_bound > 0, (
-        f"relu_upper_bound must be a positive value, "
-        f"found {self.relu_upper_bound} instead")
-    assert self.relu_shift > 0, (
-        f"relu_shift must be a positive value, "
-        f"found {self.relu_shift} instead")
+        "relu_upper_bound must be a positive value, "
+        f"found {self.relu_upper_bound} instead"
+    )
+    assert (
+        self.relu_shift > 0
+    ), f"relu_shift must be a positive value, found {self.relu_shift} instead"
     x = K.cast_to_floatx(x)
     shift_x = x + self.relu_shift
-    relu_x = tf.where(shift_x <= self.relu_upper_bound,
-                      K.relu(shift_x, alpha=False),
-                      tf.ones_like(shift_x) * self.relu_upper_bound)
+    relu_x = tf.where(
+        shift_x <= self.relu_upper_bound,
+        K.relu(shift_x, alpha=False),
+        tf.ones_like(shift_x) * self.relu_upper_bound,
+    )
 
     hswish_x = tf.math.multiply(x, relu_x) / self.relu_upper_bound
     return super(quantized_hswish, self).__call__(hswish_x)
@@ -3275,14 +3311,14 @@ class quantized_hswish(quantized_bits):  # pylint: disable=invalid-name
 
     config = {
         "relu_shift": self.relu_shift,
-        "relu_upper_bound": self.relu_upper_bound
+        "relu_upper_bound": self.relu_upper_bound,
     }
 
-    out_config = dict(
-        list(base_config.items()) + list(config.items()))
+    out_config = dict(list(base_config.items()) + list(config.items()))
     return out_config
 
 
+# TODO(akshayap): Update to use registry for quantizers instead of globals().
 def get_quantizer(identifier):
   """Gets the quantizer.
 
