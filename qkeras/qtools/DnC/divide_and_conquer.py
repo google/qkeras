@@ -27,15 +27,16 @@ and ML complexity evaluation such as AV2/ROOF_ML.
 
 import enum
 import logging
-from typing import List, Any, Union
+from typing import Any, List, Union
 
 import numpy as np
 import tensorflow as tf
 
+from qkeras import base_quantizer
 from qkeras import quantizers
+from qkeras.qtools import generate_layer_data_type_map
 from qkeras.qtools import qgraph
 from qkeras.qtools import qtools_util
-from qkeras.qtools import generate_layer_data_type_map
 from qkeras.qtools.DnC import dnc_layer_cost_ace
 
 
@@ -49,8 +50,11 @@ class CostMode(enum.Enum):
 class DivideConquerGraph:
   """This class creates model graph structure and methods to access layers."""
 
-  def __init__(self, model: tf.keras.Model,
-               source_quantizers: quantizers.BaseQuantizer = None):
+  def __init__(
+      self,
+      model: tf.keras.Model,
+      source_quantizers: base_quantizer.BaseQuantizer = None,
+  ):
     self._model = model
     self._source_quantizer_list = source_quantizers or [
         quantizers.quantized_bits(8, 0, 1)]

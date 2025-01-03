@@ -23,13 +23,13 @@ import copy
 import math
 
 import numpy as np
-import copy
+
+from qkeras import base_quantizer
+from qkeras.qtools import qtools_util
 from qkeras.qtools.quantized_operators import adder_factory
 from qkeras.qtools.quantized_operators import divider_factory
 from qkeras.qtools.quantized_operators import multiplier_factory
 from qkeras.qtools.quantized_operators import quantizer_impl
-from qkeras.qtools import qtools_util
-from qkeras import quantizers
 
 class FusedBNFactory:
   """determine which quantizer implementation to use.
@@ -48,14 +48,15 @@ class FusedBNFactory:
   """
 
   def make_quantizer(
-      self, prev_output_quantizer: quantizer_impl.IQuantizer,
+      self,
+      prev_output_quantizer: quantizer_impl.IQuantizer,
       beta_quantizer: quantizer_impl.IQuantizer,
       mean_quantizer: quantizer_impl.IQuantizer,
       inverse_quantizer: quantizer_impl.IQuantizer,
       prev_bias_quantizer: quantizer_impl.IQuantizer,
       use_beta: bool,
       use_bias: bool,
-      qkeras_inverse_quantizer:quantizers.BaseQuantizer
+      qkeras_inverse_quantizer: base_quantizer.BaseQuantizer,
   ):
     """Makes a fused_bn quantizer.
 
