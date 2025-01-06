@@ -121,22 +121,22 @@ class QSimpleRNNCell(SimpleRNNCell):
     if activation is not None:
       activation = get_quantizer(activation)
 
-    super(QSimpleRNNCell, self).__init__(
-      units=units,
-      activation=activation,
-      use_bias=use_bias,
-      kernel_initializer=kernel_initializer,
-      recurrent_initializer=recurrent_initializer,
-      bias_initializer=bias_initializer,
-      kernel_regularizer=kernel_regularizer,
-      recurrent_regularizer=recurrent_regularizer,
-      bias_regularizer=bias_regularizer,
-      kernel_constraint=kernel_constraint,
-      recurrent_constraint=recurrent_constraint,
-      bias_constraint=bias_constraint,
-      dropout=dropout,
-      recurrent_dropout=recurrent_dropout,
-      **kwargs
+    super().__init__(
+        units=units,
+        activation=activation,
+        use_bias=use_bias,
+        kernel_initializer=kernel_initializer,
+        recurrent_initializer=recurrent_initializer,
+        bias_initializer=bias_initializer,
+        kernel_regularizer=kernel_regularizer,
+        recurrent_regularizer=recurrent_regularizer,
+        bias_regularizer=bias_regularizer,
+        kernel_constraint=kernel_constraint,
+        recurrent_constraint=recurrent_constraint,
+        bias_constraint=bias_constraint,
+        dropout=dropout,
+        recurrent_dropout=recurrent_dropout,
+        **kwargs
     )
 
   def call(self, inputs, states, training=None):
@@ -278,14 +278,15 @@ class QSimpleRNN(RNN, PrunableLayer):
         trainable=kwargs.get('trainable', True),
         **cell_kwargs)
 
-    super(QSimpleRNN, self).__init__(
+    super().__init__(
         cell,
         return_sequences=return_sequences,
         return_state=return_state,
         go_backwards=go_backwards,
         stateful=stateful,
         unroll=unroll,
-        **kwargs)
+        **kwargs
+    )
     self.activity_regularizer = regularizers.get(activity_regularizer)
     self.input_spec = [tf.keras.layers.InputSpec(ndim=3)]
 
@@ -552,25 +553,25 @@ class QLSTMCell(LSTMCell):
     if recurrent_activation is not None:
       recurrent_activation = get_quantizer(recurrent_activation)
 
-    super(QLSTMCell, self).__init__(
-      units=units,
-      activation=activation,
-      use_bias=use_bias,
-      recurrent_activation=recurrent_activation,
-      kernel_initializer=kernel_initializer,
-      recurrent_initializer=recurrent_initializer,
-      bias_initializer=bias_initializer,
-      unit_forget_bias=True,
-      kernel_regularizer=kernel_regularizer,
-      recurrent_regularizer=recurrent_regularizer,
-      bias_regularizer=bias_regularizer,
-      kernel_constraint=kernel_constraint,
-      recurrent_constraint=recurrent_constraint,
-      bias_constraint=bias_constraint,
-      dropout=dropout,
-      recurrent_dropout=recurrent_dropout,
-      implementation=implementation,
-      **kwargs
+    super().__init__(
+        units=units,
+        activation=activation,
+        use_bias=use_bias,
+        recurrent_activation=recurrent_activation,
+        kernel_initializer=kernel_initializer,
+        recurrent_initializer=recurrent_initializer,
+        bias_initializer=bias_initializer,
+        unit_forget_bias=True,
+        kernel_regularizer=kernel_regularizer,
+        recurrent_regularizer=recurrent_regularizer,
+        bias_regularizer=bias_regularizer,
+        kernel_constraint=kernel_constraint,
+        recurrent_constraint=recurrent_constraint,
+        bias_constraint=bias_constraint,
+        dropout=dropout,
+        recurrent_dropout=recurrent_dropout,
+        implementation=implementation,
+        **kwargs
     )
 
   def _compute_carry_and_output(self, x, h_tm1, c_tm1, quantized_recurrent):
@@ -780,14 +781,15 @@ class QLSTM(RNN, PrunableLayer):
         trainable=kwargs.get('trainable', True),
         **cell_kwargs)
 
-    super(QLSTM, self).__init__(
+    super().__init__(
         cell,
         return_sequences=return_sequences,
         return_state=return_state,
         go_backwards=go_backwards,
         stateful=stateful,
         unroll=unroll,
-        **kwargs)
+        **kwargs
+    )
     self.activity_regularizer = regularizers.get(activity_regularizer)
     self.input_spec = [tf.keras.layers.InputSpec(ndim=3)]
 
@@ -1074,25 +1076,26 @@ class QGRUCell(GRUCell):
     if recurrent_activation is not None:
       recurrent_activation = get_quantizer(recurrent_activation)
 
-    super(QGRUCell, self).__init__(
-      units=units,
-      activation=activation,
-      recurrent_activation=recurrent_activation,
-      use_bias=use_bias,
-      kernel_initializer=kernel_initializer,
-      recurrent_initializer=recurrent_initializer,
-      bias_initializer=bias_initializer,
-      kernel_regularizer=kernel_regularizer,
-      recurrent_regularizer=recurrent_regularizer,
-      bias_regularizer=bias_regularizer,
-      kernel_constraint=kernel_constraint,
-      recurrent_constraint=recurrent_constraint,
-      bias_constraint=bias_constraint,
-      dropout=dropout,
-      recurrent_dropout=recurrent_dropout,
-      implementation=implementation,
-      reset_after=reset_after,
-      **kwargs)
+    super().__init__(
+        units=units,
+        activation=activation,
+        recurrent_activation=recurrent_activation,
+        use_bias=use_bias,
+        kernel_initializer=kernel_initializer,
+        recurrent_initializer=recurrent_initializer,
+        bias_initializer=bias_initializer,
+        kernel_regularizer=kernel_regularizer,
+        recurrent_regularizer=recurrent_regularizer,
+        bias_regularizer=bias_regularizer,
+        kernel_constraint=kernel_constraint,
+        recurrent_constraint=recurrent_constraint,
+        bias_constraint=bias_constraint,
+        dropout=dropout,
+        recurrent_dropout=recurrent_dropout,
+        implementation=implementation,
+        reset_after=reset_after,
+        **kwargs
+    )
 
   def call(self, inputs, states, training=None):
     # previous memory
@@ -1320,14 +1323,15 @@ class QGRU(RNN, PrunableLayer):
         trainable=kwargs.get('trainable', True),
         **cell_kwargs)
 
-    super(QGRU, self).__init__(
+    super().__init__(
         cell,
         return_sequences=return_sequences,
         return_state=return_state,
         go_backwards=go_backwards,
         stateful=stateful,
         unroll=unroll,
-        **kwargs)
+        **kwargs
+    )
     self.activity_regularizer = regularizers.get(activity_regularizer)
     self.input_spec = [tf.keras.layers.InputSpec(ndim=3)]
 

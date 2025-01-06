@@ -841,7 +841,7 @@ class quantized_linear(base_quantizer.BaseQuantizer):
       var_name=None,
       use_variables=False,
   ):
-    super(quantized_linear, self).__init__()
+    super().__init__()
 
     self.var_name = var_name
 
@@ -1254,7 +1254,7 @@ class quantized_bits(base_quantizer.BaseQuantizer):  # pylint: disable=invalid-n
                elements_per_scale=None,
                min_po2_exponent=None,
                max_po2_exponent=None):
-    super(quantized_bits, self).__init__()
+    super().__init__()
 
     self.bits = bits
     self.integer = integer
@@ -1517,7 +1517,7 @@ class bernoulli(base_quantizer.BaseQuantizer):  # pylint: disable=invalid-name
   """
 
   def __init__(self, alpha=None, temperature=6.0, use_real_sigmoid=True):
-    super(bernoulli, self).__init__()
+    super().__init__()
     self.alpha = alpha
     self.bits = 1
     self.temperature = temperature
@@ -1623,7 +1623,7 @@ class ternary(base_quantizer.BaseQuantizer):  # pylint: disable=invalid-name
 
   def __init__(self, alpha=None, threshold=None, use_stochastic_rounding=False,
                number_of_unrolls=5):
-    super(ternary, self).__init__()
+    super().__init__()
     self.bits = 2
     self.alpha = alpha
     self.threshold = threshold
@@ -1965,7 +1965,7 @@ class binary(base_quantizer.BaseQuantizer):  # pylint: disable=invalid-name
   def __init__(self, use_01=False, alpha=None, use_stochastic_rounding=False,
                scale_axis=None, elements_per_scale=None, min_po2_exponent=None,
                max_po2_exponent=None):
-    super(binary, self).__init__()
+    super().__init__()
     self.use_01 = use_01
     self.bits = 1
     self.alpha = alpha
@@ -2127,7 +2127,7 @@ class stochastic_binary(binary):  # pylint: disable=invalid-name
   """
 
   def __init__(self, alpha=None, temperature=6.0, use_real_sigmoid=True):
-    super(stochastic_binary, self).__init__(alpha=alpha)
+    super().__init__(alpha=alpha)
     self.alpha = alpha
     self.bits = 1
     self.temperature = temperature
@@ -2278,7 +2278,7 @@ class quantized_relu(base_quantizer.BaseQuantizer):  # pylint: disable=invalid-n
                var_name=None,
                use_ste=True,
                use_variables=False):
-    super(quantized_relu, self).__init__()
+    super().__init__()
     self.bits = bits
     self.integer = integer
     self.use_sigmoid = use_sigmoid
@@ -2452,7 +2452,7 @@ class quantized_ulaw(base_quantizer.BaseQuantizer):  # pylint: disable=invalid-n
   """
 
   def __init__(self, bits=8, integer=0, symmetric=0, u=255.0):
-    super(quantized_ulaw, self).__init__()
+    super().__init__()
     self.bits = bits
     self.integer = integer
     self.symmetric = symmetric
@@ -2532,7 +2532,7 @@ class quantized_tanh(base_quantizer.BaseQuantizer):  # pylint: disable=invalid-n
 
   def __init__(self, bits=8, use_stochastic_rounding=False,
                symmetric=False, use_real_tanh=False):
-    super(quantized_tanh, self).__init__()
+    super().__init__()
     self.bits = bits
     self.symmetric = symmetric
     self.use_stochastic_rounding = use_stochastic_rounding
@@ -2598,7 +2598,7 @@ class quantized_sigmoid(base_quantizer.BaseQuantizer):  # pylint: disable=invali
   def __init__(self, bits=8, symmetric=False,
                use_real_sigmoid=False,
                use_stochastic_rounding=False):
-    super(quantized_sigmoid, self).__init__()
+    super().__init__()
     self.bits = bits
     self.symmetric = symmetric
     self.use_real_sigmoid = use_real_sigmoid
@@ -2806,7 +2806,7 @@ class quantized_po2(base_quantizer.BaseQuantizer):  # pylint: disable=invalid-na
                var_name=None,
                use_ste=True,
                use_variables=False):
-    super(quantized_po2, self).__init__()
+    super().__init__()
     self.bits = bits
     self.max_value = max_value
     self.use_stochastic_rounding = use_stochastic_rounding
@@ -2944,7 +2944,7 @@ class quantized_relu_po2(base_quantizer.BaseQuantizer):  # pylint: disable=inval
                var_name=None,
                use_ste=True,
                use_variables=False):
-    super(quantized_relu_po2, self).__init__()
+    super().__init__()
     self.bits = bits
     self.max_value = max_value
     self.negative_slope = negative_slope

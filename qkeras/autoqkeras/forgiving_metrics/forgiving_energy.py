@@ -50,7 +50,7 @@ class ForgivingFactorPower(ForgivingFactor):
     #   energy calculation
     # keras_layer_quantizer: quantizer for keras layers in hybrid models
 
-    super(ForgivingFactorPower, self).__init__(delta_p, delta_n, rate)
+    super().__init__(delta_p, delta_n, rate)
 
     self.stress = stress
     # process: horowitz... - must be present in config_json

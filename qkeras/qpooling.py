@@ -45,9 +45,13 @@ class QAveragePooling2D(AveragePooling2D):
     else:
       self.activation = activation
 
-    super(QAveragePooling2D, self).__init__(
-        pool_size=pool_size, strides=strides, padding=padding,
-        data_format=data_format, **kwargs)
+    super().__init__(
+        pool_size=pool_size,
+        strides=strides,
+        padding=padding,
+        data_format=data_format,
+        **kwargs
+    )
 
   def call(self, inputs):
     """Performs quantized AveragePooling followed by QActivation.
@@ -142,8 +146,7 @@ class QGlobalAveragePooling2D(GlobalAveragePooling2D):
     else:
       self.activation = activation
 
-    super(QGlobalAveragePooling2D, self).__init__(
-        data_format=data_format, **kwargs)
+    super().__init__(data_format=data_format, **kwargs)
 
   def compute_pooling_area(self, input_shape):
     if not isinstance(input_shape, tuple):

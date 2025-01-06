@@ -107,7 +107,7 @@ class QDepthwiseConv2DBatchnorm(QDepthwiseConv2D):
     """
 
     # intialization the QDepthwiseConv2d part of the composite layer
-    super(QDepthwiseConv2DBatchnorm, self).__init__(
+    super().__init__(
         kernel_size=kernel_size,
         strides=strides,
         padding=padding,
@@ -127,7 +127,8 @@ class QDepthwiseConv2DBatchnorm(QDepthwiseConv2D):
         bias_quantizer=bias_quantizer,
         depthwise_range=depthwise_range,
         bias_range=bias_range,
-        **kwargs)
+        **kwargs
+    )
 
     # initialization of batchnorm part of the composite layer
     self.batchnorm = layers.BatchNormalization(

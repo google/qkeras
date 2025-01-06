@@ -154,7 +154,7 @@ class QBatchNormalization(BatchNormalization, PrunableLayer):
                     'in qkeras qnormalization.py.')
       del kwargs['adjustment']
 
-    super(QBatchNormalization, self).__init__(
+    super().__init__(
         axis=axis,
         momentum=momentum,
         epsilon=epsilon,
@@ -172,7 +172,8 @@ class QBatchNormalization(BatchNormalization, PrunableLayer):
         renorm=False,
         virtual_batch_size=None,
         adjustment=None,
-        **kwargs)
+        **kwargs
+    )
 
   def call(self, inputs, training=None):
     if self.scale and self.gamma_quantizer:

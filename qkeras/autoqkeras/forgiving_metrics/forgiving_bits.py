@@ -35,7 +35,7 @@ class ForgivingFactorBits(ForgivingFactor):
     self.ref_size = {}
     self.config = config if config else {}
 
-    super(ForgivingFactorBits, self).__init__(delta_p, delta_n, rate)
+    super().__init__(delta_p, delta_n, rate)
 
   def _param_size(self, layer):
     """Computes size of parameters of a layer in bits."""

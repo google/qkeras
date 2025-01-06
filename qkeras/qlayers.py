@@ -155,7 +155,7 @@ class QActivation(Layer, PrunableLayer):
   # object if string is given as activation.
   def __init__(self, activation, **kwargs):
 
-    super(QActivation, self).__init__(**kwargs)
+    super().__init__(**kwargs)
 
     self.activation = activation
 
@@ -267,7 +267,7 @@ class QAdaptiveActivation(Layer, PrunableLayer):
         that this param is ignored if the activation is not quantized_relu
       **kwargs: Args passed to the Layer class.
     """
-    super(QAdaptiveActivation, self).__init__(**kwargs)
+    super().__init__(**kwargs)
 
     self.total_bits = total_bits
     self.symmetric = symmetric
@@ -630,7 +630,7 @@ class QDense(Dense, PrunableLayer):
     if activation is not None:
       activation = get_quantizer(activation)
 
-    super(QDense, self).__init__(
+    super().__init__(
         units=units,
         activation=activation,
         use_bias=use_bias,
@@ -641,7 +641,8 @@ class QDense(Dense, PrunableLayer):
         activity_regularizer=activity_regularizer,
         kernel_constraint=kernel_constraint,
         bias_constraint=bias_constraint,
-        **kwargs)
+        **kwargs,
+    )
 
   def call(self, inputs):
     if self.kernel_quantizer:

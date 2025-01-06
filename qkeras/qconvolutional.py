@@ -170,7 +170,7 @@ class QConv1D(Conv1D, PrunableLayer):
     if activation is not None:
       activation = get_quantizer(activation)
 
-    super(QConv1D, self).__init__(
+    super().__init__(
         filters=filters,
         kernel_size=kernel_size,
         strides=strides,
@@ -185,7 +185,8 @@ class QConv1D(Conv1D, PrunableLayer):
         activity_regularizer=activity_regularizer,
         kernel_constraint=kernel_constraint,
         bias_constraint=bias_constraint,
-        **kwargs)
+        **kwargs
+    )
 
   def call(self, inputs):
     if self.kernel_quantizer:
@@ -323,7 +324,7 @@ class QConv2D(Conv2D, PrunableLayer):
     if activation is not None:
       activation = get_quantizer(activation)
 
-    super(QConv2D, self).__init__(
+    super().__init__(
         filters=filters,
         kernel_size=kernel_size,
         strides=strides,
@@ -339,7 +340,8 @@ class QConv2D(Conv2D, PrunableLayer):
         activity_regularizer=activity_regularizer,
         kernel_constraint=kernel_constraint,
         bias_constraint=bias_constraint,
-        **kwargs)
+        **kwargs
+    )
 
   def call(self, inputs):
     if self.kernel_quantizer:
@@ -463,7 +465,7 @@ class QConv2DTranspose(Conv2DTranspose, PrunableLayer):
     if activation is not None:
       activation = get_quantizer(activation)
 
-    super(QConv2DTranspose, self).__init__(
+    super().__init__(
         filters=filters,
         kernel_size=kernel_size,
         strides=strides,
@@ -480,7 +482,8 @@ class QConv2DTranspose(Conv2DTranspose, PrunableLayer):
         activity_regularizer=activity_regularizer,
         kernel_constraint=kernel_constraint,
         bias_constraint=bias_constraint,
-        **kwargs)
+        **kwargs
+    )
 
   def call(self, inputs):
     inputs_shape = array_ops.shape(inputs)
@@ -650,7 +653,7 @@ class QSeparableConv1D(SeparableConv1D, PrunableLayer):
     if activation is not None:
       activation = get_quantizer(activation)
 
-    super(QSeparableConv1D, self).__init__(
+    super().__init__(
         filters=filters,
         kernel_size=kernel_size,
         strides=strides,
@@ -670,7 +673,8 @@ class QSeparableConv1D(SeparableConv1D, PrunableLayer):
         depthwise_constraint=constraints.get(depthwise_constraint),
         pointwise_constraint=constraints.get(pointwise_constraint),
         bias_constraint=constraints.get(bias_constraint),
-        **kwargs)
+        **kwargs
+    )
 
   def call(self, inputs):
     if self.padding == 'causal':
@@ -828,7 +832,7 @@ class QSeparableConv2D(SeparableConv2D, PrunableLayer):
     if activation is not None:
       activation = get_quantizer(activation)
 
-    super(QSeparableConv2D, self).__init__(
+    super().__init__(
         filters=filters,
         kernel_size=kernel_size,
         strides=strides,
@@ -848,7 +852,8 @@ class QSeparableConv2D(SeparableConv2D, PrunableLayer):
         depthwise_constraint=constraints.get(depthwise_constraint),
         pointwise_constraint=constraints.get(pointwise_constraint),
         bias_constraint=constraints.get(bias_constraint),
-        **kwargs)
+        **kwargs
+    )
 
   def call(self, inputs):
     # Apply the actual ops.
@@ -986,7 +991,7 @@ class QDepthwiseConv2D(DepthwiseConv2D, PrunableLayer):
     if activation is not None:
       activation = get_quantizer(activation)
 
-    super(QDepthwiseConv2D, self).__init__(
+    super().__init__(
         kernel_size=kernel_size,
         strides=strides,
         padding=padding,
@@ -1002,7 +1007,8 @@ class QDepthwiseConv2D(DepthwiseConv2D, PrunableLayer):
         depthwise_constraint=depthwise_constraint,
         bias_constraint=bias_constraint,
         dilation_rate=dilation_rate,
-        **kwargs)
+        **kwargs
+    )
 
   def build(self, input_shape):
     if len(input_shape) < 4:
