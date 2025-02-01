@@ -1117,7 +1117,7 @@ class QGRUCell(GRUCell):
     if self.recurrent_quantizer:
       quantized_recurrent = self.recurrent_quantizer_internal(self.recurrent_kernel)
     else:
-      quantized_recurrent = self.kernel
+      quantized_recurrent = self.recurrent_kernel
 
     if self.use_bias:
       if self.bias_quantizer:
