@@ -18,10 +18,12 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 import numpy as np
-from numpy.testing import assert_allclose
+from numpy.testing import assert_allclose, assert_array_equal
 
 import pytest
+from tensorflow import keras
 from tensorflow.keras import backend as K
+import tempfile
 
 from qkeras import set_internal_sigmoid
 from qkeras import binary
@@ -85,7 +87,8 @@ from qkeras.quantizers import _default_sigmoid_type
         ),
         (4, 4, 0, 0, "floor",
          np.array([[-7, -0.12, -0.03, 0, 0.01, 5]], dtype=K.floatx()),
-         np.array([[-4, -0.0625, -0.0625, 0.0625, 0.0625, 4]], dtype=K.floatx()),
+         np.array([[-4, -0.0625, -0.0625, 0.0625, 0.0625, 4]],
+                  dtype=K.floatx()),
         ),
         (4, None, 0, 1, "floor",
          np.array(
@@ -112,13 +115,14 @@ from qkeras.quantizers import _default_sigmoid_type
              dtype=K.floatx()),
         ),
     ])
-def disable_test_quantized_po2(bits,
-                       max_value,
-                       use_stochastic_rounding,
-                       quadratic_approximation,
-                       log2_rounding,
-                       test_values,
-                       expected_values):
+def disable_test_quantized_po2(
+    bits,
+    max_value,
+    use_stochastic_rounding,
+    quadratic_approximation,
+    log2_rounding,
+    test_values,
+    expected_values):
   """Test quantized_po2 function."""
   x = K.placeholder(ndim=2)
   f = K.function([x], [quantized_po2(
@@ -246,7 +250,7 @@ def test_hard_sigmoid():
             "hard",
             False,
             np.array(
-                [[-1., -0.75, -0.5, -0.25,  0.,  0.25,  0.5,  0.75]],
+                [[-1., -0.75, -0.5, -0.25, 0., 0.25, 0.5, 0.75]],
                 dtype=K.floatx()),
             np.array([[0.015625, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875]],
                      dtype=K.floatx()),
@@ -256,9 +260,10 @@ def test_hard_sigmoid():
             "smooth",
             False,
             np.array(
-                [[-1., -0.75, -0.5, -0.25,  0.,  0.25,  0.5,  0.75]],
+                [[-1., -0.75, -0.5, -0.25, 0., 0.25, 0.5, 0.75]],
                 dtype=K.floatx()),
-            np.array([[0.3125, 0.359375, 0.40625, 0.453125, 0.5, 0.546875, 0.59375, 0.640625]],
+            np.array([[0.3125, 0.359375, 0.40625, 0.453125,
+                       0.5, 0.546875, 0.59375, 0.640625]],
                      dtype=K.floatx()),
         ),
         (
@@ -266,18 +271,22 @@ def test_hard_sigmoid():
             "real",
             True,
             np.array(
-                [[-1., -0.75, -0.5, -0.25,  0.,  0.25,  0.5,  0.75]],
+                [[-1., -0.75, -0.5, -0.25, 0., 0.25, 0.5, 0.75]],
                 dtype=K.floatx()),
-            np.array([[0.265625, 0.328125, 0.375, 0.4375, 0.5, 0.5625, 0.625, 0.671875]],
+            np.array([[0.265625, 0.328125, 0.375, 0.4375, 0.5,
+                       0.5625, 0.625, 0.671875]],
                      dtype=K.floatx()),
         ),
     ])
-def test_quantized_sigmoid(bits, sigmoid_type, use_real_sigmoid, test_values, expected_values):
+def test_quantized_sigmoid(bits, sigmoid_type, use_real_sigmoid,
+                           test_values, expected_values):
   """Test quantized_sigmoid function with three different sigmoid variants."""
 
   set_internal_sigmoid(sigmoid_type)
   x = K.placeholder(ndim=2)
-  f = K.function([x], [quantized_sigmoid(bits, symmetric=True, use_real_sigmoid=use_real_sigmoid)(x)])
+  f = K.function([x],
+                 [quantized_sigmoid(bits, symmetric=True,
+                                    use_real_sigmoid=use_real_sigmoid)(x)])
   set_internal_sigmoid(_default_sigmoid_type)
 
   result = f([test_values])[0]
@@ -291,7 +300,7 @@ def test_quantized_sigmoid(bits, sigmoid_type, use_real_sigmoid, test_values, ex
             "hard",
             False,
             np.array(
-                [-15,  15],
+                [-15, 15],
                 dtype=K.floatx()),
             np.array([0.0625, 0.9375],
                      dtype=K.floatx()),
@@ -301,7 +310,7 @@ def test_quantized_sigmoid(bits, sigmoid_type, use_real_sigmoid, test_values, ex
             "smooth",
             False,
             np.array(
-                [-15,  15],
+                [-15, 15],
                 dtype=K.floatx()),
             np.array([0.0625, 0.9375],
                      dtype=K.floatx()),
@@ -311,25 +320,30 @@ def test_quantized_sigmoid(bits, sigmoid_type, use_real_sigmoid, test_values, ex
             "real",
             True,
             np.array(
-                [-15,  15],
+                [-15, 15],
                 dtype=K.floatx()),
             np.array([0.0625, 0.9375],
                      dtype=K.floatx()),
         ),
     ])
 
-def test_quantized_sigmoid_limits(bits, sigmoid_type, use_real_sigmoid, test_values, expected_values):
+def test_quantized_sigmoid_limits(
+    bits, sigmoid_type, use_real_sigmoid, test_values, expected_values):
   """Test the min and max values of quantized_sigmoid function with three different sigmoid variants."""
 
   set_internal_sigmoid(sigmoid_type)
   x = K.placeholder(ndim=2)
-  f = K.function([x], [quantized_sigmoid(bits, symmetric=True, use_real_sigmoid=use_real_sigmoid)(x)])
+  f = K.function([x],
+                 [quantized_sigmoid(bits, symmetric=True,
+                                    use_real_sigmoid=use_real_sigmoid)(x)])
   set_internal_sigmoid(_default_sigmoid_type)
 
   result = f([test_values])[0]
   min_max = np.array(
-                    [quantized_sigmoid(bits, symmetric=True, use_real_sigmoid=use_real_sigmoid).min(),
-                     quantized_sigmoid(bits, symmetric=True, use_real_sigmoid=use_real_sigmoid).max()])
+      [quantized_sigmoid(bits, symmetric=True,
+                         use_real_sigmoid=use_real_sigmoid).min(),
+       quantized_sigmoid(bits, symmetric=True,
+                         use_real_sigmoid=use_real_sigmoid).max()])
 
   assert_allclose(result, expected_values, rtol=1e-05)
   assert_allclose(result, min_max, rtol=1e-05)
@@ -341,18 +355,18 @@ def test_quantized_sigmoid_limits(bits, sigmoid_type, use_real_sigmoid, test_val
             4,
             False,
             np.array(
-                [[-1., -0.75, -0.5, -0.25,  0.,  0.25,  0.5,  0.75]],
+                [[-1., -0.75, -0.5, -0.25, 0., 0.25, 0.5, 0.75]],
                 dtype=K.floatx()),
-            np.array([[-0.875, -0.75, -0.5, -0.25,  0.,  0.25,  0.5,  0.75]],
+            np.array([[-0.875, -0.75, -0.5, -0.25, 0., 0.25, 0.5, 0.75]],
                      dtype=K.floatx()),
         ),
         (
             4,
             True,
             np.array(
-                [[-1., -0.75, -0.5, -0.25,  0.,  0.25,  0.5,  0.75]],
+                [[-1., -0.75, -0.5, -0.25,  0., 0.25, 0.5, 0.75]],
                 dtype=K.floatx()),
-            np.array([[-0.75, -0.625, -0.5, -0.25,  0.,  0.25,  0.5,  0.625]],
+            np.array([[-0.75, -0.625, -0.5, -0.25, 0., 0.25, 0.5, 0.625]],
                      dtype=K.floatx()),
         )
     ])
@@ -362,7 +376,8 @@ def test_quantized_tanh(bits, use_real_tanh, test_values, expected_values):
 
   set_internal_sigmoid('hard')
   x = K.placeholder(ndim=2)
-  f = K.function([x], [quantized_tanh(bits, symmetric=True, use_real_tanh=use_real_tanh)(x)])
+  f = K.function([x], [quantized_tanh(
+      bits, symmetric=True, use_real_tanh=use_real_tanh)(x)])
   set_internal_sigmoid(_default_sigmoid_type)
 
   result = f([test_values])[0]
@@ -402,18 +417,20 @@ def test_quantized_tanh(bits, use_real_tanh, test_values, expected_values):
                      dtype=K.floatx()),
         ),
     ])
-def test_quantized_tanh_limits(bits, sigmoid_type, use_real_tanh, test_values, expected_values):
+def test_quantized_tanh_limits(bits, sigmoid_type, use_real_tanh, test_values,
+                               expected_values):
   """Test the min and max values of quantized_tanh function with three different sigmoid variants."""
 
   set_internal_sigmoid(sigmoid_type)
   x = K.placeholder(ndim=2)
-  f = K.function([x], [quantized_tanh(bits, symmetric=True, use_real_tanh=use_real_tanh)(x)])
+  f = K.function([x], [quantized_tanh(
+      bits, symmetric=True, use_real_tanh=use_real_tanh)(x)])
   set_internal_sigmoid(_default_sigmoid_type)
 
   result = f([test_values])[0]
   min_max = np.array(
-                    [quantized_tanh(bits, symmetric=True, use_real_tanh=use_real_tanh).min(),
-                     quantized_tanh(bits, symmetric=True, use_real_tanh=use_real_tanh).max()])
+      [quantized_tanh(bits, symmetric=True, use_real_tanh=use_real_tanh).min(),
+       quantized_tanh(bits, symmetric=True, use_real_tanh=use_real_tanh).max()])
 
   assert_allclose(result, expected_values, rtol=1e-05)
   assert_allclose(result, min_max, rtol=1e-05)
@@ -439,8 +456,7 @@ def test_quantized_tanh_limits(bits, sigmoid_type, use_real_tanh, test_values, e
              0.544922, 1.046875, 0.586899, 3.367188, 3.804688, 0.312500,
              0.062500, 0.562500, 0.375000, 3.367188, 1.046875, 2.796875,
              0.054688, 1.562500, 2.562500
-         ]],
-                  dtype=K.floatx()),
+         ]], dtype=K.floatx()),
          np.array([[
              0.500000, 0.625000, 0.250000, 1.500000, 0.000000, 3.937500,
              3.937500, 3.937500, 0.375000, 0.875000, 0.750000, 3.937500,
@@ -448,8 +464,7 @@ def test_quantized_tanh_limits(bits, sigmoid_type, use_real_tanh, test_values, e
              0.500000, 1.000000, 0.625000, 3.375000, 3.750000, 0.250000,
              0.000000, 0.500000, 0.375000, 3.375000, 1.000000, 2.750000,
              0.000000, 1.500000, 2.500000
-         ]],
-                  dtype=K.floatx())),
+         ]], dtype=K.floatx())),
     ])
 def test_quantized_relu(bits, integer, use_sigmoid, test_values, expected_values):
   """Test quantized_relu function."""
@@ -516,6 +531,53 @@ def test_quantized_bits(bits, integer, symmetric, keep_negative, test_values,
                  [quantized_bits(bits, integer, symmetric, keep_negative)(x)])
   result = f([test_values])[0]
   assert_allclose(result, expected_values, rtol=rtol)
+
+
+@pytest.mark.parametrize(
+    "bits, integer, expected_output, expected_scale",
+    [(4, 2,
+      [[0.25, 3.0, 0.09375, 0.25], [0.4375, 0.0, 0.21875, 1.5]],
+      [[0.125, 1., 0.0625, 0.5]]),
+     (4, 1, [[0.25, 3., 0.09375, 0.25], [0.4375, 0., 0.21875, 1.5]],
+      [[0.25, 2., 0.125, 1.]]),
+     (5, 2,
+      [[0.21875, 2.75, 0.09375, 0.375], [0.46875, 0.25, 0.234375, 1.375]],
+      [[0.125, 1, 0.0625, 0.5]]),
+    ])
+def test_quantized_bits_with_auto_po2_scale(
+    bits, integer, expected_output, expected_scale):
+  # Test if quantizer with the fixed scale works properly.
+  x = np.array([[0.23, 2.76, 0.1, 0.33], [0.53, 0.16, 0.3, 1.43]])
+
+  q = quantized_bits(
+      bits=bits, integer=integer, alpha="auto_po2")
+  q_out = q(x).numpy()
+  scale = q.scale.numpy()
+
+  np.testing.assert_array_equal(q_out, expected_output)
+  np.testing.assert_array_equal(scale, expected_scale)
+
+
+def test_quantized_bits_with_post_training_scale():
+  # Test if quantizer with the fixed scale works properly.
+  np.random.seed(42)
+  array = np.random.uniform(low=0, high=10, size=(7, 64, 64, 3))
+
+  auto_po2_quantizer = quantized_bits(
+      bits=8, integer=3, alpha="auto_po2")
+  qw = auto_po2_quantizer(array)
+  auto_po2_scale = auto_po2_quantizer.scale.numpy()
+  alpha_ndarray_quantizer = quantized_bits(
+      bits=8, integer=3, alpha="auto_po2",
+      post_training_scale=auto_po2_scale)
+
+  # Check if the scale is the same as auto_po2 quantizer.
+  np.testing.assert_array_equal(auto_po2_scale,
+                                alpha_ndarray_quantizer.scale)
+
+  qw_ndarray = alpha_ndarray_quantizer(array)
+  # Check if the quantized values are the same as auto_po2 quantizer.
+  np.testing.assert_array_equal(qw.numpy(), qw_ndarray.numpy())
 
 
 @pytest.mark.parametrize('alpha, threshold, test_values, expected_values', [
@@ -652,26 +714,29 @@ def test_stochastic_binary_inference_mode(alpha, test_values, expected_values):
 
 @pytest.mark.parametrize(
     'bound, alpha, temperature, expected_values, expected_scale', [
-    (
-        0.01,
-        "auto",
-        8,
-        np.array([-0.973, -0.903, -0.759, -0.574, -0.242,  0.161,  0.508,  0.723,
-            0.874,  0.975]).astype(np.float32),
-        np.array([0.008427, 0.007001, 0.0057  , 0.004457, 0.003537, 0.003416,
-            0.004507, 0.005536, 0.006853, 0.008282]).astype(np.float32)
-    ),
-    (
-        0.01,
-        "auto_po2",
-        8,
-        np.array([-0.979, -0.877, -0.639, -0.586, -0.23 ,  0.154,  0.327,  0.603,
-            0.83 ,  0.986]).astype(np.float32),
-        np.array([0.007812, 0.007812, 0.007812, 0.003906, 0.003906, 0.003906,
-            0.007812, 0.007812, 0.007812, 0.007812]).astype(np.float32)
-    )
-])
-def test_stochastic_ternary(bound, alpha, temperature, expected_values, expected_scale):
+        (
+            0.01,
+            "auto",
+            8,
+            np.array([-0.973, -0.903, -0.759, -0.574, -0.242, 0.161, 0.508,
+                      0.723, 0.874, 0.975]).astype(np.float32),
+            np.array([0.008427, 0.007001, 0.0057, 0.004457, 0.003537, 0.003416,
+                      0.004507, 0.005536, 0.006853, 0.008282]
+                     ).astype(np.float32)
+            ),
+        (
+            0.01,
+            "auto_po2",
+            8,
+            np.array([-0.979, -0.877, -0.639, -0.586, -0.23, 0.154,
+                      0.327, 0.603, 0.83, 0.986]).astype(np.float32),
+            np.array([0.007812, 0.007812, 0.007812, 0.003906, 0.003906,
+                      0.003906, 0.007812, 0.007812, 0.007812, 0.007812]
+                     ).astype(np.float32)
+        )
+    ])
+def test_stochastic_ternary(bound, alpha, temperature, expected_values,
+                            expected_scale):
   np.random.seed(42)
   K.set_learning_phase(1)
 
@@ -704,7 +769,8 @@ def test_stochastic_ternary(bound, alpha, temperature, expected_values, expected
               dtype=K.floatx()),
      np.array([[-10.0, -10.0, 0.0, 0, 0.0, 0.0, 0, 0, 10]], dtype=K.floatx())),
 ])
-def test_stochastic_ternary_inference_mode(alpha, threshold, test_values, expected_values):
+def test_stochastic_ternary_inference_mode(alpha, threshold, test_values,
+                                           expected_values):
   K.set_learning_phase(0)
   x = K.placeholder(ndim=2)
   q = stochastic_ternary(alpha, threshold)
@@ -719,34 +785,30 @@ def test_stochastic_ternary_inference_mode(alpha, threshold, test_values, expect
     # bits. The quantization is in asymmetric mode.
     ('bits, integer, symmetric, relu_shift, relu_upper_bound,'
      'test_values, expected_values'), [
-         (
-          6, 2, 0, 3, 6,
+         (6, 2, 0, 3, 6,
           np.array([[-3.0, -2.0, -1.0, -0.5, 0.0, 0.5, 1, 4, 10]],
                    dtype=K.floatx()),
-          np.array([[0., -0.375, -0.375, -0.25,  0., 0.25, 0.625,
+          np.array([[0., -0.375, -0.375, -0.25, 0., 0.25, 0.625,
                      3.875, 3.875]], dtype=K.floatx()),
          ),
-         (
-          6, 4, 1, 3, 6,
+         (6, 4, 1, 3, 6,
           np.array([[-10.0, -2.0, -2.3, -0.25, 0.0, 0.5, 1, 4, 10]],
                    dtype=K.floatx()),
           np.array([[0., -0.5, -0.5, 0., 0., 0.5, 0.5, 4., 10.]],
                    dtype=K.floatx()),
          ),
-         (
-          2, 0, 0, 3, 6,
+         (2, 0, 0, 3, 6,
           np.array([[-10.0, -2.0, -2.3, -0.25, 0.0, 0.5, 1, 4, 10]],
                    dtype=K.floatx()),
           np.array([[0., -0.5, -0.5, 0., 0., 0.5, 0.5, 0.5, 0.5]],
                    dtype=K.floatx()),
-         ),
-        ])
+         ),])
 def test_quantized_hswish(bits, integer, symmetric, relu_shift,
                           relu_upper_bound, test_values, expected_values):
   x = K.placeholder(ndim=2)
   f = K.function(
-      [x], [quantized_hswish(bits, integer, symmetric,relu_shift=relu_shift,
-                           relu_upper_bound=relu_upper_bound)(x)])
+      [x], [quantized_hswish(bits, integer, symmetric, relu_shift=relu_shift,
+                             relu_upper_bound=relu_upper_bound)(x)])
   result = f([test_values])[0]
   assert_allclose(result, expected_values, rtol=1e-05)
 

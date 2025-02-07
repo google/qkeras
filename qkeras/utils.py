@@ -281,7 +281,10 @@ def model_save_quantized_weights(model, filename=None, custom_objects={}):
       has_scale = False
       enable_bn_fusing = False
 
-      if (isinstance(layer, QBatchNormalization) and
+      # isinstance() might fail due to inconsistent module import path.
+      # Use __class__.__name__ instead.
+      layer_class = layer.__class__.__name__
+      if (layer_class == "QBatchNormalization" and
           layer.name in bn_layers_to_skip):
         # Mark current bn layer to be fused with the previous layer
         enable_bn_fusing = True
@@ -334,10 +337,14 @@ def model_save_quantized_weights(model, filename=None, custom_objects={}):
           unsigned_bits = quantizer.bits - quantizer.keep_negative
           m = K.cast_to_floatx(pow(2, unsigned_bits))
           m_i = K.cast_to_floatx(K.pow(2, quantizer.integer))
-          assert hasattr(quantizer.scale, "numpy"), (
-              "The auto_po2 quantizer has to be called first in order to know "
-              "the values of scale.")
-          scale = K.cast_to_floatx(quantizer.scale.numpy())
+
+          assert hasattr(quantizer.scale, "numpy") or isinstance(
+              quantizer.scale, np.ndarray), (
+                  "The auto_po2 quantizer has to be called first in order "
+                  "to know the values of scale.")
+          scale = quantizer.scale if isinstance(
+              quantizer.scale, np.ndarray) else quantizer.scale.numpy()
+          scale = K.cast_to_floatx(scale)
           # Make sure scale is power of 2 values
           log2val = np.log2(scale)
           diff = np.round(log2val) - log2val
@@ -1077,15 +1084,6 @@ def clone_model(model, custom_objects=None):
   qmodel.set_weights(model.get_weights())
 
   return qmodel
-
-  config = {
-      "class_name": model.__class__.__name__,
-      "config": model.get_config(),
-  }
-  clone = tf.keras.models.model_from_config(
-      config, custom_objects=custom_objects)
-  clone.set_weights(model.get_weights())
-  return clone
 
 
 def quantized_model_from_json(json_string, custom_objects=None):

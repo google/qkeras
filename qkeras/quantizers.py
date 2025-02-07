@@ -18,7 +18,7 @@ from __future__ import division
 from __future__ import print_function
 
 import re
-from typing import Any, List, Tuple
+from typing import Any, List, Tuple, cast
 
 import numpy as np
 import six
@@ -139,12 +139,14 @@ def _get_scaling_axis(scale_axis: Any, len_axis: int) -> List[int]:
   """
 
   if scale_axis is not None:
+    # if scale_axis is set, scale over all axis except the scale_axis.
     if isinstance(scale_axis, list):
       axis = [i for i in range(len_axis) if i not in scale_axis]
     else:
       axis = tf.range(scale_axis)
       axis = tf.concat([axis, tf.range(scale_axis + 1, len_axis)], axis=0)
   else:
+    # if scale_axis is not set, scale over all axis except the channel axis.
     if K.image_data_format() == "channels_last":
       axis = tf.range(tf.math.maximum(len_axis - 1, 0))
     else:
@@ -435,8 +437,8 @@ def _clip_po2_scale(scale: tf.Tensor, min_po2_exponent: Any,
 
 
 def _get_least_squares_scale(
-  alpha: Any, x: tf.Tensor, q: tf.Tensor, scale_axis: Any = None, 
-  per_channel_scale: bool = True, elements_per_scale: Any = None, 
+  alpha: Any, x: tf.Tensor, q: tf.Tensor, scale_axis: Any = None,
+  per_channel_scale: bool = True, elements_per_scale: Any = None,
   min_po2_exponent: Any = None, max_po2_exponent: Any = None):
   """Gets scaling factor for scaling the tensor per channel.
 
@@ -696,15 +698,15 @@ class quantized_linear(base_quantizer.BaseQuantizer):
     - Whether we want to have a symmetric range or not
     - Whether we want to keep negative numbers or not
 
-  The quantization scale is defined by either the quantizer parameters or the
-  data passed to the __call__ method. See documentation for the `alpha`
-  parameter to find out more.
+    The quantization scale is defined by either the quantizer parameters or the
+    data passed to the __call__ method. See documentation for the `alpha`
+    parameter to find out more.
 
-  For backprop purposes, the quantizer uses the straight-through estimator
-  for the rounding step (https://arxiv.org/pdf/1903.05662.pdf). Thus the
-  gradient of the __call__ method is 1 on the interval
-  [quantization_scale * clip_min, quantization_scale * clip_max] and 0
-  elsewhere.
+    For backprop purposes, the quantizer uses the straight-through estimator
+    for the rounding step (https://arxiv.org/pdf/1903.05662.pdf). Thus the
+    gradient of the __call__ method is 1 on the interval
+    [quantization_scale * clip_min, quantization_scale * clip_max] and 0
+    elsewhere.
 
   The quantizer also supports a number of other optional features:
   - Stochastic rounding (see the `stochastic_rounding` parameter)
@@ -712,18 +714,18 @@ class quantized_linear(base_quantizer.BaseQuantizer):
 
   Notes on the various "scales" in quantized_linear:
 
-    - The quantization scale is the scale used in the core computation (see
-      above). You can access it via the `quantization_scale` attribute.
-    - The data type scale is the scale is determined by the type of data
-      stored on hardware on a small device running a true quantized model.
-      It is the quantization scale needed to represent `bits` bits, `integer`
-      of which are integer bits, and one bit is reserved for the sign if
-      `keep_negative` is True. It can be calculated as
-      2 ** (integer - bits + keep_negative). You can access it via the
-      `data_type_scale` attribute.
-    - The `scale` attribute stores the quotient of the quantization scale and
-      the data type scale. This is also the scale that can be directly
-      specified by the user, via the `alpha` parameter.
+      - The quantization scale is the scale used in the core computation (see
+        above). You can access it via the `quantization_scale` attribute.
+      - The data type scale is the scale is determined by the type of data
+        stored on hardware on a small device running a true quantized model.
+        It is the quantization scale needed to represent `bits` bits, `integer`
+        of which are integer bits, and one bit is reserved for the sign if
+        `keep_negative` is True. It can be calculated as
+        2 ** (integer - bits + keep_negative). You can access it via the
+        `data_type_scale` attribute.
+      - The `scale` attribute stores the quotient of the quantization scale and
+        the data type scale. This is also the scale that can be directly
+        specified by the user, via the `alpha` parameter.
 
     These three quantities are related by the equation
     scale = quantization_scale / data_type_scale.
@@ -746,19 +748,19 @@ class quantized_linear(base_quantizer.BaseQuantizer):
     |                                                   activation           |
     +------------------------------------------------------------------------+
 
-    # TODO: The only fundamentally necessary scale is the quantization scale.
-    # We should consider removing the data type scale and scale attributes,
-    # but know that this will require rewriting much of how qtools and HLS4ML
-    # use these scale attributes.
+      # TODO: The only fundamentally necessary scale is the quantization scale.
+      # We should consider removing the data type scale and scale attributes,
+      # but know that this will require rewriting much of how qtools and HLS4ML
+      # use these scale attributes.
 
-  Note on binary quantization (bits=1):
-    The core computation is modified here when `keep_negative` is True to
-    perform a scaled sign function. This is needed because the core
-    computation as defined above requires that 0 be mapped to 0, which does
-    not allow us to keep both positive and negative outputs for binary
-    quantization. Special shifting operations are used to achieve this.
+    Note on binary quantization (bits=1):
+      The core computation is modified here when `keep_negative` is True to
+      perform a scaled sign function. This is needed because the core
+      computation as defined above requires that 0 be mapped to 0, which does
+      not allow us to keep both positive and negative outputs for binary
+      quantization. Special shifting operations are used to achieve this.
 
-  Example usage:
+    Example usage:
 
   # 8-bit quantization with 3 integer bits
   >>> q = quantized_linear(8, 3)
@@ -779,41 +781,45 @@ class quantized_linear(base_quantizer.BaseQuantizer):
   >>> q_fixed(x)
   array([0., 0., 0., 2., 2.], dtype=float32)
 
-  Args:
-    bits (int): Number of bits to represent the number. Defaults to 8.
-    integer (int): Number of bits to the left of the decimal point, used for
-      data_type_scale. Defaults to 0.
-    symmetric (bool): If true, we will have the same number of values for
-      positive and negative numbers. Defaults to True.
-    alpha (str, Tensor, None): Instructions for determining the quantization
-      scale. Defaults to None. - If None: the quantization scale is the data
-      type scale, determined by `integer`, `bits`, and `keep_negative`. - If
-      "auto", the quantization scale is calculated as the minimum floating point
-      scale per-channel that does not clip the max of x. - If "auto_po2", the
-      quantization scale is chosen as the power of two per-channel that
-      minimizes squared error between the quantized x and the original x. - If
-      Tensor: The quantization scale is the Tensor passed in multiplied by the
-        data type scale.
-    keep_negative (bool): If false, we clip negative numbers. Defaults to True.
-    use_stochastic_rounding (bool): If true, we perform stochastic rounding
-      (https://arxiv.org/pdf/1502.02551.pdf).
-    scale_axis (int, None): Which axis to calculate scale from. If None, we
-      perform per-channel scaling based off of the image data format. Note that
-      each entry of a rank-1 tensor is considered its own channel by default.
-      See `_get_scaling_axis` for more details. Defaults to None.
-    qnoise_factor (float): A scalar from 0 to 1 that represents the level of
-      quantization noise to add. This controls the amount of the quantization
-      noise to add to the outputs by changing the weighted sum of (1 -
-      qnoise_factor) * unquantized_x + qnoise_factor * quantized_x. Defaults to
-      1.0, which means that the result is fully quantized.
-    use_variables (bool): If true, we use tf.Variables to store certain
-      parameters. See the base_quantizer.BaseQuantizer implementation for more
-      details. Defaults to False. If set to True, be sure to use the special
-      attribute update methods detailed in the base_quantizer.BaseQuantizer.
-    var_name (str or None): A variable name shared between the tf.Variables
-      created in on initialization, if use_variables is true. If None, the
-      variable names are generated automatically based on the parameter names
-      along with a uid. Defaults to None.
+    Args:
+      bits (int): Number of bits to represent the number. Defaults to 8.
+      integer (int): Number of bits to the left of the decimal point, used for
+        data_type_scale. Defaults to 0.
+      symmetric (bool): If true, we will have the same number of values
+        for positive and negative numbers. Defaults to True.
+      alpha (str, Tensor, None): Instructions for determining the quantization
+        scale. Defaults to None.
+        - If None: the quantization scale is the data type scale, determined
+          by `integer`, `bits`, and `keep_negative`.
+        - If "auto", the quantization scale is calculated as the minimum
+          floating point scale per-channel that does not clip the max of x.
+        - If "auto_po2", the quantization scale is chosen as the
+          power of two per-channel that minimizes squared error between the
+          quantized x and the original x.
+        - If Tensor: The quantization scale is the Tensor passed in
+          multiplied by the data type scale.
+      keep_negative (bool): If false, we clip negative numbers. Defaults to
+        True.
+      use_stochastic_rounding (bool): If true, we perform stochastic rounding
+        (https://arxiv.org/pdf/1502.02551.pdf).
+      scale_axis (int, None): Which axis to calculate scale from. If None, we
+        perform per-channel scaling based off of the image data format. Note
+        that each entry of a rank-1 tensor is considered its own channel by
+        default. See `_get_scaling_axis` for more details. Defaults to None.
+      qnoise_factor (float): A scalar from 0 to 1 that represents the level of
+        quantization noise to add. This controls the amount of the
+        quantization noise to add to the outputs by changing the weighted
+        sum of (1 - qnoise_factor) * unquantized_x + qnoise_factor *
+        quantized_x. Defaults to 1.0, which means that the result is fully
+        quantized.
+      use_variables (bool): If true, we use tf.Variables to store certain
+        parameters. See the BaseQuantizer implementation for more details.
+        Defaults to False. If set to True, be sure to use the special attribute
+        update methods detailed in the BaseQuantizer.
+      var_name (str or None): A variable name shared between the tf.Variables
+        created in on initialization, if use_variables is true. If None, the
+        variable names are generated automatically based on the parameter names
+        along with a uid. Defaults to None.
 
   Returns:
     function: Function that computes linear quantization.
@@ -991,7 +997,7 @@ class quantized_linear(base_quantizer.BaseQuantizer):
 
   def _scale_clip_and_round(self, x, quantization_scale):
     """Scale, clip, and round x to an integer value in a limited range
-    Note that the internal shift is needed for 1-bit quantization to ensure 
+    Note that the internal shift is needed for 1-bit quantization to ensure
     that a sign function is used. Otherise, the binary quantizer would have
     three output values"""
 
@@ -1027,10 +1033,10 @@ class quantized_linear(base_quantizer.BaseQuantizer):
     self.quantization_scale = tf.stop_gradient(quantization_scale)
 
     # very important that return value is a tf.Variable with shape None
-    return self.quantization_scale 
+    return self.quantization_scale
 
   def _get_quantization_scale_from_max_data(self, x):
-    """Get the minimum floating point scale that does not clip the max 
+    """Get the minimum floating point scale that does not clip the max
     of x"""
 
     axis = _get_scaling_axis(self.scale_axis, tf.rank(x))
@@ -1053,9 +1059,9 @@ class quantized_linear(base_quantizer.BaseQuantizer):
     """Get an approximation of the "best" po2 scale using least squares"""
 
     # set alpha scale to a near power of two
-    quantization_scale = K.pow(2.0, 
-                         tf.math.round(K.log(quantization_scale + K.epsilon()) / 
-                                       K.log(2.0)))
+    quantization_scale = K.pow(
+        2.0,
+        tf.math.round(K.log(quantization_scale + K.epsilon()) / K.log(2.0)))
 
     def loop_body(_, quantization_scale):
       """Loop body for least squares autoscaling"""
@@ -1070,7 +1076,7 @@ class quantized_linear(base_quantizer.BaseQuantizer):
       return quantization_scale, new_quantization_scale
 
     def loop_cond(last_quantization_scale, quantization_scale):
-      """Loop condition for least squares autoscaling- stop when the 
+      """Loop condition for least squares autoscaling- stop when the
       scale converges"""
 
       tensors_not_equal = tf.math.reduce_any(
@@ -1129,8 +1135,8 @@ class quantized_linear(base_quantizer.BaseQuantizer):
 
     # Main parameters always printed in string
     flags = [
-      str(int(self.bits)), 
-      str(int(self.integer)), 
+      str(int(self.bits)),
+      str(int(self.integer)),
       str(int(self.symmetric))]
     # Optional parameters only printed if not default
     if not self.keep_negative:
@@ -1234,6 +1240,8 @@ class quantized_bits(base_quantizer.BaseQuantizer):  # pylint: disable=invalid-n
       allowed power of two exponent.
     max_po2_exponent: if set while using "auto_po2", it represents the maximum
       allowed power of two exponent.
+    post_training_scale: if set, it represents the scale value to be used for
+      quantization.
 
   Returns:
     Function that computes fixed-point quantization with bits.
@@ -1253,7 +1261,8 @@ class quantized_bits(base_quantizer.BaseQuantizer):  # pylint: disable=invalid-n
                use_variables=False,
                elements_per_scale=None,
                min_po2_exponent=None,
-               max_po2_exponent=None):
+               max_po2_exponent=None,
+               post_training_scale=None):
     super().__init__()
 
     self.bits = bits
@@ -1262,10 +1271,22 @@ class quantized_bits(base_quantizer.BaseQuantizer):  # pylint: disable=invalid-n
     self.keep_negative = keep_negative
     self.alpha = alpha
     self.use_stochastic_rounding = use_stochastic_rounding
+    self.post_training_scale = post_training_scale
     # "auto*" |-> symmetric
     if isinstance(self.alpha, six.string_types):
+      self.freeze_scale = False
       self.symmetric = True
-    self.scale = None
+      if post_training_scale is not None:
+        self.scale = np.array(post_training_scale)
+        self.freeze_scale = True
+    else:
+      if post_training_scale is not None:
+        raise ValueError(f"alpha={alpha} doesn't support post_training_scale: "
+                         f"{post_training_scale}")
+      self.scale = None
+      # If alpha is not "auto*", then scale is fixed and not trainable.
+      self.freeze_scale = True
+
     self.scale_axis = scale_axis
     self.qnoise_factor = qnoise_factor
     self.use_ste = use_ste
@@ -1346,29 +1367,43 @@ class quantized_bits(base_quantizer.BaseQuantizer):  # pylint: disable=invalid-n
       # using 2's complement.
       levels = (2**(self.bits-1)-1) * 2 if self.symmetric else (2**self.bits)-1
 
-      scale = (K.max(abs(x), axis=axis, keepdims=True) * 2) / levels
-
-      # If alpha is "auto_po2", then get the "best" po2 scale
-      if "po2" in self.alpha:
-        scale = K.pow(2.0,
-                      tf.math.round(K.log(scale + K.epsilon()) / np.log(2.0)))
-        for idx in range(5):
-          v = tf.floor(tf.abs(x) / scale + 0.5)
-          mask = v < levels / 2
-          z = tf.sign(x) * tf.where(mask, v, tf.ones_like(v) * levels / 2)
-          scale = _get_least_squares_scale(alpha="auto_po2", x=x, q=z,
-                             scale_axis=self.scale_axis,
-                             elements_per_scale=self.elements_per_scale,
-                             min_po2_exponent=self.min_po2_exponent,
-                             max_po2_exponent=self.max_po2_exponent)
-
-      # If alpha is "auto", then get the "best" floating point scale
-      elif self.alpha == "auto":
-        v = tf.floor(tf.abs(x) / scale + 0.5)
-        mask = v < levels / 2
-        z = tf.sign(x) * tf.where(mask, v, tf.ones_like(v) * levels / 2)
+      if self.freeze_scale:
+        # Scale is fixed value. In this case, scale is extracted from the
+        # post-training quantizater scale. In order to retrain models with
+        # this scale value, we need to divide it by m to make it in the same
+        # value scale as x.
+        scale = self.scale / m
       else:
-        raise ValueError(f"Invalid alpha '{self.alpha}'")
+        # Calculate the scale.
+        scale = (K.max(abs(x), axis=axis, keepdims=True) * 2) / levels
+
+        # If alpha is "auto_po2", then get the "best" po2 scale
+        if "po2" in self.alpha:
+          scale = K.pow(2.0,
+                        tf.math.round(K.log(scale + K.epsilon()) / np.log(2.0)))
+          for idx in range(5):
+            v = tf.floor(tf.abs(x) / scale + 0.5)
+            mask = v < levels / 2
+            z = tf.sign(x) * tf.where(mask, v, tf.ones_like(v) * levels / 2)
+            scale = _get_least_squares_scale(
+                alpha="auto_po2", x=x, q=z,
+                scale_axis=self.scale_axis,
+                elements_per_scale=self.elements_per_scale,
+                min_po2_exponent=self.min_po2_exponent,
+                max_po2_exponent=self.max_po2_exponent)
+
+        elif self.alpha != "auto":
+          # If alpha is "auto", then directly uuse the "best"
+          # floating point scale.
+          raise ValueError(f"Invalid alpha '{self.alpha}'")
+
+      # Even for trainable scale, we still need to quantize x with the best
+      # scale. This extra step is needed to ensure that with the same input
+      # and scale, the quantized output is identical between training and
+      # inference.
+      v = tf.floor(tf.abs(x) / scale + 0.5)
+      mask = v < levels / 2
+      z = tf.sign(x) * tf.where(mask, v, tf.ones_like(v) * levels / 2)
 
       # z is an integer number, so we must make the scale * m and z / m
       scale = scale * m
@@ -1382,7 +1417,8 @@ class quantized_bits(base_quantizer.BaseQuantizer):  # pylint: disable=invalid-n
       #  return x + tf.stop_gradient(-x + scale * z)
       x = m_i * x
       xq = m_i * z / m
-      self.scale = scale
+      if not self.freeze_scale:
+        self.scale = scale
       xq = scale * xq
 
       if self.use_ste:
@@ -1418,6 +1454,7 @@ class quantized_bits(base_quantizer.BaseQuantizer):  # pylint: disable=invalid-n
   def _set_trainable_parameter(self):
     if self.alpha is None:
       self.alpha = "auto_po2"
+      self.freeze_scale = False
       self.symmetric = True
 
   def max(self):
@@ -1461,6 +1498,10 @@ class quantized_bits(base_quantizer.BaseQuantizer):  # pylint: disable=invalid-n
 
   @classmethod
   def from_config(cls, config):
+    # Convert JSON-serializable lists back to NumPy arrays.
+    if config.get("post_training_scale") is not None:
+      config["post_training_scale"] = np.array(config["post_training_scale"])
+
     return cls(**config)
 
   def get_config(self):
@@ -1480,7 +1521,12 @@ class quantized_bits(base_quantizer.BaseQuantizer):  # pylint: disable=invalid-n
             self.use_stochastic_rounding,
         "qnoise_factor":
             self.qnoise_factor.numpy() if isinstance(
-                self.qnoise_factor, tf.Variable) else self.qnoise_factor
+                self.qnoise_factor, tf.Variable) else self.qnoise_factor,
+        "post_training_scale":
+            # Since NumPy arrays are not directly JSON-serializable,
+            # we convert them to lists.
+            (self.post_training_scale.tolist() if self.post_training_scale is
+             not None else None)
     }
     return config
 
