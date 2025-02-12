@@ -309,6 +309,7 @@ def model_save_quantized_weights(model, filename=None, custom_objects={}):
         # Weights store the weight in the format that software inference uses.
         weights.append(weight)
 
+        q_name = ""
         if quantizer:
           if isinstance(quantizer, six.string_types):
             q_name = quantizer
@@ -318,11 +319,10 @@ def model_save_quantized_weights(model, filename=None, custom_objects={}):
             q_name = quantizer.name
           elif hasattr(quantizer, "__class__"):
             q_name = quantizer.__class__.__name__
-          else:
-            q_name = ""
+
         if quantizer and ("_po2" in q_name):
           # Quantized_relu_po2 does not have a sign.
-          if isinstance(quantizer, quantized_po2):
+          if q_name == "quantized_po2":
             has_sign = True
           sign = np.sign(weight)
           # Makes sure values are -1 or +1 only
@@ -332,7 +332,7 @@ def model_save_quantized_weights(model, filename=None, custom_objects={}):
           hw_weight = np.round(np.log2(np.abs(weight)))
           signs.append(sign)
           scales.append([])
-        elif (isinstance(quantizer, quantized_bits) and
+        elif (q_name == "quantized_bits" and
               quantizer.alpha == "auto_po2"):
           unsigned_bits = quantizer.bits - quantizer.keep_negative
           m = K.cast_to_floatx(pow(2, unsigned_bits))
@@ -1352,3 +1352,181 @@ def quantized_model_dump(model,
     print("writing the layer output tensor to ", filename)
     with open(filename, "w") as fid:
       tensor_data.astype(np.float32).tofile(fid)
+
+
+def clone_model_and_freeze_auto_po2_scale(
+    orig_model, orig_model_path=None, quantize_model_weights=False):
+  """Clone model and freeze the scale value of auto_po2 type quantizers.
+
+  Args:
+    orig_model: original model which will be used to clone the new model.
+      If set to None, the function will load the original model
+      from orig_model_path argument.
+    orig_model_path: The path to the original model file.
+      If set to None, the function will load the original model from the
+      orig_model argument.
+    quantize_model_weights: Bool to quantize weights to HW format.
+      If set to False, the model weights will be in float format.
+      If set to True, the model weights will be in HW format and the function
+        will also check if the hw weights extracted from the new model matches
+        the original model.
+
+  Returns:
+    A tuple of the new model and the new model's hw weights.
+
+  Note:
+    + When using this function to retrain model with fixed scale value.
+      Set quantize_model_weights to False in this case.
+    + This function only supports a collection of common layers that will use
+      auto_po2 quantizers. For less common layers, it will raise errors and we
+      will add more support case by case.
+
+  Example usage:
+    model, _ = clone_model_and_freeze_auto_po2_scale(
+        orig_model_path="path/to/model",
+        quantize_model_weights=False)
+  """
+
+  def _create_bn_layer(layer_cfg, bn_inv_quantizer):
+    # Clone batch normalization layer with the new inverse quantizer.
+    if bn_inv_quantizer is not None:
+      layer_cfg["inverse_quantizer"]["config"] = bn_inv_quantizer.get_config()
+    return QBatchNormalization(**layer_cfg)
+
+  def _create_qconv2d_layer(layer_cfg, kernel_quantizer):
+    # Clone QConv2D layer wiht the new kernel quantizers.
+    if kernel_quantizer is not None:
+      layer_cfg["kernel_quantizer"]["config"] = kernel_quantizer.get_config()
+    return QConv2D(**layer_cfg)
+
+  def _create_qdepthwise_conv2d_layer(layer_cfg, depthwise_quantizer):
+    # Clone QDepthwiseConv2D layer with the new depthwise_quantizer quantizer.
+    if depthwise_quantizer is not None:
+      layer_cfg["depthwise_quantizer"][
+          "config"] = depthwise_quantizer.get_config()
+    return QDepthwiseConv2D(**layer_cfg)
+
+  def _create_qdense_layer(layer_cfg, kernel_quantizer):
+    # Clone QDense layer with the new kernel quantizer.
+    if kernel_quantizer is not None:
+      layer_cfg["kernel_quantizer"]["config"] = kernel_quantizer.get_config()
+    return QDense(**layer_cfg)
+
+  def _create_other_layer(orig_layer):
+    # Clone other layers.
+    config = orig_layer.get_config()
+    return orig_layer.__class__.from_config(config)
+
+  def _create_quantized_bits_with_post_training_scale(q):
+    # Create a new quantized_bits instance with the fixed scale value.
+    if q is not None:
+      q_cfg = q.get_config()
+      q_cfg["post_training_scale"] = q.scale.numpy()
+      q = quantized_bits(**q_cfg)
+    return q
+
+  def _find_auto_po2_quantizer(layer):
+    # Find the auto_po2 quantizer in the layer. Note that we allow at
+    # most one auto_po2 quantizer in each layer due to the limitation of
+    # the current HW implementation.
+    num_auto_po2_quantizers = 0
+    auto_po2_quantizer = None
+    if hasattr(layer, "quantizers"):
+      for q in layer.quantizers:
+        if hasattr(q, "alpha") and q.alpha == "auto_po2":
+          num_auto_po2_quantizers += 1
+          auto_po2_quantizer = q
+    if num_auto_po2_quantizers > 1:
+      raise ValueError(
+          f"{layer.name} has more than one auto_po2 quantizer. "
+          "Please check if this is expected.")
+    else:
+      return auto_po2_quantizer
+
+  def _check_hw_weights_equal(hw_weights_1, hw_weights_2):
+    # Check if the hw weights extracted from the new model matches the
+    # original model.
+    for layer_name in hw_weights_2.keys():
+      for key in hw_weights_2[layer_name].keys():
+
+        val1 = hw_weights_2[layer_name][key]
+        val2 = hw_weights_1[layer_name][key]
+        if isinstance(val1, list):
+          for (v1, v2) in zip(val1, val2):
+            if not np.all(v1 == v2):
+              raise ValueError(
+                  f"{layer_name}/{key}: No Match! v1={v1}, v2={v2}")
+        else:
+          if not np.all(val1 == val2):
+            raise ValueError(
+                f"{layer_name}/{key}: No Match! val1={val1}, val2={val2}")
+
+  # Load the original model with float weights.
+  # Note: weights will be quantized later in silicon flow by calling
+  # model_save_quantized_weights.
+  if orig_model is not None and orig_model_path is not None:
+    raise ValueError(
+        "Only one of orig_model and orig_model_path can be set.")
+  elif orig_model is None and orig_model_path is None:
+    raise ValueError(
+        "One of orig_model and orig_model_path must be set.")
+  elif orig_model_path is not None:
+    orig_model = load_qmodel(orig_model_path, compile=False)
+
+  # Quantize model weights and compute quantizer scale values.
+  quantized_model = tf.keras.models.clone_model(orig_model)
+  quantized_model.set_weights(orig_model.get_weights())
+  # In silicon flow, weight binary files are generated from hw weights.
+  orig_hw_weights = model_save_quantized_weights(
+      quantized_model)
+
+  # Create a new model with fixed scale quantizers.
+  x = inputs = tf.keras.Input(
+      shape=orig_model.input_shape[1:], name=orig_model.layers[0].name)
+  for layer in quantized_model.layers[1:]:
+    layer_class = layer.__class__.__name__
+    auto_po2_quantizer = _find_auto_po2_quantizer(layer)
+    auto_po2_quantizer_with_frozen_scale = (
+        _create_quantized_bits_with_post_training_scale(auto_po2_quantizer))
+    layer_cfg = layer.get_config()
+
+    # To be compatible with different python versions, we do not use
+    # match-case style here.
+    if layer_class == "QConv2D":
+      x = _create_qconv2d_layer(layer_cfg,
+                                auto_po2_quantizer_with_frozen_scale)(x)
+    elif layer_class == "QDepthwiseConv2D":
+      x = _create_qdepthwise_conv2d_layer(
+          layer_cfg, auto_po2_quantizer_with_frozen_scale)(x)
+    elif layer_class == "QBatchNormalization":
+      x = _create_bn_layer(layer_cfg,
+                           auto_po2_quantizer_with_frozen_scale)(x)
+    elif layer_class == "QDense":
+      x = _create_qdense_layer(layer_cfg,
+                               auto_po2_quantizer_with_frozen_scale)(x)
+    else:
+      x = _create_other_layer(layer)(x)
+
+  new_model = tf.keras.Model(inputs, x)
+  # Set the weights of the new model to the original model (float weights).
+  new_model.set_weights(orig_model.get_weights())
+
+  # Check if the new model still has auto_po2 quantizer.
+  # This function only supports a colleciton of common layers that will use
+  # auto_po2 quantizers. For less common layers, we need to add extra support
+  # in the future.
+  for layer in new_model.layers:
+    q = _find_auto_po2_quantizer(layer)
+    if q is not None and q.post_training_scale is None:
+      raise ValueError(
+          f"{layer.name} in the new model still has auto_po2 quantizer with "
+          "adaptive scales. Please check if this is expected!")
+
+  new_hw_weights = None
+  if quantize_model_weights:
+    new_hw_weights = model_save_quantized_weights(new_model)
+    # Check if the hw weights extracted from the new model matches the original
+    # nima model.
+    _check_hw_weights_equal(orig_hw_weights, new_hw_weights)
+
+  return new_model, new_hw_weights

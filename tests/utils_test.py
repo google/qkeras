@@ -20,6 +20,8 @@ from __future__ import print_function
 
 import numpy as np
 import pytest
+import os
+import tempfile
 from tensorflow.keras.layers import *
 from tensorflow.keras.models import *
 
@@ -30,6 +32,8 @@ from qkeras.utils import convert_to_folded_model
 from qkeras.utils import is_TFOpLambda_layer
 from qkeras.utils import find_bn_fusing_layer_pair
 from qkeras.utils import add_bn_fusing_weights
+from qkeras.utils import clone_model_and_freeze_auto_po2_scale
+from qkeras.utils import load_qmodel
 
 
 def create_quantized_network():
@@ -221,6 +225,116 @@ def test_find_bn_fusing_layer_pair():
   assert d["fused_bn_layer_name"] == "bn1"
   assert np.all(d["bn_inv"] == np.array([0.8125, 0.25]))
   assert np.all(d["fused_bias"] == np.array([0.09375, 0.65625]))
+
+
+def create_test_model_for_scale_freezing(bias_quantizer):
+  def _create_simple_model(bias_quantizer):
+    x = x_in = tf.keras.Input((4, 4, 1), name="input")
+    x = QConv2D(
+        filters=4, kernel_size=2, strides=2,
+        kernel_quantizer=quantized_bits(4, 2, 1, alpha="auto_po2"),
+        bias_quantizer=quantized_bits(4, 2, 1),
+        use_bias=False,
+        name="conv")(x)
+    x = QDepthwiseConv2D(
+        kernel_size=2, strides=1,
+        depthwise_quantizer=quantized_bits(6, 3, 1, alpha="auto_po2"),
+        use_bias=False,
+        bias_quantizer=quantized_bits(4, 2, 1),
+        name="dw_conv")(x)
+    x = QBatchNormalization(
+        mean_quantizer=quantized_bits(4, 2, 1),
+        gamma_quantizer=None,
+        variance_quantizer=None,
+        beta_quantizer=quantized_bits(4, 0, 1),
+        inverse_quantizer=quantized_bits(8, 0, 1, alpha="auto_po2"),
+        name="bn")(x)
+
+    x = QActivation(activation=quantized_bits(4, 0), name="relu")(x)
+    x = tf.keras.layers.Flatten(name="flatten")(x)
+    x = QDense(units=2,
+               kernel_quantizer=quantized_bits(4, 2, 1, alpha="auto_po2"),
+               bias_quantizer=bias_quantizer, name="dense")(x)
+    model = tf.keras.Model(inputs=x_in, outputs=x)
+
+    return model
+
+  def _set_weights(model):
+    conv_w = [np.array(
+        [0.23, 2.76, 0.1, 0.33, 0.53, 0.16, 0.3, 1.7, -0.9,
+         1.43, 2.31, -0.2, -1.7, 0.39, -2.03, 1.79]).reshape(2, 2, 1, 4)]
+
+    dw_conv_w = [np.array([
+        0.03, 3.6, 2.1, 1.2, 0.13, 1.3, -0.3, 1.2, -0.7,
+        -10.3, 11.7, -0.92, -10.7, 0.59, -1.93, 2.8]).reshape((2, 2, 4, 1))]
+
+    bn_w = [np.array([0.28, 1.33, 2.27, 3.36]),
+            np.array([0.31, 0.1, 0.03, 4.26]),
+            np.array([0.89, -0.21, 1.97, 2.06]),
+            np.array([1.2, 0.9, 13.2, 10.9])]
+
+    dense_w = np.array(
+        [0.13, 0.66, 0.21, 0.23, 1.07, -0.79, 1.83, 1.81])
+    dense_w = [dense_w.reshape((4, 2)), np.array([-1.3, 0.7])]
+
+    model.get_layer("conv").set_weights(conv_w)
+    model.get_layer("dw_conv").set_weights(dw_conv_w)
+    model.get_layer("bn").set_weights(bn_w)
+    model.get_layer("dense").set_weights(dense_w)
+
+  orig_model = _create_simple_model(bias_quantizer)
+  _set_weights(orig_model)
+
+  return orig_model
+
+
+def test_clone_model_and_freeze_auto_po2_scale():
+  """Test clone_model_and_freeze_auto_po2_scale to work properly."""
+
+  orig_model = create_test_model_for_scale_freezing(quantized_bits(4, 2, 1))
+  _, new_hw = clone_model_and_freeze_auto_po2_scale(
+      orig_model, quantize_model_weights=True)
+
+  # Check if the new model's weights and scales are derived properly.
+  np.testing.assert_array_equal(
+      new_hw["conv"]["weights"][0],
+      np.array(
+          [[[[0.5, 6, 0, 0.5]], [[1, 0, 0.5, 3.5]]],
+           [[[-2., 3., 3.5, -0.5]], [[-3.5, 1., -3.5, 3.5]]]]))
+
+  np.testing.assert_array_equal(
+      new_hw["conv"]["scales"][0], np.array([[[[0.25, 0.5, 0.25, 0.25]]]]))
+
+  np.testing.assert_array_equal(
+      new_hw["dw_conv"]["weights"][0].numpy().flatten(),
+      np.array([
+          0., 14, 8, 4, 0, 6, -2, 4, -2, -42, 46, -4, -42, 2, -8, 12]))
+
+  np.testing.assert_array_equal(
+      new_hw["dense"]["scales"][0], np.array([[0.25, 0.25]]))
+
+
+def test_clone_model_and_freeze_auto_po2_scale_serialization():
+  # Test if the cloned model can be saved and loaded properly.
+  orig_model = create_test_model_for_scale_freezing(quantized_bits(4, 2, 1))
+  new_model, _ = clone_model_and_freeze_auto_po2_scale(
+      orig_model, quantize_model_weights=True)
+
+  fd, fname = tempfile.mkstemp(".hdf5")
+  new_model.save(fname)
+  _ = load_qmodel(fname)
+  os.close(fd)
+  os.remove(fname)
+
+
+def test_clone_model_and_freeze_auto_po2_scale_error():
+  orig_model = create_test_model_for_scale_freezing(
+      quantized_bits(4, 2, 1, alpha="auto_po2"))
+  # Test if the function raises an error when there are more than one
+  # auto_po2 quantizers in a layer.
+  with pytest.raises(ValueError):
+    clone_model_and_freeze_auto_po2_scale(
+        orig_model, quantize_model_weights=False)
 
 
 if __name__ == "__main__":
