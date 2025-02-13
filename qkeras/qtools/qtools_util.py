@@ -248,6 +248,16 @@ def get_weights(layer, model_weights_already_quantized=True):
   return out
 
 
+def get_scale_from_quantized_bits_with_auto_po2(quantizer):
+  """Get scale from quantized_bits with alpha=auto_po2."""
+  if hasattr(quantizer.scale, "numpy"):
+    return quantizer.scale.numpy()
+  elif isinstance(quantizer.scale, np.ndarray):
+    return quantizer.scale
+  else:
+    return None
+
+
 def adjust_multiplier_for_auto_po2(multiplier, qkeras_weight_quantizer):
   """Adjust multiplier when weight quantizer is auto_po2 type.
 
@@ -267,11 +277,9 @@ def adjust_multiplier_for_auto_po2(multiplier, qkeras_weight_quantizer):
       qkeras_weight_quantizer.alpha == "auto_po2"):
     bits = output_quantizer.bits
     int_bits = output_quantizer.int_bits
-    scale = qkeras_weight_quantizer.scale
-    if hasattr(scale, "numpy"):
-      # if scale doesn't have numpy() function, it means the quantizer has
-      # never being called. Therfore we skip the following steps
-      scale = scale.numpy()
+    scale = get_scale_from_quantized_bits_with_auto_po2(
+        qkeras_weight_quantizer)
+    if scale is not None:
       if isinstance(scale, np.ndarray):
         scale = np.squeeze(scale)
         max_shift = int(np.log2(np.max(scale)))
@@ -293,6 +301,8 @@ def adjust_multiplier_for_auto_po2(multiplier, qkeras_weight_quantizer):
       output_quantizer.bits = total_bits
       output_quantizer.int_bits = max_int_bits
     else:
+      # If scale is None, it means the quantizer has
+      # never being called. Therfore we skip the bitwidth adjustment steps
       print("[WARNING] The weight quantizer is never called even though it has "
             "alpha=auto_po2. In this case we do not adjust the multiplier and "
             "accumulator bit width since we don't know the exact values of "
