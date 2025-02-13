@@ -16,8 +16,10 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
 import warnings
 
+import numpy as np
 import tensorflow as tf
 from tensorflow.keras import constraints
 from tensorflow.keras import initializers
@@ -26,19 +28,19 @@ from tensorflow.keras.layers import Activation
 from tensorflow.keras.layers import Conv1D
 from tensorflow.keras.layers import Conv2D
 from tensorflow.keras.layers import Conv2DTranspose
-from tensorflow.keras.layers import SeparableConv1D
-from tensorflow.keras.layers import SeparableConv2D
 from tensorflow.keras.layers import DepthwiseConv2D
 from tensorflow.keras.layers import Dropout
 from tensorflow.keras.layers import InputSpec
-from tensorflow.python.eager import context
-from tensorflow.python.ops import array_ops
-# from tensorflow.python.ops import array_ops
+from tensorflow.keras.layers import SeparableConv1D
+from tensorflow.keras.layers import SeparableConv2D
+
 from .qlayers import get_auto_range_constraint_initializer
 from .qlayers import QActivation
 from .quantizers import get_quantized_initializer
 from .quantizers import get_quantizer
-
+from tensorflow.python.eager import context
+from tensorflow.python.ops import array_ops
+# from tensorflow.python.ops import array_ops
 from tensorflow_model_optimization.python.core.sparsity.keras.prunable_layer import PrunableLayer
 
 
@@ -260,32 +262,36 @@ class QConv2D(Conv2D, PrunableLayer):
   #   can go over [-1,+1], these values are used to set the clipping
   #   value of kernels and biases, respectively, instead of using the
   #   constraints specified by the user.
+  # mask: Optional mask for kernel weights.
   #
   # we refer the reader to the documentation of Conv2D in Keras for the
   # other parameters.
   #
 
-  def __init__(self,
-               filters,
-               kernel_size,
-               strides=(1, 1),
-               padding="valid",
-               data_format="channels_last",
-               dilation_rate=(1, 1),
-               activation=None,
-               use_bias=True,
-               kernel_initializer="he_normal",
-               bias_initializer="zeros",
-               kernel_regularizer=None,
-               bias_regularizer=None,
-               activity_regularizer=None,
-               kernel_constraint=None,
-               bias_constraint=None,
-               kernel_range=None,
-               bias_range=None,
-               kernel_quantizer=None,
-               bias_quantizer=None,
-               **kwargs):
+  def __init__(
+      self,
+      filters,
+      kernel_size,
+      strides=(1, 1),
+      padding="valid",
+      data_format="channels_last",
+      dilation_rate=(1, 1),
+      activation=None,
+      use_bias=True,
+      kernel_initializer="he_normal",
+      bias_initializer="zeros",
+      kernel_regularizer=None,
+      bias_regularizer=None,
+      activity_regularizer=None,
+      kernel_constraint=None,
+      bias_constraint=None,
+      kernel_range=None,
+      bias_range=None,
+      kernel_quantizer=None,
+      bias_quantizer=None,
+      mask=None,
+      **kwargs,
+  ):
 
     if kernel_range is not None:
       warnings.warn("kernel_range is deprecated in QConv2D layer.")
@@ -324,6 +330,20 @@ class QConv2D(Conv2D, PrunableLayer):
     if activation is not None:
       activation = get_quantizer(activation)
 
+    if mask is not None:
+      shape = mask.shape
+      if len(shape) < 2:
+        raise ValueError(
+            "Expected shape to have rank at least 2 but provided shape has"
+            f" rank {len(shape)}"
+        )
+      h, w = shape[0], shape[1]
+      self._mask = np.reshape(
+          mask, (h, w, 1, 1)
+      )  # Extend the dimension to be 4D.
+    else:
+      self._mask = None
+
     super().__init__(
         filters=filters,
         kernel_size=kernel_size,
@@ -343,19 +363,44 @@ class QConv2D(Conv2D, PrunableLayer):
         **kwargs
     )
 
+  def convolution_op(self, inputs, kernel):
+    return tf.keras.backend.conv2d(
+        inputs,
+        kernel,
+        strides=self.strides,
+        padding=self.padding,
+        data_format=self.data_format,
+        dilation_rate=self.dilation_rate,
+    )
+
+  @tf.function(jit_compile=True)
+  def _jit_compiled_convolution_op(self, inputs, kernel):
+    return self.convolution_op(inputs, kernel)
+
   def call(self, inputs):
     if self.kernel_quantizer:
       quantized_kernel = self.kernel_quantizer_internal(self.kernel)
     else:
       quantized_kernel = self.kernel
 
-    outputs = tf.keras.backend.conv2d(
-        inputs,
-        quantized_kernel,
-        strides=self.strides,
-        padding=self.padding,
-        data_format=self.data_format,
-        dilation_rate=self.dilation_rate)
+    if self._mask is not None:
+      # Apply mask to kernel weights if one is provided.
+      quantized_kernel = quantized_kernel * self._mask
+
+    # Grouped convolutions are not fully supported on the CPU for compiled
+    # functions.
+    #
+    # This is a workaround taken from TF's core library. Remove when proper
+    # support is added.
+    # See definition of function "_jit_compiled_convolution_op" at
+    # cs/third_party/py/tf_keras/layers/convolutional/base_conv.py for more
+    # details.
+    if self.groups > 1:
+      outputs = self._jit_compiled_convolution_op(
+          inputs, tf.convert_to_tensor(quantized_kernel)
+      )
+    else:
+      outputs = self.convolution_op(inputs, quantized_kernel)
 
     if self.use_bias:
       if self.bias_quantizer:
@@ -364,7 +409,8 @@ class QConv2D(Conv2D, PrunableLayer):
         quantized_bias = self.bias
 
       outputs = tf.keras.backend.bias_add(
-          outputs, quantized_bias, data_format=self.data_format)
+          outputs, quantized_bias, data_format=self.data_format
+      )
 
     if self.activation is not None:
       return self.activation(outputs)
@@ -380,9 +426,18 @@ class QConv2D(Conv2D, PrunableLayer):
         ),
         "kernel_range": self.kernel_range,
         "bias_range": self.bias_range,
+        "mask": self._mask.tolist() if self._mask is not None else None,
     }
-    base_config = super(QConv2D, self).get_config()
+    base_config = super().get_config()
     return dict(list(base_config.items()) + list(config.items()))
+
+  @classmethod
+  def from_config(cls, config):
+    mask = config.get("mask")
+    if mask is not None:
+      mask = np.array(mask)
+    config["mask"] = mask
+    return cls(**config)
 
   def get_quantization_config(self):
     return {

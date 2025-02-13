@@ -308,5 +308,99 @@ def test_qconv2dtranspose():
       [2., 3., 4., 4., 3., 2.] ]).reshape((1,6,6,1)).astype(np.float16)
   assert_allclose(actual_output, expected_output, rtol=1e-4)
 
+
+def test_masked_qconv2d_creates_correct_parameters():
+  mask = mask = np.ones((5, 5), dtype=np.float32)
+  model = tf.keras.Sequential()
+  model.add(tf.keras.layers.Input(shape=(10, 10, 1)))
+  model.add(QConv2D(mask=mask, filters=1, kernel_size=(5, 5), use_bias=False))
+
+  # There should be no non-trainable params.
+  np.testing.assert_equal(len(model.non_trainable_weights), 0)
+
+  # Validate number of trainable params. This should be equal to one (5,5)
+  # kernel.
+  np.testing.assert_equal(len(model.trainable_weights), 1)
+  num_trainable_params = np.prod(model.trainable_weights[0].shape)
+  np.testing.assert_equal(num_trainable_params, 25)
+
+
+def test_qconv2d_masks_weights():
+  # Create an arbitrary mask.
+  mask = np.array(
+      [
+          [1.0, 0.0, 1.0, 0.0, 1.0],
+          [0.0, 0.0, 1.0, 0.0, 0.0],
+          [1.0, 0.0, 1.0, 0.0, 1.0],
+          [0.0, 0.0, 1.0, 0.0, 0.0],
+          [1.0, 0.0, 1.0, 0.0, 1.0],
+      ],
+      dtype=np.float32,
+  )
+  model = tf.keras.Sequential()
+  model.add(tf.keras.layers.Input(shape=(5, 5, 1)))
+  model.add(QConv2D(mask=mask, filters=1, kernel_size=(5, 5), use_bias=False))
+
+  # Set the weights to be all ones.
+  model.layers[0].set_weights([np.ones((5, 5, 1, 1), dtype=np.float32)])
+
+  # Run inference on a all ones input.
+  output = model.predict(np.ones((1, 5, 5, 1), dtype=np.float32))
+  # Output should just be summation of number of ones in the mask.
+  np.testing.assert_array_equal(
+      output, np.array([[[[11.0]]]], dtype=np.float32)
+  )
+
+
+def test_masked_qconv2d_load_restore_works():
+  model = tf.keras.Sequential()
+  model.add(tf.keras.layers.Input(shape=(10, 10, 1)))
+  model.add(
+      QConv2D(
+          mask=np.ones((5, 5), dtype=np.float32),
+          filters=1,
+          kernel_size=(5, 5),
+          use_bias=False,
+      )
+  )
+
+  with tempfile.TemporaryDirectory() as temp_dir:
+    model_path = os.path.join(temp_dir, 'model.keras')
+    # Can save the model.
+    model.save(model_path)
+
+    # Can load the model.
+    custom_objects = {
+        'QConv2D': QConv2D,
+    }
+    loaded_model = tf.keras.models.load_model(
+        model_path, custom_objects=custom_objects
+    )
+
+    np.testing.assert_array_equal(
+        model.layers[0].weights[0], loaded_model.layers[0].weights[0]
+    )
+
+
+def test_qconv2d_groups_works():
+  model = tf.keras.Sequential()
+  model.add(tf.keras.layers.Input(shape=(10, 10, 10)))
+  model.add(
+      QConv2D(
+          filters=6,
+          kernel_size=(1, 1),
+          use_bias=True,
+          groups=2,
+      )
+  )
+  # Validate number of trainable params.
+  np.testing.assert_equal(len(model.trainable_weights), 2)
+  num_trainable_params = np.prod(model.trainable_weights[0].shape) + np.prod(
+      model.trainable_weights[1].shape
+  )
+  expected_trainable_params = 36  # (5*3)*2 + 6
+  np.testing.assert_equal(num_trainable_params, expected_trainable_params)
+
+
 if __name__ == '__main__':
   pytest.main([__file__])
