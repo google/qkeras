@@ -69,7 +69,9 @@ def activation_compression(model, compile_config, activation_indexes, bits,
   """
   assert len(activation_indexes) > 0
   assert 0.0 < sample_size <= 1.0
-  km_models = [KMeans(2**bits)] * len(activation_indexes)
+  # n_init=10 maintains the same behavior as legacy versions of sklearn. This
+  # was changed to "auto" in sklearn 1.4.
+  km_models = [KMeans(2**bits, n_init=10)] * len(activation_indexes)
   cb_tables = [[]] * len(activation_indexes)
   models = []
   x = x_in = model.layers[0].output
@@ -139,7 +141,7 @@ def weight_compression(weights, bits, axis=0, quantizer=None):
   for i, w in tqdm(enumerate(np.split(weights, weights.shape[axis], axis))):
     original_shape = w.shape
     w = w.ravel()
-    km = KMeans(n)
+    km = KMeans(n, n_init=10)
     km.fit(w.reshape(-1, 1))
     if quantizer:
       km.cluster_centers_ = quantizer(km.cluster_centers_).numpy()
@@ -178,7 +180,7 @@ def two_tier_embedding_compression(embeddings, bits, quantizer=None):
   cluster_index_table = np.zeros(index_table.shape[0], dtype=np.uint8)
   codebook_table = np.zeros((n, n))
 
-  km1 = KMeans(n)
+  km1 = KMeans(n, n_init=10)
   km1.fit(embeddings)
   tier1 = km1.predict(embeddings)
 
@@ -188,7 +190,7 @@ def two_tier_embedding_compression(embeddings, bits, quantizer=None):
     mask = block_label == tier1
     indices = np.arange(embeddings.shape[0])[mask]
     block = embeddings[mask]
-    km2 = KMeans(n)
+    km2 = KMeans(n, n_init=10)
     km2.fit(block.flatten().reshape(-1, 1))
     if quantizer:
       km2.cluster_centers_ = quantizer(km2.cluster_centers_).numpy()
