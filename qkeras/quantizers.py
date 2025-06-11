@@ -2323,7 +2323,8 @@ class quantized_relu(base_quantizer.BaseQuantizer):  # pylint: disable=invalid-n
                qnoise_factor=1.0,
                var_name=None,
                use_ste=True,
-               use_variables=False):
+               use_variables=False,
+               enable_fast_inference=False):
     super().__init__()
     self.bits = bits
     self.integer = integer
@@ -2339,6 +2340,7 @@ class quantized_relu(base_quantizer.BaseQuantizer):  # pylint: disable=invalid-n
       assert np.mod(np.log2(negative_slope), 1) == 0
     self.var_name = var_name
     self.use_variables = use_variables
+    self.enable_fast_inference = enable_fast_inference
 
   def __str__(self):
     # Converts Tensors to printable strings by converting to a numpy array and
@@ -2357,7 +2359,18 @@ class quantized_relu(base_quantizer.BaseQuantizer):  # pylint: disable=invalid-n
       flags.append(str(int(self.use_stochastic_rounding)))
     return "quantized_relu(" + ",".join(flags) + ")"
 
+  @tf.function(jit_compile=True)
+  def fast_quantize(p, m_i, factor):
+    return m_i * tf.clip_by_value(tf.round(p) * factor, 0.0, 1.0 - factor)
+
   def __call__(self, x):
+    if self.enable_fast_inference:
+      # This is the fast inference version of the quantizer.
+      m_i = 1 << self.integer
+      p = x * (2 ** (self.bits - self.integer))
+      factor = 2 ** -self.bits
+      return self.fast_quantize(p, m_i, factor)
+
     if not self.built:
       self.build(var_name=self.var_name, use_variables=self.use_variables)
 
