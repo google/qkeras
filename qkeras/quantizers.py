@@ -2260,6 +2260,11 @@ class stochastic_binary(binary):  # pylint: disable=invalid-name
     return config
 
 
+@tf.function(jit_compile=True)
+def fast_relu_quantize(p, m_i, factor):
+  return m_i * tf.clip_by_value(tf.round(p) * factor, 0.0, 1.0 - factor)
+
+
 @quantizer_registry.register_quantizer
 class quantized_relu(base_quantizer.BaseQuantizer):  # pylint: disable=invalid-name
   """Computes a quantized relu to a number of bits.
@@ -2359,17 +2364,13 @@ class quantized_relu(base_quantizer.BaseQuantizer):  # pylint: disable=invalid-n
       flags.append(str(int(self.use_stochastic_rounding)))
     return "quantized_relu(" + ",".join(flags) + ")"
 
-  @tf.function(jit_compile=True)
-  def fast_quantize(p, m_i, factor):
-    return m_i * tf.clip_by_value(tf.round(p) * factor, 0.0, 1.0 - factor)
-
   def __call__(self, x):
     if self.enable_fast_inference:
       # This is the fast inference version of the quantizer.
       m_i = 1 << self.integer
       p = x * (2 ** (self.bits - self.integer))
       factor = 2 ** -self.bits
-      return self.fast_quantize(p, m_i, factor)
+      return fast_relu_quantize(p, m_i, factor)
 
     if not self.built:
       self.build(var_name=self.var_name, use_variables=self.use_variables)

@@ -813,5 +813,12 @@ def test_quantized_hswish(bits, integer, symmetric, relu_shift,
   assert_allclose(result, expected_values, rtol=1e-05)
 
 
+def test_quantized_relu_fast_inference():
+  q1 = quantized_relu(10, 2, enable_fast_inference=False)
+  q2 = quantized_relu(10, 2, enable_fast_inference=True)
+  x = np.array([-2.1, 0.73, 2.36, 4.98])
+  np.testing.assert_array_equal(q1(x).numpy(), q2(x).numpy())
+
+
 if __name__ == '__main__':
   pytest.main([__file__])
