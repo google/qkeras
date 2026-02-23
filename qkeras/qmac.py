@@ -25,7 +25,7 @@ from .qlayers import get_auto_range_constraint_initializer
 
 
 # QKeras needs to support more layers for matrix multiplication and shift
-# operations such as in Tranformer. Such layers should be all placed here.
+# operations such as in Transformer. Such layers should be all placed here.
 
 
 class QScaleShift(tf.keras.layers.Layer, PrunableLayer):
