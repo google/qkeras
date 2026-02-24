@@ -42,6 +42,7 @@ setuptools.setup(
         "numpy>=1.16.0",
         "scipy>=1.4.1",
         "pyparser",
+        "pyparsing",
         "setuptools>=41.0.0",
         "tensorflow-model-optimization>=0.2.1",
         "networkx>=2.1",
