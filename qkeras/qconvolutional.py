@@ -1131,10 +1131,11 @@ class QDepthwiseConv2D(DepthwiseConv2D, PrunableLayer):
 
   def get_config(self):
     config = super(QDepthwiseConv2D, self).get_config()
-    config.pop("filters", None)
-    config.pop("kernel_initializer", None)
-    config.pop("kernel_regularizer", None)
-    config.pop("kernel_constraint", None)
+    for x,y in (("filters", None),
+                ("kernel_initializer", None),
+                ("kernel_regularizer", None),
+                ("kernel_constraint", None)):
+      config.pop(x,y)
     config["depth_multiplier"] = self.depth_multiplier
     config["depthwise_initializer"] = initializers.serialize(
         self.depthwise_initializer# Google internal code, commented out by copybara
