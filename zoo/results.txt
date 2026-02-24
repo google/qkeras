@@ -1,0 +1,41 @@
+Results on 100 random samples:
+
+Alexnet:
+	Mean MSE for quickNet -> 0.0
+	Absolute errors for quickNet -> 0
+
+Binary DenseNet e28
+	Mean MSE for quickNet -> 0.0
+	Absolute errors for quickNet -> 0
+
+Binary DenseNet e37
+	Mean MSE for quickNet -> 0.0
+	Absolute errors for quickNet -> 0
+
+Binary DenseNet e37 dilated
+	Mean MSE for quickNet -> 0.0
+	Absolute errors for quickNet -> 0
+
+Binary DenseNet e45
+	Mean MSE for quickNet -> 0.0
+	Absolute errors for quickNet -> 0
+
+Binary ResNet e18:
+	Mean MSE for quickNet -> 0.0
+	Absolute errors for quickNet -> 0
+
+BiRealNet:
+	Mean MSE for biRealNet -> 8.4-05
+	Absolute errors for biRealNet -> 6
+
+Quicknet:
+	Mean MSE for quickNet -> 5.6e-18
+	Absolute errors for quickNet -> 0
+
+Quicknet Large:
+	Mean MSE for quickNet_large -> 6.9e-18
+	Absolute errors for quickNet_large -> 0
+
+Quicknet Small:
+	Mean MSE for quickNet_small -> 0.0
+	Absolute errors for quickNet_small -> 0
